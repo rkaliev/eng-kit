@@ -1,0 +1,160 @@
+# eng-kit: как это устроено
+
+eng-kit — это плагин для [Claude Code](https://code.claude.com), который делает из агента дисциплинированного инженера. Он подходит для любого стека и домена: web, Android, iOS, Windows, Linux; развлечения, POS, платежи. Работает и в новом проекте, и в существующем коде, который писался до агентной разработки.
+
+Здесь описано, как устроен плагин и почему он устроен именно так. Что такое плагины, как поставить eng-kit и попробовать его — в [GETTING-STARTED.ru.md](GETTING-STARTED.ru.md).
+
+---
+
+## 1. Идея в трёх предложениях
+
+1. **Процесс масштабируется по размеру задачи.** Мелкая правка проходит короткий путь, архитектурная — полный путь от спецификации до ревью. Если сомневаешься, выбирай более тяжёлый путь.
+2. **Модель сама не решает, что работа готова.** Это решают проверки проекта: Stop-хук возвращает агента к работе, если после правок не было зелёного прогона.
+3. **Необратимое и внешнее проходит через человека.** PreToolUse-хук (guard) блокирует опасные команды и спрашивает подтверждение на push, деплой, миграции и публикацию.
+
+---
+
+## 2. Архитектура
+
+```
+┌──────────────────────────── проект ─────────────────────────────┐
+│ CLAUDE.md (или @AGENTS.md)   .claude/verify.json   .claude/guard.json │
+│ .claude/settings.json (deny на секреты, пин плагина для команды)     │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ читают
+┌──────────────────── eng-kit (этот плагин) ──────────────────────┐
+│ hooks/hooks.json → hooks/hook.ts → lib/hooks.ts                 │
+│   SessionStart      bootstrap: правила using-skills в контекст  │
+│   PreToolUse        guard: deny / ask / без мнения              │
+│   PostToolUse(+Failure)  трекер: правка → «не проверено»        │
+│   Stop              verify-гейт: одно напоминание на промпт     │
+│   UserPromptSubmit  снова взводит гейт                          │
+│ skills/   26 скиллов: 21 методический + 5 точек входа           │
+│ agents/   reviewer (opus, read-only), implementer (sonnet)      │
+│ scripts/  verify.ts, init.ts, install-project.ts                │
+│ templates/ CLAUDE.md, task.md, verify.json, guard.json, …       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Рабочий цикл:**
+
+```
+идея ──/brainstorming──▶ классификация: Spike | Bounded | Architectural
+  Spike ─────────▶ проба → рекомендация (код одноразовый)
+  Bounded ───────▶ дизайн в чате → «да» → /implement (TDD) → verify → отчёт
+  Architectural ─▶ spec → «да» → /writing-plans → «да» → /implement (executing-plans)
+                    → reviewer-агент → /finish (merge / PR / keep / discard)
+баг ──/systematic-debugging──▶ корень → падающий тест → один фикс → verify
+чужой репо ──/onboarding-existing-codebase──▶ карта → доказанные команды → CLAUDE.md + .claude/verify.json
+```
+
+**Кто за что отвечает:**
+- **Скиллы** содержат всю методику.
+- **Точки входа** (`implement`, `finish`, `new-task`, `verify`, `kit-init`) — тонкие обёртки. Модель их сама не вызывает (`disable-model-invocation: true`).
+- **Агенты** дают свежий контекст для ревью и исполнения задачи плана.
+- **Хуки** механически обеспечивают то, что нельзя доверить одному тексту.
+
+---
+
+## 3. Хуки: механика, которую нельзя доверить тексту
+
+Все события обрабатывает один файл, `hooks/hook.ts`. Он читает JSON из stdin, а логика лежит в `lib/hooks.ts` в виде чистых функций, поэтому её легко тестировать.
+
+| Событие | Что делает | Почему так |
+|---|---|---|
+| `SessionStart` (`startup\|resume\|clear\|compact`) | Кладёт в контекст тело скилла `using-skills` и пути к скриптам кита («Kit root», «Kit verify script») | Без этого скиллы инертны: модель видит только их описания. Матчер `compact` возвращает правила после компакции. По путям из контекста скиллы находят скрипты в обоих режимах установки |
+| `PreToolUse` | Guard: `permissionDecision: "deny"` или `"ask"`. На остальные вызовы у него нет мнения | `ask` показывает родной диалог разрешений, в `-p` без UI такой вызов отклоняется. «Разрешить» guard не выдаёт никогда, поэтому собственные правила разрешений Claude Code продолжают действовать |
+| `PostToolUse` / `PostToolUseFailure` | Трекер: после Edit/Write/MultiEdit/NotebookEdit рабочая копия «не проверена». Точный прогон команды проверки без pipe отмечает её зелёной, ненулевой код выхода — красной | Хуки — отдельные процессы, поэтому состояние хранится в файле на `session_id` в `${CLAUDE_PLUGIN_DATA}` (в режиме папки — во временной директории) |
+| `Stop` | Если рабочая копия не проверена: `{"decision":"block","reason":…}`, один раз на промпт, и никогда при `stop_hook_active` | Модель сама не решает, что работа готова. Одно напоминание на промпт не даёт гейту зациклиться |
+| `UserPromptSubmit` | Снова взводит гейт для нового промпта | — |
+
+`scripts/verify.ts` прогоняет команды из `.claude/verify.json` (иначе из `## Commands` в CLAUDE.md или AGENTS.md) и выходит с кодом 0, только если всё зелёное. Трекер считает такой прогон полным доказательством.
+
+Если хук упал (например, старый Node), он выходит с кодом 1. Для Claude Code это неблокирующая ошибка: guard — защита в глубину, и сломанный хук не должен останавливать работу.
+
+## 4. Два режима установки — один источник
+
+- **Плагин** (рекомендуется): namespace `eng-kit:`, обновления по версиям через маркетплейс. Для команды достаточно пина в `.claude/settings.json` (`claude plugin install … --scope project`).
+- **Папка `.claude/`**: `scripts/install-project.ts` копирует скиллы в `.claude/skills/`, агентов в `.claude/agents/`, код хуков в `.claude/eng-kit/`. Хуки регистрируются в `.claude/settings.json` из того же `hooks/hooks.json`: `${CLAUDE_PLUGIN_ROOT}` заменяется на `$CLAUDE_PROJECT_DIR/.claude/eng-kit`. Манифест `.claude/eng-kit/manifest.json` помнит, какие файлы записал кит, поэтому повторный запуск обновляет их и не трогает файлы проекта.
+
+Код хуков один и тот же в обоих режимах. Корень кита — родительская папка `hooks/`, а bootstrap ищет скиллы и в `<root>/skills`, и в `<root>/../skills`.
+
+---
+
+## 5. Скиллы
+
+**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, writing-skills.
+
+**Домены:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code, payments-and-money, pos-systems, security-review, mobile-development (Android и iOS в `references/`), desktop-development (Windows и Linux в `references/`), web-frontend.
+
+**Точки входа (только вручную):** `/implement`, `/finish`, `/new-task`, `/verify`, `/kit-init`. В режиме плагина их имена начинаются с `/eng-kit:`.
+
+Точки входа — это тонкие обёртки. Остальные скиллы тоже вызываются как `/имя`, поэтому отдельные обёртки над ними не нужны. Имена `plan`, `review` и `debug` не используются, потому что их занимают встроенные команды Claude Code.
+
+## 6. Агенты
+
+| Агент | Модель | Инструменты | Зачем |
+|---|---|---|---|
+| `reviewer` | opus, effort high | Read, Grep, Glob, Bash. Правки запрещены через `disallowedTools` | Финальное ревью — главное решение по качеству, на нём стоит тратиться. Свежий контекст видит то, что скрывает контекст автора |
+| `implementer` | sonnet | все | Одна задача плана по TDD. Статус DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED. Отчёт проверяется, а не принимается на веру |
+
+Поля `hooks`, `mcpServers` и `permissionMode` для плагинных агентов Claude Code игнорирует, поэтому они не используются. Это проверяет линтер. Модель переопределяется через `CLAUDE_CODE_SUBAGENT_MODEL` или при вызове.
+
+---
+
+## 7. Guard: что делает
+
+| Блокирует (deny) | Спрашивает (ask; в `-p` — отказ) |
+|---|---|
+| `--no-verify`, `git commit -n` | `git push`, публикации и релизы |
+| `push --force` / `-f` / `+ref` / `--mirror` | деплой, `terraform apply`, `kubectl apply`, `helm upgrade` |
+| рекурсивный `rm` вне проекта и temp | миграции БД, `DROP` / `TRUNCATE` |
+| чтение `.env*` (кроме `.example` и подобных), ключей, keystore, credentials (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`, `curl … \| sh` |
+| запись в `.git/` и в `protectedPaths` | доступ shell к секретным файлам, запись секретного файла |
+
+`.claude/guard.json`: `block`, `confirm`, `allow` (regex) и `protectedPaths`. `allow` снимает только вопрос и никогда не снимает блок. Отдельная проверка trust не нужна: хуки и настройки проекта Claude Code применяет только после того, как пользователь доверился папке.
+
+Дополнительно `kit-init` добавляет в `.claude/settings.json` родные deny-правила `Read(**/.env)`, `Read(**/*.pem)` и т. п. Это защита в глубину: они работают, даже если хуки отключены.
+
+---
+
+## 8. Принципы, заложенные в плагин
+
+1. Три пути процесса вместо одного тяжёлого, чтобы мелкие задачи не тонули в бюрократии.
+2. Методика — в скиллах, механика — в хуках, точки входа — тонкие. Правила готовности живут в одном месте.
+3. Встроенное не дублируется. Для разведки есть `Explore`. Модели задаются через frontmatter (`model:` у агентов, `effort: high` у тяжёлых скиллов), своего конфига маршрутизации нет. Пин для команды — родной `--scope project`.
+4. Никаких узких вендорных скиллов. Проектная специфика — в CLAUDE.md проекта.
+5. Подтверждение на любой `git push`. Своим веткам его снимает узкое `allow` в `.claude/guard.json`, например `^git push origin feat/`.
+6. Скиллы на английском: так точнее срабатывание. Документация — на русском.
+
+---
+
+## 9. Как это проверено
+
+- **`npm test`**:
+  - guard (блок, вопрос, allow, конфиг, пути, temp);
+  - парсер команд и правило доказательства;
+  - обработчики хуков (SessionStart, PreToolUse для Bash, PowerShell, Read, Grep, Edit, NotebookEdit; трекер и Stop-гейт);
+  - `hook.ts` через stdin/stdout, включая падение;
+  - `verify.ts`;
+  - `kit-init`;
+  - `install-project` (установка, обновление, конфликты, хуки без дублей);
+  - линтер скиллов и агентов, согласованность манифестов.
+- **`npm run typecheck`** и **`claude plugin validate .`**.
+- **Живой прогон `claude -p`** на копии `examples/demo`:
+  - bootstrap;
+  - deny на `git commit --no-verify`;
+  - ask и отказ на `git push`;
+  - Stop-гейт после Edit без тестов вернул агента к `npm test`;
+  - режим папки: bootstrap и guard из `.claude/eng-kit`;
+  - установка через `--scope project` из локального маркетплейса.
+
+**Не проверено:** Windows (инструмент PowerShell и запуск хука через `cmd`), живой прогон агентов `reviewer` и `implementer`.
+
+---
+
+## 10. Как развивать
+
+- Новый скилл пишется по `writing-skills`: сначала сценарий без скилла (RED), потом минимальный скилл. Затем `npm test`, `claude plugin validate .` и строка в этом документе.
+- Правило, которое можно проверить механически, живёт в хуке, в `permissions` settings.json или в CI, а не в тексте скилла.
+- Доменные плагины под конкретную компанию (конкретный эквайер, ОФД) лучше делать отдельным плагином и подключать через `dependencies` в `plugin.json`.

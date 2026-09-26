@@ -1,0 +1,22 @@
+{
+  "name": "eng-kit",
+  "displayName": "Engineering Kit",
+  "version": "0.2.0",
+  "description": "Disciplined universal coding agent: process skills (design, plan, TDD, debugging, verification, review, git), domain skills (web, mobile, desktop, payments, POS, security, legacy), a guard hook and a verify gate.",
+  "author": {
+    "name": "eng-kit maintainers"
+  },
+  "homepage": "https://github.com/rkaliev/eng-kit",
+  "repository": "https://github.com/rkaliev/eng-kit",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "tdd",
+    "debugging",
+    "code-review",
+    "verification",
+    "payments",
+    "pos",
+    "legacy-code"
+  ]
+}
