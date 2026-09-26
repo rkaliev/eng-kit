@@ -34,7 +34,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 │   PostToolUse(+Failure)  трекер: правка → «не проверено»        │
 │   Stop              verify-гейт: одно напоминание на промпт     │
 │   UserPromptSubmit  снова взводит гейт                          │
-│ skills/   26 скиллов: 21 методический + 5 точек входа           │
+│ skills/   27 скиллов: 22 методических + 5 точек входа           │
 │ agents/   reviewer (opus, read-only), implementer (sonnet)      │
 │ scripts/  verify.ts, init.ts, install-project.ts                │
 │ templates/ CLAUDE.md, task.md, verify.json, guard.json, …       │
@@ -88,7 +88,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 ## 5. Скиллы
 
-**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, writing-skills.
+**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, writing-documentation, writing-skills.
 
 **Старт: новый или существующий код:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
