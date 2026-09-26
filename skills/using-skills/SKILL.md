@@ -31,6 +31,7 @@ When unsure, take the heavier path. If hidden complexity shows up mid-task, stop
 | Bug, failing test, unexpected behavior | systematic-debugging |
 | Unfamiliar or legacy repo, no CLAUDE.md | onboarding-existing-codebase |
 | New project, or a technology choice | choosing-a-stack |
+| Continuing a large project | its `docs/specs/*-roadmap.md`: next unchecked piece |
 | About to say done, fixed or passing | verification-before-completion |
 | Web, mobile or desktop code | the platform skill: web-frontend, mobile-development, desktop-development |
 | Money, payments, POS or fiscal, auth and other security-sensitive code | the domain skill: payments-and-money, pos-systems, security-review |
@@ -51,7 +52,7 @@ When unsure, take the heavier path. If hidden complexity shows up mid-task, stop
 - **Verification:** the kit verify script (its exact command is in the session context as "Kit verify script") runs the project's checks from `.claude/verify.json` or the Commands section of CLAUDE.md. Prefer it for completion evidence. A Stop hook sends you back once if files changed after the last green run.
 - **Delegation:** use the Agent tool where a skill asks for a subagent: `Explore` for read-only scouting, the kit's `reviewer` for reviews, its `implementer` for one plan task. Several independent agents go in one message. Give each one a self-contained prompt; it has none of your context.
 - **Task tracking:** use the task/todo tool for multi-step work; plans keep their `- [ ]` checkboxes and ledger.
-- **Guard:** a PreToolUse hook denies irreversible or secret-leaking calls and asks the user before outward-facing ones. Treat a denial as a rule, not an obstacle: don't reword the command to slip past it; ask the user.
+- **Guard:** a PreToolUse hook denies irreversible or secret-leaking calls and asks the user before outward-facing ones. A denial is a rule: never reword the command to slip past it; ask the user.
 
 ## Red flags
 
