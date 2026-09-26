@@ -96,6 +96,12 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 **Домены с высокой ценой ошибки:** payments-and-money, pos-systems, security-review.
 
+**Документация** держится на четырёх слоях:
+1. правило в `writing-documentation`: docs в том же изменении и о текущем состоянии;
+2. блок «Post-implementation» в каждом плане и шаг обновления docs в `/implement` и `executing-plans`, плюс строка Docs в итоговом отчёте;
+3. на ревью устаревшие docs — Important, а не Minor;
+4. механические проверки (ссылки, markdownlint, линтеры doc-комментариев, генерация API-справки) — `writing-documentation/references/checks.md` предлагает добавить их в verify и CI проекта.
+
 **Точки входа (только вручную):** `/implement`, `/finish`, `/new-task`, `/verify`, `/kit-init`. В режиме плагина их имена начинаются с `/eng-kit:`.
 
 Точки входа — это тонкие обёртки. Остальные скиллы тоже вызываются как `/имя`, поэтому отдельные обёртки над ними не нужны. Имена `plan`, `review` и `debug` не используются, потому что их занимают встроенные команды Claude Code.

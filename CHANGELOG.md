@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.7
+
+- Docs are kept current on every change, not only at review. Plans carry a `Post-implementation` block listing the docs a change makes stale; `implement` and `executing-plans` update them in the same branch; the final report has a **Docs** line; reviewers rate stale docs as Important. `writing-documentation/references/checks.md` lists mechanical checks to propose for the project's verification and CI.
+
 ## 0.2.6
 
 - Verify gate: a run of the verify script counts even when its output is piped (the script records its own result); background runs don't count when they start.
