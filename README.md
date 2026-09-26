@@ -15,7 +15,7 @@ It contains:
   - **guard** (PreToolUse) denies irreversible or secret-leaking tool calls and asks you before outward-facing ones.
   - **verify gate** (PostToolUse + Stop) won't let Claude finish with unverified edits.
 
-Docs in Russian: [what plugins are and how to install this one, step by step](docs/GETTING-STARTED.ru.md), and [how the kit works and why](docs/ARCHITECTURE.ru.md).
+Docs in Russian: [what plugins are and how to install this one, step by step](docs/GETTING-STARTED.ru.md), [a new project from scratch](docs/WALKTHROUGH.ru.md), and [how the kit works and why](docs/ARCHITECTURE.ru.md).
 
 **Requires:** Claude Code (latest) and Node.js ≥ 22.18. The hooks are `.ts` files that Node runs directly.
 
