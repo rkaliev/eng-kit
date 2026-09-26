@@ -133,7 +133,30 @@ claude
 
 ---
 
-## 3. Для команды
+## 3. Проверить, что всё установилось
+
+Добавить маркетплейс — ещё не значит поставить плагин: `marketplace add` только подключает каталог, скиллы появляются после `install`.
+
+**Из терминала:**
+```bash
+claude plugin list                 # eng-kit@eng-kit · Status: ✔ enabled · Version: 0.2.x
+claude plugin details eng-kit      # Skills (26), Agents (2), Hooks (6)
+```
+
+**Внутри Claude Code** (после перезапуска сессии или `/reload-plugins`):
+
+| Что проверить | Как | Что должно быть |
+|---|---|---|
+| Скиллы | набери `/eng-kit:` | в меню `implement`, `brainstorming`, `kit-init`, `verify`, … |
+| Хуки | `/hooks` | SessionStart, PreToolUse, PostToolUse, Stop, UserPromptSubmit → `…/eng-kit/…/hooks/hook.ts` |
+| Агенты | `/agents` | `eng-kit:reviewer`, `eng-kit:implementer` |
+| Правила загружены | «Ответь только строкой из контекста, которая начинается с 'Kit root'» | `Kit root: …/.claude/plugins/cache/eng-kit/eng-kit/0.2.x` |
+| Guard | «Выполни git push --force origin main» | отказ «Guard: Force-pushing rewrites shared history…»; обычный `git push` — окно подтверждения |
+| Verify-гейт | `/eng-kit:kit-init`, затем мелкая правка без тестов | в конце «Verify gate: files changed…», и агент прогонит тесты перед отчётом |
+
+Если скиллы видны, а guard и гейт не срабатывают, проверь `node --version` (нужен ≥ 22.18) и доверие к папке. Ошибки хуков показывает `claude --debug`.
+
+## 4. Для команды
 
 В корне проекта:
 
@@ -158,7 +181,7 @@ git add .claude/settings.json && git commit -m "chore: enable eng-kit"
 
 ---
 
-## 4. Альтернатива: папка `.claude/` в проекте
+## 5. Альтернатива: папка `.claude/` в проекте
 
 Этот вариант нужен, когда плагины использовать нельзя (закрытый контур, политика компании) или когда скиллы нужно править под конкретный проект. Всё лежит в репозитории, скиллы вызываются без префикса (`/implement`).
 
@@ -189,7 +212,7 @@ node eng-kit/scripts/install-project.ts <папка проекта> --yes    # �
 
 ---
 
-## 5. Попробовать на демо-проекте
+## 6. Попробовать на демо-проекте
 
 ```bash
 git clone https://github.com/rkaliev/eng-kit
@@ -216,14 +239,15 @@ claude
 
 ---
 
-## 6. Модели
+## 7. Модели
 
 - **Агенты:** `reviewer` работает на `opus`, `implementer` — на `sonnet`. Всех сабагентов на одну модель переводят `CLAUDE_CODE_SUBAGENT_MODEL` и `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` в `env` настроек.
 - **Скиллы:** у скиллов с тяжёлыми рассуждениями (brainstorming, writing-plans, systematic-debugging, security-review) стоит `effort: high`.
 - **Основная сессия:** `/model`, `--model` — всё встроенное.
 
-## 7. Частые вопросы
+## 8. Частые вопросы
 
+- **Добавил маркетплейс, а скиллов нет.** Плагин не установлен: `claude plugin install eng-kit@eng-kit`, затем перезапусти сессию или `/reload-plugins`. Проверка — раздел 3.
 - **Хуки не срабатывают.** Проверь `node --version` (нужен ≥ 22.18) и `/hooks`. Хукам проекта нужно доверие к папке. Отладка: `claude --debug`.
 - **Verify-гейт пишет, что команд нет.** Заполни `.claude/verify.json` или секцию `## Commands` в CLAUDE.md.
 - **Нужен push без вопроса.** Узкое правило в `.claude/guard.json`: `"allow": ["^git push origin (feat|fix)/"]`. Блоки (`--force`, `--no-verify`) это правило не снимает.
