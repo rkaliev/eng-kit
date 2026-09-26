@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveVerifyCommands } from "./commands.ts";
+import { DEFAULT_IGNORE, resolveVerifyCommands } from "./commands.ts";
 
 export interface InitItem {
 	/** Path relative to the project root. */
@@ -45,7 +45,7 @@ export function planInit(cwd: string, options: InitOptions = {}): InitItem[] {
 		items.push({
 			target: ".claude/verify.json",
 			status: "create",
-			content: json({ commands, timeoutSec: 600 }),
+			content: json({ commands, timeoutSec: 600, ignore: DEFAULT_IGNORE }),
 			why:
 				commands.length > 0
 					? `verification commands: ${commands.join(", ")}`

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { BOOTSTRAP_MARKER, handle, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
+import { readRun, writeRun } from "../lib/state.ts";
 
 const root = resolve(import.meta.dirname, "..");
 
@@ -14,9 +15,10 @@ function setup(files: Record<string, string> = { "CLAUDE.md": "## Commands\n- `n
 		mkdirSync(resolve(projectDir, name, ".."), { recursive: true });
 		writeFileSync(join(projectDir, name), content);
 	}
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) };
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
 	const call = (input: HookInput) => handle({ session_id: "s1", cwd: projectDir, ...input }, env);
-	return { env, call, projectDir };
+	const run = (ok: boolean, commands = ["npm test", "npm run typecheck"], finishedAt = Date.now()) => writeRun(projectDir, { ok, commands, finishedAt }, env.runsRoot);
+	return { env, call, projectDir, run };
 }
 
 const decision = (r: ReturnType<typeof handle>) => (r.output?.hookSpecificOutput as Record<string, unknown> | undefined)?.permissionDecision;
@@ -106,7 +108,7 @@ test("verify gate: failed edits and masked exit codes prove nothing", () => {
 	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
 	assert.equal(runsVerifyScript('node "/k/scripts/verify.ts"'), true);
 	assert.equal(runsVerifyScript("node C:\\k\\scripts\\verify.ts"), true);
-	assert.equal(runsVerifyScript("node /k/scripts/verify.ts | tee log"), false);
+	assert.equal(runsVerifyScript("node /k/scripts/verify.ts | tee log"), true, "a pipe is fine: the script records its own result");
 });
 
 test("verify gate without configured commands asks how it was verified", () => {
@@ -148,4 +150,70 @@ test("verify.ts runs the commands and exits with their result", () => {
 	assert.match(fail.stdout, /FAIL .*exit 3/);
 	assert.match(fail.stdout, /SKIP  echo never/);
 	assert.match(fail.stdout, /boom/);
+});
+
+test("verify gate: a piped verify run counts when the script recorded a passing run", () => {
+	const { call, run } = setup();
+	const edit = () => call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.go" } });
+	const verify = (command = 'node "/kit/scripts/verify.ts" 2>&1 | tail -30') => call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });
+	const stop = () => call({ hook_event_name: "Stop" }).output;
+
+	edit();
+	run(false);
+	verify();
+	assert.equal(stop()?.decision, "block", "a failed run stays unverified even though the pipe exited 0");
+
+	call({ hook_event_name: "UserPromptSubmit" });
+	run(true);
+	verify();
+	assert.equal(stop(), undefined, "a passing recorded run clears the gate");
+
+	edit();
+	run(true, ["npm test", "npm run typecheck"], Date.now() - 60_000);
+	verify();
+	assert.equal(stop()?.decision, "block", "a run older than the last edit proves nothing");
+
+	call({ hook_event_name: "UserPromptSubmit" });
+	run(true, ["npm test"]);
+	verify();
+	assert.equal(stop()?.decision, "block", "a run of a different command set proves nothing");
+});
+
+test("verify gate: background runs are not counted when they start", () => {
+	const { call } = setup();
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.go" } });
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test", run_in_background: true } });
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm run typecheck", run_in_background: true } });
+	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
+});
+
+test("verify gate: edits outside the project and doc edits don't arm it; the reason lists changed files", () => {
+	const { call, projectDir } = setup();
+	const write = (file_path: string) => call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path } });
+	write("/Users/someone/.claude/plans/plan.md");
+	write(join(tmpdir(), "scratch.ts"));
+	write(join(projectDir, "docs", "specs", "2026-01-01-x.md"));
+	write("README.md");
+	write("docs/diagram.svg");
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "nothing that the checks verify changed");
+
+	write(join(projectDir, "src", "cart.ts"));
+	write("src/pay.ts");
+	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /Changed since the last green run: src\/cart\.ts, src\/pay\.ts\./);
+});
+
+test("verify gate: ignore: [] in verify.json brings docs back under the gate", () => {
+	const { call } = setup({ ".claude/verify.json": JSON.stringify({ commands: ["npm test"], ignore: [] }) });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: "README.md" } });
+	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
+});
+
+test("verify.ts records its run for the gate", () => {
+	const { projectDir } = setup({ ".claude/verify.json": JSON.stringify({ commands: ["node -e \"process.exit(0)\""] }) });
+	const r = spawnSync(process.execPath, [join(root, "scripts", "verify.ts"), projectDir], { encoding: "utf8" });
+	assert.equal(r.status, 0);
+	
+	const rec = readRun(projectDir);
+	assert.ok(rec && rec.ok && rec.commands.length === 1 && Date.now() - rec.finishedAt < 60_000);
 });

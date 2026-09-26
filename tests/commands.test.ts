@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { commandMatches, parseAgentsCommands, resolveVerifyCommands } from "../lib/commands.ts";
+import { commandMatches, DEFAULT_IGNORE, isIgnored, parseAgentsCommands, resolveIgnore, resolveVerifyCommands } from "../lib/commands.ts";
 
 test("parses verification commands from an AGENTS.md Commands section", () => {
 	const md = `# App
@@ -57,4 +57,18 @@ test("a bash call proves a verification command only when it runs it exactly and
 	assert.equal(commandMatches("cd packages/app && npm run typecheck", "npm run typecheck"), false, "another directory proves nothing here");
 	assert.equal(commandMatches("npm test -- --grep x", "npm test"), false, "filtered runs do not prove the suite");
 	assert.equal(commandMatches("echo npm test", "npm test"), false);
+});
+
+test("ignore globs: defaults cover docs, verify.json can override them", () => {
+	for (const p of ["README.md", "docs/specs/x.md", "a/b/notes.txt", "docs/img/x.svg", "site/page.mdx"]) assert.equal(isIgnored(p, DEFAULT_IGNORE), true, p);
+	for (const p of ["src/a.ts", "docs.go", "cmd/docs/main.go"]) assert.equal(isIgnored(p, DEFAULT_IGNORE), false, p);
+	assert.equal(isIgnored("src/a.test.ts", ["src/*.ts"]), true);
+	assert.equal(isIgnored("src/x/a.ts", ["src/*.ts"]), false);
+	assert.equal(isIgnored("src\\gen\\api.ts", ["src/gen/**"]), true, "windows separators");
+
+	const dir = mkdtempSync(join(tmpdir(), "ignore-"));
+	assert.deepEqual(resolveIgnore(dir), DEFAULT_IGNORE);
+	mkdirSync(join(dir, ".claude"));
+	writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify({ commands: [], ignore: [] }));
+	assert.deepEqual(resolveIgnore(dir), []);
 });

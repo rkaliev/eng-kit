@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { DEFAULT_IGNORE } from "../lib/commands.ts";
 import { detectVerifyCommands, mergeAdditive, planInit, SECRET_DENY } from "../lib/init.ts";
 
 const root = resolve(import.meta.dirname, "..");
@@ -44,7 +45,7 @@ test("then from well-known build tools", () => {
 test("planInit creates what is missing and never plans to overwrite", () => {
 	const plan = byTarget(project({ "package.json": scripts({ test: "vitest run" }), ".claude/guard.json": "{}" }));
 	assert.equal(plan[".claude/guard.json"]!.status, "exists");
-	assert.deepEqual(JSON.parse(plan[".claude/verify.json"]!.content!), { commands: ["npm test"], timeoutSec: 600 });
+	assert.deepEqual(JSON.parse(plan[".claude/verify.json"]!.content!), { commands: ["npm test"], timeoutSec: 600, ignore: DEFAULT_IGNORE });
 	assert.deepEqual(JSON.parse(plan[".claude/settings.json"]!.content!), { permissions: { deny: SECRET_DENY } });
 	assert.equal(plan["CLAUDE.md"]!.status, "missing", "CLAUDE.md is left to onboarding");
 });

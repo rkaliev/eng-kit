@@ -9,11 +9,11 @@
  * - UserPromptSubmit: re-arms the gate for the new prompt.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
-import { commandMatches, resolveVerifyCommands } from "./commands.ts";
+import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { loadState, pruneStates, saveState } from "./state.ts";
+import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -32,6 +32,8 @@ export interface HookEnv {
 	/** Project root (`$CLAUDE_PROJECT_DIR`), falls back to the input's cwd. */
 	projectDir: string;
 	stateDir: string;
+	/** Where the verify script records its runs (tests override it). */
+	runsRoot?: string;
 }
 
 export interface HookResult {
@@ -145,23 +147,45 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const tool = input.tool_name ?? "";
 	const failed = input.hook_event_name === "PostToolUseFailure";
 	const sessionId = input.session_id ?? "";
+	const args = input.tool_input ?? {};
 
 	if (EDIT_TOOLS.has(tool)) {
 		if (failed) return {};
+		const path = String(args.file_path ?? args.notebook_path ?? "");
+		let label = "(unknown file)";
+		if (path) {
+			const rel = relative(env.projectDir, resolve(input.cwd || env.projectDir, path));
+			// Plans, memory and scratch files outside the project don't change what the checks verify.
+			if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return {};
+			if (isIgnored(rel, resolveIgnore(env.projectDir))) return {};
+			label = rel.replaceAll("\\", "/");
+		}
 		const state = loadState(env.stateDir, sessionId);
-		saveState(env.stateDir, sessionId, { ...state, unverified: true, green: [] });
+		const edited = [...state.edited.filter((e) => e !== label), label].slice(-MAX_LISTED);
+		saveState(env.stateDir, sessionId, { ...state, unverified: true, green: [], edited, editedAt: Date.now() });
 		return {};
 	}
 	if (!SHELL_TOOLS.has(tool)) return {};
+	// A background run reports success when it starts, not when the checks finish.
+	if (args.run_in_background === true) return {};
 
 	const state = loadState(env.stateDir, sessionId);
 	if (!state.unverified) return {};
-	const shell = String(input.tool_input?.command ?? "");
+	const shell = String(args.command ?? "");
 	const { commands } = resolveVerifyCommands(env.projectDir);
+	const clear = () => saveState(env.stateDir, sessionId, { ...state, unverified: false, green: [...commands], edited: [] });
 
 	if (runsVerifyScript(shell)) {
-		// The script exits non-zero unless every command passed.
-		if (!failed && commands.length > 0) saveState(env.stateDir, sessionId, { ...state, unverified: false, green: [...commands] });
+		if (commands.length === 0) return {};
+		const run = readRun(env.projectDir, env.runsRoot);
+		if (run) {
+			// The script records its own result, so a pipe that hides the exit code doesn't matter.
+			const fresh = run.finishedAt >= state.editedAt && Date.now() - run.finishedAt < RUN_MAX_AGE_MS;
+			if (run.ok && fresh && sameCommands(run.commands, commands)) clear();
+			return {};
+		}
+		// No record (it could not be written): trust only an unpiped exit code.
+		if (!failed && !tokenize(shell).includes("|")) clear();
 		return {};
 	}
 	const ran = commands.filter((c) => commandMatches(shell, c));
@@ -169,13 +193,20 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const green = new Set(state.green);
 	for (const c of ran) failed ? green.delete(c) : green.add(c);
 	const unverified = !commands.every((c) => green.has(c));
-	saveState(env.stateDir, sessionId, { ...state, unverified, green: [...green] });
+	saveState(env.stateDir, sessionId, { ...state, unverified, green: [...green], edited: unverified ? state.edited : [] });
 	return {};
 }
 
-/** A direct run of the kit's verify script whose exit code is not masked by a pipe. */
+const MAX_LISTED = 5;
+const RUN_MAX_AGE_MS = 15 * 60 * 1000;
+
+function sameCommands(a: string[], b: string[]): boolean {
+	return a.length === b.length && a.every((c, i) => c === b[i]);
+}
+
+/** A run of the kit's verify script (piped or not: the script records its own result). */
 export function runsVerifyScript(shell: string): boolean {
-	return /scripts[\\/]verify\.ts\b/.test(shell) && !tokenize(shell).includes("|");
+	return /scripts[\\/]verify\.ts\b/.test(shell);
 }
 
 function stop(input: HookInput, env: HookEnv): HookResult {
@@ -185,14 +216,15 @@ function stop(input: HookInput, env: HookEnv): HookResult {
 	saveState(env.stateDir, sessionId, { ...state, reminded: true });
 
 	const { commands } = resolveVerifyCommands(env.projectDir);
+	const changed = state.edited.length > 0 ? ` Changed since the last green run: ${state.edited.join(", ")}.` : "";
 	const how =
 		commands.length > 0
-			? `Run \`${verifyScriptCommand(env.root)}\` (or: ${commands.map((c) => `\`${c}\``).join(", ")}) and read the output.`
+			? `Run \`${verifyScriptCommand(env.root)}\` (its output is already short) or: ${commands.map((c) => `\`${c}\``).join(", ")}, and read the output.`
 			: "No verification commands are configured; state exactly how the change was verified, or that it was not.";
 	return {
 		output: {
 			decision: "block",
-			reason: `Verify gate: files changed since the last passing verification. ${how} Report only checks that actually ran in this session; if a check fails, fix the cause or say it is failing.`,
+			reason: `Verify gate: files changed since the last passing verification.${changed} ${how} Report only checks that actually ran in this session; if a check fails, fix the cause or say it is failing.`,
 		},
 	};
 }

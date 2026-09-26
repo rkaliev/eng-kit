@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6
+
+- Verify gate: a run of the verify script counts even when its output is piped (the script records its own result); background runs don't count when they start.
+- Verify gate: edits outside the project (plans, memory, scratch files) and documentation edits no longer make the workspace unverified. `verify.json` gets an `ignore` list of globs (default: `**/*.md`, `**/*.mdx`, `**/*.txt`, `docs/**`); `"ignore": []` restores the strict behavior.
+- The gate's message lists the files changed since the last green run.
+
 ## 0.2.5
 
 - Specs and plans carry a `Status:` line. Specs go `draft → approved (date) → implemented (date)`, or `superseded by <path>`; plans go `draft → approved → in progress → done`. `brainstorming`, `writing-plans` and `executing-plans` set it at their natural points. Only the user approves, and `writing-plans` refuses a draft spec.

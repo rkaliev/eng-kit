@@ -102,7 +102,8 @@ Small, bounded changes go straight to `/implement tasks/01-search-filter.md`.
 
 - **Commands** come from `.claude/verify.json` (`{"commands": [...], "timeoutSec": 600}`). Without it, they come from the `## Commands` section of CLAUDE.md or AGENTS.md (test, typecheck, lint and build lines; dev and watch commands are skipped).
 - **`/verify`**, or the verify script directly (`node <kit>/scripts/verify.ts`), runs them and prints PASS/FAIL with the failing output tail. The session context carries the exact path.
-- **What counts as unverified:** after any Edit/Write/MultiEdit/NotebookEdit, the workspace stays unverified until every command passes. The run can be the verify script or an exact, unpiped Bash run of each command.
+- **What counts as unverified:** an Edit/Write/MultiEdit/NotebookEdit of a file inside the project makes the workspace unverified until every command passes. Files matching `ignore` in `.claude/verify.json` don't count (default: `**/*.md`, `**/*.mdx`, `**/*.txt`, `docs/**`; set `"ignore": []` if your checks lint docs). Neither do files outside the project, such as plans or memory.
+- **What counts as a green run:** the verify script (it records its own result, so piping its output is fine), or an exact, unpiped Bash run of each command. A background run doesn't count when it starts.
 - **Stop:** if Claude stops while the workspace is unverified, the Stop hook sends it back once per user prompt, asking for evidence.
 
 ## Models
