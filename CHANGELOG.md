@@ -1,12 +1,17 @@
 # Changelog
 
+## 0.2.1
+
+- Clearer description of the scope (platform, domain, new or existing code) and of the skill groups: process, starting point, platforms, high-risk domains.
+- `using-skills` routes platform work and high-risk domain work to their skills separately.
+
 ## 0.2.0
 
 First public release.
 
 - Plugin `eng-kit` with a marketplace of the same name in `.claude-plugin/`.
 - 26 skills:
-  - 21 method skills: the process core (design, plan, TDD, debugging, verification, review, git) and the domains (web, payments, POS, security, mobile, desktop, legacy, stack choice);
+  - 21 method skills: process core (design, plan, TDD, debugging, verification, review, git), starting point (stack choice, onboarding, legacy code), platforms (web, mobile, desktop) and high-risk domains (payments, POS, security);
   - 5 entry points: `implement`, `finish`, `new-task`, `verify`, `kit-init`.
 - Agents: `reviewer` (opus, read-only) and `implementer` (sonnet).
 - Hooks (Node ≥ 22.18, `.ts`):

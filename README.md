@@ -1,12 +1,21 @@
 # eng-kit
 
-A [Claude Code](https://code.claude.com) plugin that turns Claude into a disciplined engineer for any stack and domain: web, Android, iOS, Windows, Linux; entertainment, POS and payments; greenfield and legacy code.
+A [Claude Code](https://code.claude.com) plugin that turns Claude into a disciplined engineer.
+
+It works on any project, and it adapts along three independent axes:
+- **where the code runs:** web, mobile (Android, iOS) or desktop (Windows, Linux);
+- **what it does:** anything from entertainment apps to point-of-sale systems and payments, with dedicated skills where mistakes are costly (money, fiscal rules, security);
+- **what state the code is in:** a brand-new project or an existing codebase, including one written long before AI agents.
+
+The process on top of them is the same everywhere: design → plan → TDD → verify → review → git.
 
 It contains:
 - **26 skills:**
-  - a process core: design → plan → TDD → debug → verify → review → git;
-  - domain skills: web frontend, payments, POS, security, mobile, desktop, legacy, stack choice;
-  - five entry points: `/implement`, `/finish`, `/new-task`, `/verify`, `/kit-init`.
+  - **process core:** design, plan, TDD, debugging, verification, review, git;
+  - **starting point:** choosing a stack for a new project, onboarding an existing one, changing legacy code safely;
+  - **platforms:** web frontend, mobile, desktop;
+  - **high-risk domains:** payments and money, POS and fiscal, security review;
+  - **entry points:** `/implement`, `/finish`, `/new-task`, `/verify`, `/kit-init`.
 - **2 agents:**
   - `reviewer` is read-only, runs on opus and does fresh-context reviews;
   - `implementer` runs on sonnet and executes one plan task at a time.

@@ -1,12 +1,14 @@
 {
   "name": "eng-kit",
   "description": "Engineering Kit for Claude Code",
-  "owner": { "name": "eng-kit maintainers" },
+  "owner": {
+    "name": "eng-kit maintainers"
+  },
   "plugins": [
     {
       "name": "eng-kit",
       "source": "./",
-      "description": "Process and domain skills, guard hook and verify gate for a disciplined coding agent"
+      "description": "Process, platform and domain skills with guard and verify hooks, for any project: web, mobile or desktop, new or existing code"
     }
   ]
 }

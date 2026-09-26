@@ -1,6 +1,11 @@
 # eng-kit: как это устроено
 
-eng-kit — это плагин для [Claude Code](https://code.claude.com), который делает из агента дисциплинированного инженера. Он подходит для любого стека и домена: web, Android, iOS, Windows, Linux; развлечения, POS, платежи. Работает и в новом проекте, и в существующем коде, который писался до агентной разработки.
+eng-kit — это плагин для [Claude Code](https://code.claude.com), который делает из агента дисциплинированного инженера. Плагин подходит для любого проекта и подстраивается под него по трём независимым осям:
+- **где работает код:** web, мобильные приложения (Android, iOS), десктоп (Windows, Linux);
+- **что он делает:** от развлекательных приложений до кассовых систем и платежей; там, где ошибка стоит дорого (деньги, фискализация, безопасность), есть отдельные скиллы;
+- **в каком состоянии код:** новый проект или существующий, в том числе написанный задолго до агентной разработки.
+
+Поверх этих осей работает один и тот же процесс: дизайн → план → TDD → проверка → ревью → git.
 
 Здесь описано, как устроен плагин и почему он устроен именно так. Что такое плагины, как поставить eng-kit и попробовать его — в [GETTING-STARTED.ru.md](GETTING-STARTED.ru.md).
 
@@ -85,7 +90,11 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 **Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, writing-skills.
 
-**Домены:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code, payments-and-money, pos-systems, security-review, mobile-development (Android и iOS в `references/`), desktop-development (Windows и Linux в `references/`), web-frontend.
+**Старт: новый или существующий код:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
+
+**Платформы:** web-frontend, mobile-development (Android и iOS в `references/`), desktop-development (Windows и Linux в `references/`).
+
+**Домены с высокой ценой ошибки:** payments-and-money, pos-systems, security-review.
 
 **Точки входа (только вручную):** `/implement`, `/finish`, `/new-task`, `/verify`, `/kit-init`. В режиме плагина их имена начинаются с `/eng-kit:`.
 

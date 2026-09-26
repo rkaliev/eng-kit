@@ -1,8 +1,8 @@
 {
   "name": "eng-kit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
-  "description": "Claude Code plugin: skills, subagents and guard/verify hooks for a disciplined universal coding agent.",
+  "description": "Claude Code plugin. Disciplined coding agent for any project (web, mobile or desktop; any domain; new or existing code): process, platform and domain skills plus guard and verify hooks.",
   "type": "module",
   "license": "MIT",
   "repository": {
