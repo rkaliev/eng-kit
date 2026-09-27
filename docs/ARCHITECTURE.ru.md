@@ -34,7 +34,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 │   PostToolUse(+Failure)  трекер: правка → «не проверено»        │
 │   Stop              verify-гейт: одно напоминание на промпт     │
 │   UserPromptSubmit  снова взводит гейт                          │
-│ skills/   31 скилл: 25 методических + 6 точек входа             │
+│ skills/   32 скилла: 26 методических + 6 точек входа            │
 │ agents/   reviewer (opus, read-only), implementer (sonnet)      │
 │ scripts/  verify.ts, init.ts, install-project.ts                │
 │ templates/ CLAUDE.md, task.md, verify.json, guard.json, …       │
@@ -101,7 +101,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 **Старт: новый или существующий код:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
-**Платформы:** web-frontend, mobile-development (Android и iOS в `references/`), desktop-development (Windows и Linux в `references/`).
+**Платформы:** web-frontend, backend-services, mobile-development (Android и iOS в `references/`), desktop-development (Windows и Linux в `references/`).
 
 **Домены с высокой ценой ошибки:** payments-and-money, pos-systems, security-review, observability, database-changes.
 
