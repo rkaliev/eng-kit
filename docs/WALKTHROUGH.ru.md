@@ -307,3 +307,5 @@ claude plugin install eng-kit@eng-kit --scope project
 | `/eng-kit:new-task <что сделать>` | Задача с критериями |
 | `/eng-kit:docs [тема \| changelog \| adr …]` | Документация проекта: README, главы docs, CHANGELOG, ADR |
 | `/eng-kit:finish` | merge / PR / keep / discard |
+| «следи за CI» после push | CI через `gh pr checks --watch`: до 2 попыток на упавшую проверку, дальше вопрос; сам агент не мержит |
+| «обнови зависимость X» | `updating-dependencies`: по одной, changelog прочитан, мажор — только с твоим «да» |

@@ -140,7 +140,7 @@ claude
 **Из терминала:**
 ```bash
 claude plugin list                 # eng-kit@eng-kit · Status: ✔ enabled · Version: 0.2.x
-claude plugin details eng-kit      # Skills (28), Agents (2), Hooks (6)
+claude plugin details eng-kit      # Skills (29), Agents (2), Hooks (6)
 ```
 
 **Внутри Claude Code** (после перезапуска сессии или `/reload-plugins`):
@@ -192,7 +192,7 @@ node eng-kit/scripts/install-project.ts <папка проекта> --yes    # �
 ```
 
 Что появится:
-- `.claude/skills/*` — 28 скиллов;
+- `.claude/skills/*` — 29 скиллов;
 - `.claude/agents/reviewer.md`, `implementer.md`;
 - `.claude/eng-kit/` — код хуков, скрипты, шаблоны, `manifest.json`;
 - `.claude/settings.json` — хуки и deny-правила на секреты;

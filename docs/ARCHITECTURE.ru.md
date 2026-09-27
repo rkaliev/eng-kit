@@ -34,7 +34,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 │   PostToolUse(+Failure)  трекер: правка → «не проверено»        │
 │   Stop              verify-гейт: одно напоминание на промпт     │
 │   UserPromptSubmit  снова взводит гейт                          │
-│ skills/   28 скиллов: 22 методических + 6 точек входа           │
+│ skills/   29 скиллов: 23 методических + 6 точек входа           │
 │ agents/   reviewer (opus, read-only), implementer (sonnet)      │
 │ scripts/  verify.ts, init.ts, install-project.ts                │
 │ templates/ CLAUDE.md, task.md, verify.json, guard.json, …       │
@@ -97,7 +97,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 ## 5. Скиллы
 
-**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, writing-documentation, writing-skills.
+**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, writing-documentation, updating-dependencies, writing-skills.
 
 **Старт: новый или существующий код:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
@@ -145,6 +145,27 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 `.claude/guard.json`: `block`, `confirm`, `allow` (regex) и `protectedPaths`. `allow` снимает только вопрос и никогда не снимает блок. Отдельная проверка trust не нужна: хуки и настройки проекта Claude Code применяет только после того, как пользователь доверился папке.
 
 Дополнительно `kit-init` добавляет в `.claude/settings.json` родные deny-правила `Read(**/.env)`, `Read(**/*.pem)` и т. п. Это защита в глубину: они работают, даже если хуки отключены.
+
+---
+
+## Ревью и после push
+
+**Ревью** (`requesting-code-review`, агент `reviewer`):
+- **фиксированная серьёзность** по таблице в чеклисте. Critical — секреты, инъекции и authZ, потеря денег или данных, ослабленные тесты, код-заглушка, подавленные ошибки типов или линтера без причины. Important — критерий без теста, устаревшие docs, неотмеченное ломающее изменение, функция длиннее ~100 строк или файл длиннее ~1000 строк;
+- **правила против уговоров:** «так везде в проекте» — это долг, а не разрешение; серьёзность не снижается под давлением аргументов; оцениваются изменённые строки и то, что они ломают;
+- **правка правил в самом diff:** если diff меняет правила (манифест агента, конфиг линтера, стандарты), он оценивается по правилам базовой ветки;
+- **повторный раунд:** проверяется только новое с прошлого ревью, каждая прежняя находка перепроверяется;
+- **без мусора:** никакой похвалы и выдуманных ссылок.
+
+**Ответ на ревью** (`receiving-code-review`): каждое замечание либо исправлено, либо на него дан ответ; ни одно не пропускается молча. Нельзя писать «решено», пока открыт блокер.
+
+**После push** (`git-workflow`):
+- CI отслеживается инструментом хостинга, а не самописным циклом;
+- на каждую упавшую проверку — не больше двух попыток с найденной причиной, дальше вопрос тебе;
+- агент никогда не мержит сам;
+- rebase своей ветки — только `--force-with-lease=<ветка>:<sha>`.
+
+**Процессы:** dev-серверы и watchers работают в фоне; агент останавливает только то, что запустил сам.
 
 ---
 

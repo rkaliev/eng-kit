@@ -10,8 +10,8 @@ It works on any project, and it adapts along three independent axes:
 The process on top of them is the same everywhere: design → plan → TDD → verify → review → git.
 
 It contains:
-- **28 skills:**
-  - **process core:** design, plan, TDD, debugging, verification, review, git, documentation;
+- **29 skills:**
+  - **process core:** design, plan, TDD, debugging, verification, review, git, documentation, dependency updates;
   - **starting point:** choosing a stack for a new project, onboarding an existing one, changing legacy code safely;
   - **platforms:** web frontend, mobile, desktop;
   - **high-risk domains:** payments and money, POS and fiscal, security review;
