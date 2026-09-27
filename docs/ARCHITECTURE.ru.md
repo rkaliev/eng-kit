@@ -34,7 +34,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 │   PostToolUse(+Failure)  трекер: правка → «не проверено»        │
 │   Stop              verify-гейт: одно напоминание на промпт     │
 │   UserPromptSubmit  снова взводит гейт                          │
-│ skills/   27 скиллов: 22 методических + 5 точек входа           │
+│ skills/   28 скиллов: 22 методических + 6 точек входа           │
 │ agents/   reviewer (opus, read-only), implementer (sonnet)      │
 │ scripts/  verify.ts, init.ts, install-project.ts                │
 │ templates/ CLAUDE.md, task.md, verify.json, guard.json, …       │
@@ -102,7 +102,13 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 3. на ревью устаревшие docs — Important, а не Minor;
 4. механические проверки (ссылки, markdownlint, линтеры doc-комментариев, генерация API-справки) — `writing-documentation/references/checks.md` предлагает добавить их в verify и CI проекта.
 
-**Точки входа (только вручную):** `/implement`, `/finish`, `/new-task`, `/verify`, `/kit-init`. В режиме плагина их имена начинаются с `/eng-kit:`.
+**Два вида документов.**
+- **Рабочие** — spec, план, журнал, roadmap, карта легаси. Создаются по ходу работы (`brainstorming`, `writing-plans`, `executing-plans`), записывают намерение и прогресс.
+- **Системные** — README, главы `docs/NN-topic.md` с индексом `docs/README.md`, ADR, CHANGELOG. Описывают, что есть сейчас. Создаёт их `/docs`, а поддерживают в актуальном виде блок Post-implementation и шаг docs при исполнении плана.
+
+Когда spec реализована, её долгоживущая часть переходит в главу про эту фичу, а сама spec получает ссылку на главу.
+
+**Точки входа (только вручную):** `/implement`, `/finish`, `/new-task`, `/verify`, `/kit-init`, `/docs`. В режиме плагина их имена начинаются с `/eng-kit:`.
 
 Точки входа — это тонкие обёртки. Остальные скиллы тоже вызываются как `/имя`, поэтому отдельные обёртки над ними не нужны. Имена `plan`, `review` и `debug` не используются, потому что их занимают встроенные команды Claude Code.
 

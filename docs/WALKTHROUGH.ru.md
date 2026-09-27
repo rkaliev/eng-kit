@@ -222,6 +222,37 @@ Brainstorming запишет `docs/specs/…-roadmap.md` и попросит о�
 - **План по черновику не пишется.** Если спека в `draft`, writing-plans попросит её сначала одобрить.
 - Статуса «на ревью» нет: `draft` и есть «ждёт твоего ревью». Кто и когда поменял статус, видно в истории git.
 
+## Документация проекта: что и какой командой создаётся
+
+| Что | Где | Кто создаёт |
+|---|---|---|
+| Спеки, roadmap | `docs/specs/` | `/eng-kit:brainstorming` |
+| Планы и журналы прогресса | `docs/plans/` | `/eng-kit:writing-plans`, `/eng-kit:implement` |
+| Карта легаси | `docs/legacy-map.md` | `/eng-kit:onboarding-existing-codebase` |
+| CLAUDE.md | корень | `/eng-kit:onboarding-existing-codebase` |
+| **README, главы `docs/NN-topic.md` и индекс `docs/README.md`** | корень, `docs/` | **`/eng-kit:docs`** — карта документации, после твоего «да» пишет всё по коду и реализованным спекам |
+| Одна глава | `docs/NN-topic.md` | `/eng-kit:docs poll-engine` |
+| CHANGELOG | `CHANGELOG.md` | `/eng-kit:docs changelog` (из git-истории) |
+| ADR | `docs/decisions/` | `/eng-kit:docs adr <решение>` |
+
+**Дальше документация поддерживается сама.** В каждом плане есть блок Post-implementation: какую главу обновить, а для новой фичи — какую создать. Исполнение плана делает это в той же ветке, в отчёте появляется строка Docs, а ревьюер считает устаревшую документацию Important.
+
+**Пример для проекта, где уже есть спеки, но нет README:**
+
+```
+/eng-kit:docs
+```
+
+Агент предложит, например:
+- README;
+- `docs/01-architecture.md`;
+- `docs/02-poll-engine.md`;
+- `docs/03-alfa-mqr-adapter.md`;
+- `docs/04-strangler-routing.md`;
+- CHANGELOG.
+
+После «да» он напишет эти документы и свяжет спеки с главами.
+
 ## Что остановит guard
 
 - `git push --force` и `git commit --no-verify` — отказ сразу.
@@ -252,4 +283,5 @@ claude plugin install eng-kit@eng-kit --scope project
 | `/eng-kit:requesting-code-review` | Ревью агентом `reviewer` |
 | `/eng-kit:verify` | Прогнать проверки |
 | `/eng-kit:new-task <что сделать>` | Задача с критериями |
+| `/eng-kit:docs [тема \| changelog \| adr …]` | Документация проекта: README, главы docs, CHANGELOG, ADR |
 | `/eng-kit:finish` | merge / PR / keep / discard |

@@ -10,12 +10,12 @@ It works on any project, and it adapts along three independent axes:
 The process on top of them is the same everywhere: design → plan → TDD → verify → review → git.
 
 It contains:
-- **27 skills:**
+- **28 skills:**
   - **process core:** design, plan, TDD, debugging, verification, review, git, documentation;
   - **starting point:** choosing a stack for a new project, onboarding an existing one, changing legacy code safely;
   - **platforms:** web frontend, mobile, desktop;
   - **high-risk domains:** payments and money, POS and fiscal, security review;
-  - **entry points:** `/implement`, `/finish`, `/new-task`, `/verify`, `/kit-init`.
+  - **entry points:** `/implement`, `/finish`, `/new-task`, `/verify`, `/kit-init`, `/docs`.
 - **2 agents:**
   - `reviewer` is read-only, runs on opus and does fresh-context reviews;
   - `implementer` runs on sonnet and executes one plan task at a time.
