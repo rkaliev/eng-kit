@@ -88,3 +88,21 @@ test("init.ts is a dry run unless --yes", () => {
 	assert.deepEqual(JSON.parse(readFileSync(join(dir, ".claude/verify.json"), "utf8")).commands, ["npm test"]);
 	assert.match(real.stdout, /onboarding-existing-codebase/);
 });
+
+test("kit-init reports whether CI runs every verification command", async () => {
+	const { ciCoverage } = await import("../lib/ci.ts");
+	const verify = JSON.stringify({ commands: ["npm test", "npm run typecheck"] });
+	const none = project({ ".claude/verify.json": verify });
+	const ciOf = (dir: string) => planInit(dir).find((i) => i.target === "CI")!;
+	assert.equal(ciOf(none).status, "missing");
+	assert.match(ciOf(none).why, /no CI configuration/);
+
+	const stale = project({ ".claude/verify.json": verify, ".github/workflows/ci.yml": "jobs:\n  t:\n    steps:\n      - run: npm   test\n" });
+	assert.equal(ciOf(stale).status, "missing");
+	assert.match(ciOf(stale).why, /doesn't run: npm run typecheck/);
+	assert.deepEqual(ciCoverage(stale, ["npm test"]).missing, [], "whitespace is normalized");
+
+	const ok = project({ ".claude/verify.json": verify, ".gitlab-ci.yml": "test:\n  script:\n    - npm run typecheck\n    - npm test\n" });
+	assert.equal(ciOf(ok).status, "exists");
+	assert.match(ciOf(ok).why, /\.gitlab-ci\.yml runs every verification command/);
+});

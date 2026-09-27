@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ciCoverage } from "./ci.ts";
 import { DEFAULT_IGNORE, resolveVerifyCommands } from "./commands.ts";
 
 export interface InitItem {
@@ -65,6 +66,7 @@ export function planInit(cwd: string, options: InitOptions = {}): InitItem[] {
 	);
 
 	items.push(planSettings(cwd, options));
+	items.push(planCi(cwd, "/eng-kit:ci-quality-gates"));
 
 	if (has("CLAUDE.md")) items.push({ target: "CLAUDE.md", status: "exists", why: "project instructions" });
 	else if (has("AGENTS.md"))
@@ -171,4 +173,14 @@ function safeList(dir: string): string[] {
 	} catch {
 		return [];
 	}
+}
+
+/** CI is the second line of defence: it must run at least the verification commands. Reported, never written here. */
+function planCi(cwd: string, hint: string): InitItem {
+	const configured = resolveVerifyCommands(cwd).commands;
+	const commands = configured.length > 0 ? configured : detectVerifyCommands(cwd);
+	const { files, missing } = ciCoverage(cwd, commands);
+	if (files.length === 0) return { target: "CI", status: "missing", why: `no CI configuration found; run ${hint} to set up checks that don't depend on an agent session` };
+	if (missing.length > 0) return { target: "CI", status: "missing", why: `${files.join(", ")} doesn't run: ${missing.join(", ")}; run ${hint}` };
+	return { target: "CI", status: "exists", why: `${files.join(", ")} runs every verification command` };
 }

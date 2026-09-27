@@ -34,7 +34,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 │   PostToolUse(+Failure)  трекер: правка → «не проверено»        │
 │   Stop              verify-гейт: одно напоминание на промпт     │
 │   UserPromptSubmit  снова взводит гейт                          │
-│ skills/   32 скилла: 26 методических + 6 точек входа            │
+│ skills/   33 скилла: 27 методических + 6 точек входа            │
 │ agents/   reviewer (opus, read-only), implementer (sonnet)      │
 │ scripts/  verify.ts, init.ts, install-project.ts                │
 │ templates/ CLAUDE.md, task.md, verify.json, guard.json, …       │
@@ -97,7 +97,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 ## 5. Скиллы
 
-**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, writing-documentation, updating-dependencies, writing-skills.
+**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, ci-quality-gates, writing-documentation, updating-dependencies, writing-skills.
 
 **Старт: новый или существующий код:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
@@ -168,6 +168,20 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 - rebase своей ветки — только `--force-with-lease=<ветка>:<sha>`.
 
 **Процессы:** dev-серверы и watchers работают в фоне; агент останавливает только то, что запустил сам.
+
+---
+
+## Два контура проверок: сессия и CI
+
+- **Сессия агента.** TDD, verify-гейт после каждой правки, approval gate, guard, ревью. Ловит проблему сразу, пока агент работает.
+- **CI проекта** (`ci-quality-gates`). Работает на каждом изменении, кто бы его ни сделал, и не зависит от хуков и модели:
+  - минимум всё из `verify.json`;
+  - один обязательный `gate`;
+  - по стеку и только с твоего «да»: гигиена тестов, e2e без ретраев с подсчётом прогнанных тестов, поиск секретов и аудит зависимостей, миграции и дрейф схемы, контракты, покрытие как пол по расписанию.
+- **Связка контуров:**
+  - `kit-init` механически сверяет, что CI запускает каждую команду проверки;
+  - ревью считает Important отсутствие команды в CI и ослабленную проверку.
+- **BDD** — опциональный приёмочный слой (`test-driven-development/references/bdd.md`). Каждый видимый пользователю критерий spec — один сценарий с тегом критерия. Получается цепочка «критерий → сценарий → CI».
 
 ---
 
