@@ -34,7 +34,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 │   PostToolUse(+Failure)  трекер: правка → «не проверено»        │
 │   Stop              verify-гейт: одно напоминание на промпт     │
 │   UserPromptSubmit  снова взводит гейт                          │
-│ skills/   29 скиллов: 23 методических + 6 точек входа           │
+│ skills/   31 скилл: 25 методических + 6 точек входа             │
 │ agents/   reviewer (opus, read-only), implementer (sonnet)      │
 │ scripts/  verify.ts, init.ts, install-project.ts                │
 │ templates/ CLAUDE.md, task.md, verify.json, guard.json, …       │
@@ -103,7 +103,9 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 **Платформы:** web-frontend, mobile-development (Android и iOS в `references/`), desktop-development (Windows и Linux в `references/`).
 
-**Домены с высокой ценой ошибки:** payments-and-money, pos-systems, security-review.
+**Домены с высокой ценой ошибки:** payments-and-money, pos-systems, security-review, observability, database-changes.
+
+**Стоимость контекста.** В каждую сессию попадают только описания скиллов. Тело скилла загружается, когда задача ему соответствует, а `references/` — только когда нужны детали. Поэтому два новых скилла добавляют около 60 токенов, а не свои 1,3 тыс. слов.
 
 **Документация** держится на четырёх слоях:
 1. правило в `writing-documentation`: docs в том же изменении и о текущем состоянии;
