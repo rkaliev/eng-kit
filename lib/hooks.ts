@@ -5,12 +5,13 @@
  * - SessionStart: loads the using-skills rules into the session (bootstrap).
  * - PreToolUse: guard, which denies irreversible or secret-leaking calls and asks before outward-facing ones.
  * - PostToolUse / PostToolUseFailure: the verify tracker (edits make the workspace unverified; green runs clear it).
- * - Stop: the verify gate, at most one reminder per user prompt.
+ * - Stop: the verify gate and the approval gate (approved specs/plans must be committed), at most one reminder each per user prompt.
  * - UserPromptSubmit: re-arms the gate for the new prompt.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
+import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
@@ -210,32 +211,42 @@ export function runsVerifyScript(shell: string): boolean {
 }
 
 function stop(input: HookInput, env: HookEnv): HookResult {
+	if (input.stop_hook_active) return {};
 	const sessionId = input.session_id ?? "";
 	const state = loadState(env.stateDir, sessionId);
-	if (!state.unverified || state.reminded || input.stop_hook_active) return {};
-	saveState(env.stateDir, sessionId, { ...state, reminded: true });
+	const reasons: string[] = [];
+	const next = { ...state };
 
-	const { commands } = resolveVerifyCommands(env.projectDir);
-	const changed = state.edited.length > 0 ? ` Changed since the last green run: ${state.edited.join(", ")}.` : "";
-	const how =
-		commands.length > 0
-			? `Run \`${verifyScriptCommand(env.root)}\` (its output is already short) or: ${commands.map((c) => `\`${c}\``).join(", ")}, and read the output.`
-			: "No verification commands are configured; state exactly how the change was verified, or that it was not.";
-	return {
-		output: {
-			decision: "block",
-			reason: `Verify gate: files changed since the last passing verification.${changed} ${how} Report only checks that actually ran in this session; if a check fails, fix the cause or say it is failing.`,
-		},
-	};
+	if (state.unverified && !state.reminded) {
+		next.reminded = true;
+		const { commands } = resolveVerifyCommands(env.projectDir);
+		const changed = state.edited.length > 0 ? ` Changed since the last green run: ${state.edited.join(", ")}.` : "";
+		const how =
+			commands.length > 0
+				? `Run \`${verifyScriptCommand(env.root)}\` (its output is already short) or: ${commands.map((c) => `\`${c}\``).join(", ")}, and read the output.`
+				: "No verification commands are configured; state exactly how the change was verified, or that it was not.";
+		reasons.push(
+			`Verify gate: files changed since the last passing verification.${changed} ${how} Report only checks that actually ran in this session; if a check fails, fix the cause or say it is failing.`,
+		);
+	}
+	if (!state.approvalReminded) {
+		const files = uncommittedApproved(env.projectDir);
+		if (files.length > 0) {
+			next.approvalReminded = true;
+			reasons.push(approvalReminder(files));
+		}
+	}
+	if (reasons.length === 0) return {};
+	saveState(env.stateDir, sessionId, next);
+	return { output: { decision: "block", reason: reasons.join("\n\n") } };
 }
 
 function userPromptSubmit(input: HookInput, env: HookEnv): HookResult {
 	const sessionId = input.session_id ?? "";
 	const state = loadState(env.stateDir, sessionId);
-	if (state.reminded) saveState(env.stateDir, sessionId, { ...state, reminded: false });
+	if (state.reminded || state.approvalReminded) saveState(env.stateDir, sessionId, { ...state, reminded: false, approvalReminded: false });
 	return {};
 }
-
 function strings(value: unknown): string[] {
 	return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }

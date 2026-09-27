@@ -217,3 +217,58 @@ test("verify.ts records its run for the gate", () => {
 	const rec = readRun(projectDir);
 	assert.ok(rec && rec.ok && rec.commands.length === 1 && Date.now() - rec.finishedAt < 60_000);
 });
+
+function gitRepo(files: Record<string, string>): string {
+	const dir = mkdtempSync(join(tmpdir(), "approval-"));
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+	git("init", "-q");
+	git("config", "user.email", "t@example.com");
+	git("config", "user.name", "t");
+	writeFileSync(join(dir, "README.md"), "x\n");
+	git("add", "-A");
+	git("commit", "-qm", "init");
+	for (const [name, content] of Object.entries(files)) {
+		mkdirSync(resolve(dir, name, ".."), { recursive: true });
+		writeFileSync(join(dir, name), content);
+	}
+	return dir;
+}
+
+test("approval gate: an approved spec or plan must be committed before stopping", () => {
+	const projectDir = gitRepo({
+		"docs/specs/2026-01-01-a.md": "# A\n\nStatus: approved (2026-01-01)\n",
+		"docs/specs/2026-01-01-b.md": "# B\n\nStatus: draft\n",
+		"docs/plans/2026-01-01-a.md": "# Plan\n\n**Status:** in progress\n",
+	});
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
+	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
+
+	const first = call({ hook_event_name: "Stop" }).output;
+	assert.equal(first?.decision, "block");
+	assert.match(String(first?.reason), /Approval gate: .*docs\/specs\/2026-01-01-a\.md/);
+	assert.doesNotMatch(String(first?.reason), /2026-01-01-b\.md|docs\/plans/, "drafts and plans in progress don't count");
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "one reminder per prompt");
+	assert.equal(call({ hook_event_name: "Stop", stop_hook_active: true }).output, undefined);
+
+	spawnSync("git", ["add", "docs/specs/2026-01-01-a.md"], { cwd: projectDir });
+	spawnSync("git", ["commit", "-qm", "docs: approve a"], { cwd: projectDir });
+	call({ hook_event_name: "UserPromptSubmit" });
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "committed: nothing to remind");
+
+	writeFileSync(join(projectDir, "docs/specs/2026-01-01-a.md"), "# A\n\nStatus: implemented (2026-01-02)\n");
+	call({ hook_event_name: "UserPromptSubmit" });
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /Approval gate/, "a later status change must be committed too");
+});
+
+test("approval gate and verify gate combine into one reminder; no git repo means no approval gate", () => {
+	const projectDir = gitRepo({ "docs/plans/p.md": "# P\n\n**Status:** approved\n", "CLAUDE.md": "## Commands\n- `npm test`\n" });
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
+	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /Verify gate/);
+	assert.match(reason, /Approval gate: .*docs\/plans\/p\.md/);
+
+	const { call: plain } = setup({ "docs/specs/x.md": "Status: approved\n" });
+	assert.equal(plain({ hook_event_name: "Stop" }).output, undefined);
+});

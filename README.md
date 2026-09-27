@@ -23,6 +23,7 @@ It contains:
   - **bootstrap** (SessionStart) loads the skill rules into every session and brings them back after compaction.
   - **guard** (PreToolUse) denies irreversible or secret-leaking tool calls and asks you before outward-facing ones.
   - **verify gate** (PostToolUse + Stop) won't let Claude finish with unverified edits.
+  - **approval gate** (Stop) won't let Claude finish while an approved spec or plan is uncommitted.
 
 Docs in Russian: [what plugins are and how to install this one, step by step](docs/GETTING-STARTED.ru.md), [a new project from scratch](docs/WALKTHROUGH.ru.md), and [how the kit works and why](docs/ARCHITECTURE.ru.md).
 
