@@ -23,6 +23,8 @@ Precedence: the user's direct instructions, then project files (CLAUDE.md, AGENT
 
 When unsure, take the heavier path. If hidden complexity shows up mid-task, stop, say so, and move up a path. Never move down mid-task.
 
+**Risk sets the floor:** CI or release pipelines, permissions, auth, secrets, money, schema and deploy config are never Bounded, however small. Extra care doesn't replace the heavier path.
+
 ## Where to start
 
 | Situation | Skill |
@@ -48,11 +50,11 @@ When unsure, take the heavier path. If hidden complexity shows up mid-task, stop
 
 ## Tools in Claude Code
 
-- Load a skill with the Skill tool. The user can also type `/<name>` (`/eng-kit:<name>` when the kit is a plugin).
-- **Verification:** the kit verify script (its exact command is in the session context as "Kit verify script") runs the project's checks from `.claude/verify.json` or the Commands section of CLAUDE.md. Prefer it for completion evidence. A Stop hook sends you back once if files changed after the last green run.
-- **Delegation:** use the Agent tool where a skill asks for a subagent: `Explore` for read-only scouting, the kit's `reviewer` for reviews, its `implementer` for one plan task. Several independent agents go in one message. Give each one a self-contained prompt; it has none of your context.
-- **Task tracking:** use the task/todo tool for multi-step work; plans keep their `- [ ]` checkboxes and ledger.
-- **Guard:** a PreToolUse hook denies irreversible or secret-leaking calls and asks the user before outward-facing ones. A denial is a rule: never reword the command to slip past it; ask the user.
+- The user can type `/<name>` (`/eng-kit:<name>` as a plugin).
+- **Verification:** the kit verify script ("Kit verify script" in the session context) runs `.claude/verify.json` or CLAUDE.md's Commands; prefer it as completion evidence. A Stop hook returns you once if files changed after the last green run.
+- **Delegation:** for a subagent use the Agent tool: `Explore` to scout, `reviewer` to review, `implementer` for one plan task. Send independent agents in one message, each with a self-contained prompt.
+- **Tasks:** use a todo for multi-step work; plans keep their `- [ ]` checkboxes and ledger.
+- **Guard:** a hook denies irreversible or secret-leaking calls and asks before outward-facing ones. Never reword a denied command to get past it; ask.
 
 ## Red flags
 
@@ -63,3 +65,4 @@ When unsure, take the heavier path. If hidden complexity shows up mid-task, stop
 | "I remember that skill" | Skills change. Read the current file. |
 | "Should work now" | Run it and read the output. |
 | "Quick fix, then investigate" | The first fix sets the pattern. Find the root cause first. |
+| "They answered, so the design is approved" | An answer covers only that question. Approval is a yes to the design you showed. |

@@ -45,6 +45,8 @@ test("PreToolUse: deny for blocks, ask for confirmations, no opinion otherwise",
 	assert.equal(decision(pre("Read", { file_path: join(projectDir, ".env.example") })), undefined);
 	assert.equal(decision(pre("Edit", { file_path: join(projectDir, ".git", "config") })), "deny");
 	assert.equal(decision(pre("NotebookEdit", { notebook_path: join(projectDir, ".env") })), "ask");
+	assert.equal(decision(pre("Edit", { file_path: join(projectDir, ".github", "workflows", "release.yml") })), "ask");
+	assert.equal(decision(pre("Read", { file_path: join(projectDir, ".github", "workflows", "release.yml") })), undefined);
 	assert.deepEqual(pre("Bash", { command: "npm test" }), { warning: undefined });
 	assert.deepEqual(pre("WebFetch", { url: "https://example.com" }), {});
 

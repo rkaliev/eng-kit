@@ -15,7 +15,7 @@ This document describes how the plugin works and why it works that way. What plu
 
 ## 1. The idea in three sentences
 
-1. **The process scales with the size of the task.** A small change takes the short path, an architectural one takes the full path from spec to review. When in doubt, choose the heavier path.
+1. **The process scales with the size of the task.** A small change takes the short path, an architectural one takes the full path from spec to review. When in doubt, choose the heavier path. Risk sets the floor: CI and release pipelines, permissions, auth, secrets, money, schema and deploy config never take the short path, however small the change.
 2. **The model doesn't decide by itself that the work is done.** The project's checks decide: the Stop hook sends the agent back to work if there was no green run after the edits.
 3. **Anything irreversible or outward-facing goes through a human.** The PreToolUse hook (guard) blocks dangerous commands and asks for confirmation on push, deploy, migrations and publishing.
 
@@ -145,6 +145,7 @@ Claude Code ignores the `hooks`, `mcpServers` and `permissionMode` fields for pl
 | recursive `rm` outside the project and temp | DB migrations, `DROP` / `TRUNCATE` |
 | reading `.env*` (except `.example` and similar), keys, keystores, credentials (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`, `curl … \| sh` |
 | writing into `.git/` and `protectedPaths` | shell access to secret files, writing a secret file |
+| | editing CI and release pipelines (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile` and similar) |
 
 `.claude/guard.json`: `block`, `confirm`, `allow` (regex) and `protectedPaths`. `allow` only removes a question and never removes a block. A separate trust check isn't needed: Claude Code applies project hooks and settings only after the user trusts the folder.
 
