@@ -1,6 +1,6 @@
 {
   "name": "eng-kit",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "description": "Claude Code plugin. Disciplined coding agent for any project (web, mobile or desktop; any domain; new or existing code): process, platform and domain skills plus guard and verify hooks.",
   "type": "module",

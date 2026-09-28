@@ -1,5 +1,7 @@
 # Быстрый старт: eng-kit для Claude Code
 
+English version: [GETTING-STARTED.md](GETTING-STARTED.md)
+
 Репозиторий: [github.com/rkaliev/eng-kit](https://github.com/rkaliev/eng-kit).
 
 ## 0. Что нужно

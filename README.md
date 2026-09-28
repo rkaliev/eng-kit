@@ -25,7 +25,7 @@ It contains:
   - **verify gate** (PostToolUse + Stop) won't let Claude finish with unverified edits.
   - **approval gate** (Stop) won't let Claude finish while an approved spec or plan is uncommitted.
 
-Docs in Russian: [what plugins are and how to install this one, step by step](docs/GETTING-STARTED.ru.md), [a new project from scratch](docs/WALKTHROUGH.ru.md), and [how the kit works and why](docs/ARCHITECTURE.ru.md).
+Docs: [what plugins are and how to install this one, step by step](docs/GETTING-STARTED.md), [a new project from scratch](docs/WALKTHROUGH.md), and [how the kit works and why](docs/ARCHITECTURE.md). In Russian: [GETTING-STARTED.ru.md](docs/GETTING-STARTED.ru.md), [WALKTHROUGH.ru.md](docs/WALKTHROUGH.ru.md), [ARCHITECTURE.ru.md](docs/ARCHITECTURE.ru.md).
 
 **Requires:** Claude Code (latest) and Node.js ≥ 22.18. The hooks are `.ts` files that Node runs directly.
 
@@ -121,7 +121,7 @@ npm run typecheck
 claude plugin validate .
 ```
 
-Edit skills with the `writing-skills` skill, and keep `docs/ARCHITECTURE.ru.md` in sync.
+Edit skills with the `writing-skills` skill, and keep `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.ru.md` in sync.
 
 ## License
 
