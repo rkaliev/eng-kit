@@ -223,7 +223,7 @@ test("verify.ts records its run for the gate", () => {
 function gitRepo(files: Record<string, string>): string {
 	const dir = mkdtempSync(join(tmpdir(), "approval-"));
 	const git = (...args: string[]) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
-	git("init", "-q");
+	git("init", "-q", "-b", "main");
 	git("config", "user.email", "t@example.com");
 	git("config", "user.name", "t");
 	writeFileSync(join(dir, "README.md"), "x\n");
@@ -257,9 +257,52 @@ test("approval gate: an approved spec or plan must be committed before stopping"
 	call({ hook_event_name: "UserPromptSubmit" });
 	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "committed: nothing to remind");
 
+	writeFileSync(join(projectDir, "docs/specs/2026-01-01-a.md"), "# A\n\nStatus: approved (2026-01-01)\n\nEdited after approval.\n");
+	call({ hook_event_name: "UserPromptSubmit" });
+	const edited = String(call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(edited, /Approval gate/, "an edit after approval must be committed too");
+	assert.match(edited, /create a work branch/, "the repo is on its base branch");
+
 	writeFileSync(join(projectDir, "docs/specs/2026-01-01-a.md"), "# A\n\nStatus: implemented (2026-01-02)\n");
 	call({ hook_event_name: "UserPromptSubmit" });
-	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /Approval gate/, "a later status change must be committed too");
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "implemented working docs are deleted, not committed");
+});
+
+test("working docs: guard blocks a PR while they exist; Stop reminds once to delete a finished plan", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" });
+	git("switch", "-qc", "feat/a");
+	mkdirSync(join(projectDir, "docs/plans"), { recursive: true });
+	writeFileSync(join(projectDir, "docs/plans/p.md"), "# Plan\n\n**Status:** in progress\n\n- [x] one\n- [ ] two\n");
+	git("add", "-A");
+	git("commit", "-qm", "docs: plan");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
+	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
+	const bash = (command: string) => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } });
+
+	const pr = bash("gh pr create --fill");
+	assert.equal(decision(pr), "deny");
+	assert.match((pr.output!.hookSpecificOutput as Record<string, string>).permissionDecisionReason!, /^Guard: Working documents would reach .*docs\/plans\/p\.md/);
+	assert.equal(decision(bash("git push -u origin feat/a")), "ask", "the work branch may be pushed after confirmation");
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "a plan with open tasks is not finished");
+
+	writeFileSync(join(projectDir, "docs/plans/p.md"), "# Plan\n\n**Status:** in progress\n\n- [x] one\n- [x] two\n");
+	const first = call({ hook_event_name: "Stop" }).output;
+	assert.equal(first?.decision, "block");
+	assert.match(String(first?.reason), /Working-docs gate: .*docs\/plans\/p\.md/);
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "one reminder per prompt");
+	call({ hook_event_name: "UserPromptSubmit" });
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /Working-docs gate/);
+
+	const off = gitRepo({ ".claude/guard.json": JSON.stringify({ workDocs: [] }) });
+	spawnSync("git", ["switch", "-qc", "feat/b"], { cwd: off });
+	mkdirSync(join(off, "docs/plans"), { recursive: true });
+	writeFileSync(join(off, "docs/plans/p.md"), "- [x] done\n");
+	spawnSync("git", ["add", "-A"], { cwd: off });
+	spawnSync("git", ["commit", "-qm", "x"], { cwd: off });
+	const offEnv: HookEnv = { ...env, projectDir: off, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) };
+	assert.equal(decision(handle({ session_id: "s", cwd: off, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } }, offEnv)), undefined, "workDocs: [] opts out");
+	assert.equal(handle({ session_id: "s", cwd: off, hook_event_name: "Stop" }, offEnv).output, undefined);
 });
 
 test("approval gate and verify gate combine into one reminder; no git repo means no approval gate", () => {

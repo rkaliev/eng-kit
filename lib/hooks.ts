@@ -3,9 +3,11 @@
  * `hooks/hook.ts` wires them to stdin/stdout; tests call them directly.
  *
  * - SessionStart: loads the using-skills rules into the session (bootstrap).
- * - PreToolUse: guard, which denies irreversible or secret-leaking calls and asks before outward-facing ones.
+ * - PreToolUse: guard, which denies irreversible or secret-leaking calls and working documents reaching the base
+ *   branch, and asks before outward-facing ones.
  * - PostToolUse / PostToolUseFailure: the verify tracker (edits make the workspace unverified; green runs clear it).
- * - Stop: the verify gate and the approval gate (approved specs/plans must be committed), at most one reminder each per user prompt.
+ * - Stop: the verify gate, the approval gate (approved specs/plans must be committed) and the working-docs gate
+ *   (implemented plans and roadmaps must be deleted), at most one reminder each per user prompt.
  * - UserPromptSubmit: re-arms the gate for the new prompt.
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -15,6 +17,7 @@ import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
+import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -99,7 +102,9 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	let decision: GuardDecision;
 
 	if (SHELL_TOOLS.has(tool)) {
-		decision = checkCommand(String(args.command ?? ""), env.projectDir, config);
+		const command = String(args.command ?? "");
+		decision = checkCommand(command, env.projectDir, config);
+		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, config.workDocs ?? WORK_DOC_DIRS) ?? decision;
 	} else if (tool === "Read" || tool === "Grep") {
 		const path = String(args.file_path ?? args.path ?? "");
 		decision = path ? checkPath("read", resolve(cwd, path), env.projectDir, config) : { action: "allow" };
@@ -139,7 +144,13 @@ function loadGuardConfig(projectDir: string): { config: GuardConfig; warnings: s
 			}
 		});
 	return {
-		config: { block: regexes(raw.block), confirm: regexes(raw.confirm), allow: regexes(raw.allow), protectedPaths: strings(raw.protectedPaths) },
+		config: {
+			block: regexes(raw.block),
+			confirm: regexes(raw.confirm),
+			allow: regexes(raw.allow),
+			protectedPaths: strings(raw.protectedPaths),
+			workDocs: Array.isArray(raw.workDocs) ? strings(raw.workDocs) : undefined,
+		},
 		warnings,
 	};
 }
@@ -229,11 +240,19 @@ function stop(input: HookInput, env: HookEnv): HookResult {
 			`Verify gate: files changed since the last passing verification.${changed} ${how} Report only checks that actually ran in this session; if a check fails, fix the cause or say it is failing.`,
 		);
 	}
+	const dirs = loadGuardConfig(env.projectDir).config.workDocs ?? WORK_DOC_DIRS;
 	if (!state.approvalReminded) {
-		const files = uncommittedApproved(env.projectDir);
+		const files = uncommittedApproved(env.projectDir, dirs);
 		if (files.length > 0) {
 			next.approvalReminded = true;
-			reasons.push(approvalReminder(files));
+			reasons.push(approvalReminder(files, onBaseBranch(env.projectDir)));
+		}
+	}
+	if (!state.workDocsReminded) {
+		const files = finishedWorkDocs(env.projectDir, dirs);
+		if (files.length > 0) {
+			next.workDocsReminded = true;
+			reasons.push(workDocsReminder(files));
 		}
 	}
 	if (reasons.length === 0) return {};
@@ -244,7 +263,9 @@ function stop(input: HookInput, env: HookEnv): HookResult {
 function userPromptSubmit(input: HookInput, env: HookEnv): HookResult {
 	const sessionId = input.session_id ?? "";
 	const state = loadState(env.stateDir, sessionId);
-	if (state.reminded || state.approvalReminded) saveState(env.stateDir, sessionId, { ...state, reminded: false, approvalReminded: false });
+	if (state.reminded || state.approvalReminded || state.workDocsReminded) {
+		saveState(env.stateDir, sessionId, { ...state, reminded: false, approvalReminded: false, workDocsReminded: false });
+	}
 	return {};
 }
 function strings(value: unknown): string[] {
