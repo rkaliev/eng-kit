@@ -21,9 +21,9 @@ It contains:
   - `implementer` runs on sonnet and executes one plan task at a time.
 - **Hooks:**
   - **bootstrap** (SessionStart) loads the skill rules into every session and brings them back after compaction.
-  - **guard** (PreToolUse) denies irreversible or secret-leaking tool calls and asks you before outward-facing ones.
+  - **guard** (PreToolUse) denies irreversible or secret-leaking tool calls and PRs or merges that would carry working documents to the base branch, and asks you before outward-facing ones.
   - **verify gate** (PostToolUse + Stop) won't let Claude finish with unverified edits.
-  - **approval gate** (Stop) won't let Claude finish while an approved spec or plan is uncommitted.
+  - **approval gate** and **working-docs gate** (Stop) won't let Claude finish while an approved spec or plan is uncommitted, or while an implemented plan or roadmap is still in the tree.
 
 Docs: [what plugins are and how to install this one, step by step](docs/GETTING-STARTED.md), [a new project from scratch](docs/WALKTHROUGH.md), and [how the kit works and why](docs/ARCHITECTURE.md). In Russian: [GETTING-STARTED.ru.md](docs/GETTING-STARTED.ru.md), [WALKTHROUGH.ru.md](docs/WALKTHROUGH.ru.md), [ARCHITECTURE.ru.md](docs/ARCHITECTURE.ru.md).
 
@@ -78,7 +78,7 @@ A typical loop:
 ```
 /brainstorming add refunds to the checkout API     # design approved before code
 /writing-plans docs/specs/2026-09-26-refunds.md    # bite-sized TDD tasks
-/implement docs/plans/2026-09-26-refunds.md        # executes, verifies, records rulings
+/implement docs/plans/2026-09-26-refunds.md        # executes, verifies; moves what lasts to docs/, deletes spec and plan
 /requesting-code-review                            # reviewer agent: Confirmed vs Assumptions
 /finish                                            # verify → merge / PR / keep / discard
 ```
@@ -96,8 +96,9 @@ Small, bounded changes go straight to `/implement tasks/01-search-filter.md`.
 | recursive `rm` outside the project and temp dirs | DB migrations, `DROP` / `TRUNCATE` |
 | reading `.env*`, keys, keystores and credential files (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`, `curl … \| sh` |
 | writing into `.git/` and `protectedPaths` | shell access to secret files, writing a secret file |
+| `gh pr create/merge`, `glab mr create/merge`, merging into or pushing to the base branch while specs, plans or ledgers are tracked; committing them on the base branch | editing CI and release pipelines |
 
-`.claude/guard.json` has four keys: `block`, `confirm`, `allow` (regex sources) and `protectedPaths` (path prefixes). `allow` only relaxes a confirmation, never a denial. The guard never *grants* permission, so your own `permissions` rules still apply.
+`.claude/guard.json` has five keys: `block`, `confirm`, `allow` (regex sources), `protectedPaths` (path prefixes) and `workDocs` (the working-document folders, default `["docs/specs", "docs/plans"]`; `[]` turns that rule off). `allow` only relaxes a confirmation, never a denial. The guard never *grants* permission, so your own `permissions` rules still apply.
 
 ### verify gate
 
@@ -106,6 +107,14 @@ Small, bounded changes go straight to `/implement tasks/01-search-filter.md`.
 - **What counts as unverified:** an Edit/Write/MultiEdit/NotebookEdit of a file inside the project makes the workspace unverified until every command passes. Files matching `ignore` in `.claude/verify.json` don't count (default: `**/*.md`, `**/*.mdx`, `**/*.txt`, `docs/**`; set `"ignore": []` if your checks lint docs). Neither do files outside the project, such as plans or memory.
 - **What counts as a green run:** the verify script (it records its own result, so piping its output is fine), or an exact, unpiped Bash run of each command. A background run doesn't count when it starts.
 - **Stop:** if Claude stops while the workspace is unverified, the Stop hook sends it back once per user prompt, asking for evidence.
+
+### approval and working-docs gates
+
+Working documents (specs, plans and their ledgers) live only on the work branch. At Stop, once per user prompt:
+- a spec or plan marked `Status: approved` that isn't committed sends Claude back to commit it, on a work branch;
+- a plan whose checkboxes are all ticked, or a roadmap with no open piece, sends Claude back to move what lasts into `docs/` and delete it.
+
+A roadmap may stay on the base branch while it has open pieces. For people and other tools, the ci-quality-gates templates add a `working-docs` CI job that fails the same way.
 
 ## Models
 

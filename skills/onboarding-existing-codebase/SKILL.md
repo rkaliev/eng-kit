@@ -32,7 +32,7 @@ Create or update `CLAUDE.md` from `../../templates/CLAUDE.md` (in a project inst
 - the boundaries (don't touch, ask first);
 - the Definition of Done.
 
-Keep it under about 150 lines. Link to docs instead of copying them. In a monorepo, a short nested `CLAUDE.md` per package adds to the root one when work touches that package. Path-specific rules can also go into `.claude/rules/*.md`.
+Keep it under about 150 lines: it loads in every session. Link to docs instead of copying them, and fill its Docs section: the index, a task map, which source wins. In a monorepo, a short nested `CLAUDE.md` per package loads when work reads files there. Rules for one area go into `.claude/rules/*.md` with `paths:` frontmatter, so they load only for matching files.
 
 Create `.claude/verify.json` with the fast, reliable checks (the kit-init skill does this and the rest of the `.claude/` setup):
 

@@ -37,7 +37,7 @@ You don't have to type a command. Claude sees that the task fits the `brainstorm
 2. **Questions one per message,** for example "Where will it run?", "Do we need a DB, or is memory enough for now?".
 3. **Domain questions come in by themselves.** The task is about money, so `payments-and-money` loads with questions about currency, rounding and idempotency. They are asked right away because changing them later is expensive.
 4. **Choosing the stack is always your decision.** There will be 2–3 options (for example, TypeScript + Fastify, Kotlin + Spring, Go) with pros and cons and a recommendation. You choose.
-5. **The spec** is written to `docs/specs/2026-09-26-cart-api.md`, and the agent asks you to approve it.
+5. **The spec** is written on a work branch to `docs/specs/2026-09-26-cart-api.md`, and the agent asks you to approve it. Specs and plans are working documents: they live only on the work branch and never reach `main`.
 
 **Until you say "yes", no code is written.** This is a hard rule of the skill.
 
@@ -73,7 +73,7 @@ The result is `docs/plans/2026-09-26-cart-api.md`: small tasks, each with the ex
 ```
 
 - **A separate branch:** the agent doesn't work on `main` without your consent.
-- **Ledger:** the progress log `docs/plans/…progress.md`. If the context runs out or you close the session, the next session continues from the same place.
+- **Ledger:** the progress log `docs/plans/…progress.md`, on the same branch. If the context runs out or you close the session, the next session continues from the same place.
 - **Test first in every task:** first a test that fails, then the code, then a green run.
 - **If the agent wants to finish too early,** the hook sends it back: "Verify gate: files changed…". The agent runs the checks and only then reports.
 
@@ -85,13 +85,20 @@ The final report has the changed files, the commands with real results, each cri
 /eng-kit:requesting-code-review
 ```
 
-The `reviewer` agent (opus, read-only) looks at the diff with fresh eyes. You get "Confirmed" issues with `file:line` and evidence, "Assumptions" and a verdict. The agent fixes Critical and Important.
+The `reviewer` agent (opus, read-only) looks at the diff with fresh eyes and against the project's rules (CLAUDE.md, `.claude/rules/`, decision records). You get "Confirmed" issues with `file:line` and evidence, "Assumptions" and a verdict. The agent fixes Critical and Important.
+
+Then the agent closes the working documents:
+- behavior goes into the topic chapter, for example `docs/02-cart.md`;
+- decisions and lasting rulings go into `docs/decisions/` (for example, "money in integer minor units");
+- spec, plan and ledger are deleted in one commit, `docs: remove working docs for cart-api`. Git keeps them.
+
+If the agent forgets, the Stop hook reminds it ("Working-docs gate: …"), and the guard won't open a PR or merge into `main` while they exist.
 
 ```
 /eng-kit:finish
 ```
 
-The checks run once more, then the choice: merge locally, push and PR, keep the branch or delete it. **Nothing is pushed without your choice.** On `git push` the guard shows a confirmation dialog.
+The checks run once more, then the choice: merge locally, push and PR, keep the branch or delete it. **Nothing is pushed without your choice.** On `git push` the guard shows a confirmation dialog. The PR description links the spec and plan at the last commit that had them.
 
 ## Everyday work
 
@@ -176,7 +183,7 @@ cd shop-v2 && claude --add-dir ../legacy-shop
 ```
 /eng-kit:brainstorming rewrite legacy-shop based on docs/legacy-map.md. The project is big, split it into parts first
 ```
-Brainstorming writes `docs/specs/…-roadmap.md` and asks you to approve it. It contains:
+Brainstorming writes `docs/specs/…-roadmap.md` and asks you to approve it. The roadmap is the one working document that lives on the base branch, while it has open parts: it is the memory between parts and sessions. It contains:
 - parts with checkboxes;
 - order and dependencies;
 - contracts between parts;
@@ -199,7 +206,7 @@ For example:
 /clear
 /eng-kit:brainstorming part 2 "Catalog" from the roadmap. We port the behavior from legacy-shop
 ```
-From there everything runs by itself: the part's spec → plan → implementation with golden tests on legacy data → review → `finish`. The checkbox in the roadmap is ticked after `finish`. If you open a new session and say "let's continue the project", the agent reads the roadmap and takes the next unticked part.
+From there everything runs by itself: the part's spec → plan → implementation with golden tests on legacy data → review → working docs moved and deleted → `finish`. The part ticks its checkbox in the roadmap in its own branch; the last part deletes the roadmap. If you open a new session and say "let's continue the project", the agent reads the roadmap and takes the next unticked part.
 
 **Final phase: migration and cutover.** This is a separate part: `payments-and-money` and `security-review` come in, and the guard asks before migrations and deploys.
 
@@ -207,6 +214,7 @@ From there everything runs by itself: the part's spec → plan → implementatio
 
 **Rules:**
 - one part = one spec + one plan + one branch;
+- parts are split only at real seams: each one delivers value or a rollout step and is green on its own;
 - `/clear` between parts;
 - "subagent per task" for parts with many independent tasks;
 - don't start the next part until the current one has passed `finish`.
@@ -228,7 +236,7 @@ Every spec is written from the `templates/spec.md` template. Each section has an
 
 **Before asking questions** the agent builds a context map: files, patterns, types, test conventions, unfinished work, standards, stack. Then it writes the intent, up to five assumptions and the open questions. After that it asks its questions one at a time.
 
-**Size.** A spec longer than about 300 lines or with more than 10 criteria is several parts, and they should be split out into a roadmap. A roadmap part is one topic, one plan (up to 10 tasks) and one PR (up to about 1000 lines).
+**Size.** A spec longer than about 300 lines or with more than 10 criteria usually hides several concerns. If they split at a seam, they become parts of a roadmap. A coherent change isn't cut to fit a size: it gets a longer plan and ordered commits.
 
 **The plan** keeps `Base:`, the commit it was written from. Before execution the agent checks whether the plan's files have changed since then, and if they have, re-checks the affected tasks.
 
@@ -238,30 +246,38 @@ Every spec and every plan has `Status:` on its second line. From it, both a new 
 
 | Document | Statuses | Who changes it |
 |---|---|---|
-| Spec `docs/specs/…` | `draft` → `approved (date)` → `implemented (date)`, or `superseded by <path>` | brainstorming sets `draft`, and after your "yes" sets `approved` and commits. executing-plans sets `implemented` at the end |
-| Plan `docs/plans/…` | `draft` → `approved` → `in progress` → `done` | writing-plans and executing-plans |
+| Spec `docs/specs/…` | `draft` → `approved (date)` | brainstorming sets `draft`, and after your "yes" sets `approved` and commits on the work branch |
+| Plan `docs/plans/…` | `draft` → `approved` → `in progress` | writing-plans and executing-plans |
+
+There is no final status: when the work is finished, what lasts moves into `docs/`, and spec, plan and ledger are deleted. A spec replaced by a new one is deleted too.
 
 - **Only you approve.** The agent doesn't set `approved` on its own; it only records your "yes".
 - **No plan is written from a draft.** If the spec is in `draft`, writing-plans asks you to approve it first.
-- **Anything approved must be in git.** A hook checks this: if a spec or plan with status `approved`, `implemented`, `superseded` or `done` is uncommitted, the agent can't end its turn until it commits them (one reminder per prompt). The hook doesn't touch drafts and `in progress` plans.
+- **Anything approved must be in git.** A hook checks this: if a spec or plan with status `approved` is uncommitted, the agent can't end its turn until it commits them (one reminder per prompt). On `main` it first asks for a work branch. The hook doesn't touch drafts and `in progress` plans.
+- **Anything implemented must be deleted.** A plan with every checkbox ticked, or a roadmap with no open part, gets the same kind of reminder: move what lasts and delete it.
 - There is no "in review" status: `draft` already means "waiting for your review". Who changed the status and when is visible in the git history.
 
 ## Project documentation: what is created and by which command
 
 | What | Where | Who creates it |
 |---|---|---|
-| Specs, roadmap | `docs/specs/` | `/eng-kit:brainstorming` |
-| Plans and progress ledgers | `docs/plans/` | `/eng-kit:writing-plans`, `/eng-kit:implement` |
+| Specs | `docs/specs/`, only on the work branch | `/eng-kit:brainstorming` |
+| Roadmap | `docs/specs/…-roadmap.md`, on the base branch while it has open parts | `/eng-kit:brainstorming` |
+| Plans and progress ledgers | `docs/plans/`, only on the work branch | `/eng-kit:writing-plans`, `/eng-kit:implement` |
 | Legacy map | `docs/legacy-map.md` | `/eng-kit:onboarding-existing-codebase` |
 | CLAUDE.md | root | `/eng-kit:onboarding-existing-codebase` |
-| **README, `docs/NN-topic.md` chapters and the `docs/README.md` index** | root, `docs/` | **`/eng-kit:docs`**: a documentation map; after your "yes" it writes everything from the code and the implemented specs |
+| **README, `docs/NN-topic.md` chapters and the `docs/README.md` index** | root, `docs/` | **`/eng-kit:docs`**: a documentation map; after your "yes" it writes everything from the code and the decision records |
 | One chapter | `docs/NN-topic.md` | `/eng-kit:docs poll-engine` |
 | CHANGELOG | `CHANGELOG.md` | `/eng-kit:docs changelog` (from git history) |
-| ADR | `docs/decisions/` | `/eng-kit:docs adr <decision>` |
+| Decision records | `docs/decisions/NNNN-slug.md` | `/eng-kit:docs decision <topic>`, and plan execution when a decision is made |
 
 **From then on, documentation maintains itself.** Every plan has a Post-implementation block: which chapter to update and, for a new feature, which one to create. Plan execution does this in the same branch, a Docs line appears in the report, and the reviewer counts stale documentation as Important.
 
-**Example for a project that already has specs but no README:**
+**Decision records are kept current, not piled up.** One topic per file, with a stable number for citations ("see decision 0007"). When a decision changes, its record is rewritten in place; when it no longer applies, it is deleted. There is no status or date: git keeps the history, and the agent reads only the rules that hold now.
+
+**CLAUDE.md points the agent to the docs.** Its Docs section has the index, a "Task → Start with" table, and which source wins: code, tests and CI say what exists; decision records say which rules hold and why; topic docs describe. Rules for one area go into `.claude/rules/*.md` with `paths:` and load only for matching files.
+
+**Example for a project that has code but no README:**
 
 ```
 /eng-kit:docs
@@ -275,18 +291,19 @@ The agent proposes, for example:
 - `docs/04-strangler-routing.md`;
 - CHANGELOG.
 
-After "yes" it writes these documents and links the specs to the chapters.
+After "yes" it writes these documents and lists them in `docs/README.md`.
 
 ## What the guard stops
 
 - `git push --force` and `git commit --no-verify`: denied immediately.
 - `git push`, deploys, migrations: it asks you first.
 - Reading `.env`: denied, so secrets don't reach the model.
+- A PR, a merge or a push into `main` while specs, plans or ledgers are in git: denied until they're moved and deleted. Pushing the work branch itself only asks.
 - Everything else is decided by Claude Code's normal permissions.
 
 ## What to commit to the project
 
-`CLAUDE.md`, `.claude/verify.json`, `.claude/guard.json`, `.claude/settings.json`, `docs/specs/`, `docs/plans/`. Don't commit `.claude/settings.local.json`.
+`CLAUDE.md`, `.claude/verify.json`, `.claude/guard.json`, `.claude/settings.json`, `.claude/rules/`, `docs/` (chapters, decision records, a roadmap with open parts). Specs, plans and ledgers are committed only on the work branch and deleted before it merges. Don't commit `.claude/settings.local.json`; personal notes go into the agent's memory, not the repo.
 
 For a team, do one more thing: pin the plugin in the project, and colleagues get it automatically when they open the project.
 
@@ -307,7 +324,7 @@ claude plugin install eng-kit@eng-kit --scope project
 | `/eng-kit:requesting-code-review` | Review by the `reviewer` agent |
 | `/eng-kit:verify` | Run the checks |
 | `/eng-kit:new-task <what to do>` | A task with criteria |
-| `/eng-kit:docs [topic \| changelog \| adr …]` | Project documentation: README, docs chapters, CHANGELOG, ADR |
+| `/eng-kit:docs [topic \| changelog \| decision …]` | Project documentation: README, docs chapters, CHANGELOG, decision records |
 | `/eng-kit:finish` | merge / PR / keep / discard |
 | "watch CI" after push | CI through `gh pr checks --watch`: up to 2 attempts per failed check, then a question; the agent doesn't merge by itself |
 | `/eng-kit:ci-quality-gates` | The project's CI: commands from verify.json, `gate`, secrets, audit, migrations, e2e without retries. `/eng-kit:kit-init` shows whether all the checks are in CI |

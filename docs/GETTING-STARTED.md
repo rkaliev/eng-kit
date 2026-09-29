@@ -61,6 +61,7 @@ claude ─▶ SessionStart hook ─▶ into context: using-skills rules + paths 
    │        git push           ─▶ "ask the human"
    │        git push --force   ─▶ "denied"
    │        Read .env          ─▶ "denied"
+   │        gh pr create       ─▶ "denied" while specs or plans are in git
    │        npm test           ─▶ no opinion (normal permissions decide)
    │
    ├─ Edit / Write ─▶ PostToolUse hook: "workspace unverified"
@@ -70,6 +71,8 @@ claude ─▶ SessionStart hook ─▶ into context: using-skills rules + paths 
    │
    └─ Claude wants to finish ─▶ Stop hook: any unverified edits?
                                   yes ─▶ "run the checks first" (once per prompt)
+                                  an approved spec or plan uncommitted? ─▶ "commit it on a work branch"
+                                  a plan fully ticked? ─▶ "move what lasts to docs/, delete it"
                                   no  ─▶ answer to you
 ```
 
@@ -122,10 +125,13 @@ The agent shows a plan and, on your "yes", creates `.claude/verify.json` (the te
 
 ```
 /eng-kit:writing-plans docs/specs/…-cart-api.md     a plan of small TDD tasks
-/eng-kit:implement docs/plans/…-cart-api.md         execution with tests and a report
+/eng-kit:implement docs/plans/…-cart-api.md         execution with tests and a report; at the end
+                                                    what lasts moves to docs/, spec and plan are deleted
 /eng-kit:requesting-code-review                     review by the reviewer agent
 /eng-kit:finish                                     merge / PR / keep / discard, your choice
 ```
+
+Specs, plans and their ledgers are working documents: they live only on the work branch, and the guard won't open a PR or merge while they exist. The details: [WALKTHROUGH.md](WALKTHROUGH.md).
 
 For a small change one line is enough: `/eng-kit:implement add quantity validation > 0`.
 
@@ -235,7 +241,8 @@ claude
 **How to check the guard:**
 - `git push --force`: denied, with a hint about `--force-with-lease`;
 - `git push`: a question;
-- `git commit --no-verify`: denied.
+- `git commit --no-verify`: denied;
+- `gh pr create` while `docs/specs/` or `docs/plans/` has tracked files: denied.
 
 `/hooks` shows the registered hooks, `claude plugin details eng-kit` shows everything the plugin loaded.
 
@@ -253,6 +260,7 @@ claude
 - **Hooks don't fire.** Check `node --version` (≥ 22.18 required) and `/hooks`. Project hooks need folder trust. Debugging: `claude --debug`.
 - **The verify gate says there are no commands.** Fill in `.claude/verify.json` or the `## Commands` section in CLAUDE.md.
 - **I need push without a question.** A narrow rule in `.claude/guard.json`: `"allow": ["^git push origin (feat|fix)/"]`. This rule doesn't lift blocks (`--force`, `--no-verify`).
+- **My project keeps specs and plans elsewhere, or in the repo for good.** The `workDocs` key in `.claude/guard.json` lists the working-document folders (default `["docs/specs", "docs/plans"]`); `[]` turns that rule off.
 - **I want to disable the plugin temporarily.** `claude plugin disable eng-kit@eng-kit`; to turn it back on, `enable`.
 - **Uninstall.** `claude plugin uninstall eng-kit@eng-kit`, then `claude plugin marketplace remove eng-kit`.
 - **Windows.** The hooks are Node scripts, and the guard understands the PowerShell tool. This scenario hasn't been run on Windows yet.

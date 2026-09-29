@@ -61,6 +61,7 @@ claude ─▶ SessionStart-хук ─▶ в контекст: правила usi
    │        git push           ─▶ «спросить человека»
    │        git push --force   ─▶ «запрещено»
    │        Read .env          ─▶ «запрещено»
+   │        gh pr create       ─▶ «запрещено», пока спеки или планы в git
    │        npm test           ─▶ без мнения (решают обычные разрешения)
    │
    ├─ Edit / Write ─▶ PostToolUse-хук: «рабочая копия не проверена»
@@ -70,6 +71,8 @@ claude ─▶ SessionStart-хук ─▶ в контекст: правила usi
    │
    └─ Claude хочет закончить ─▶ Stop-хук: есть непроверенные правки?
                                   да  ─▶ «сначала прогони проверки» (один раз на промпт)
+                                  одобренная spec или план не в git? ─▶ «закоммить в рабочей ветке»
+                                  все пункты плана отмечены? ─▶ «перенеси долгоживущее в docs/, удали»
                                   нет ─▶ ответ тебе
 ```
 
@@ -122,10 +125,13 @@ claude
 
 ```
 /eng-kit:writing-plans docs/specs/…-cart-api.md     план из маленьких TDD-задач
-/eng-kit:implement docs/plans/…-cart-api.md         исполнение с тестами и отчётом
+/eng-kit:implement docs/plans/…-cart-api.md         исполнение с тестами и отчётом; в конце
+                                                    долгоживущее уходит в docs/, spec и план удаляются
 /eng-kit:requesting-code-review                     ревью агентом reviewer
 /eng-kit:finish                                     merge / PR / keep / discard — на твой выбор
 ```
+
+Спеки, планы и их журналы — рабочие документы: они живут только в рабочей ветке, и guard не откроет PR и не сделает merge, пока они есть. Подробнее — в [WALKTHROUGH.ru.md](WALKTHROUGH.ru.md).
 
 Для мелкой правки хватит одной строки: `/eng-kit:implement добавить валидацию количества > 0`.
 
@@ -235,7 +241,8 @@ claude
 **Как проверить guard:**
 - `git push --force` — отказ с подсказкой про `--force-with-lease`;
 - `git push` — вопрос;
-- `git commit --no-verify` — отказ.
+- `git commit --no-verify` — отказ;
+- `gh pr create`, пока в `docs/specs/` или `docs/plans/` есть файлы в git, — отказ.
 
 `/hooks` показывает зарегистрированные хуки, `claude plugin details eng-kit` — всё, что загрузил плагин.
 
@@ -253,6 +260,7 @@ claude
 - **Хуки не срабатывают.** Проверь `node --version` (нужен ≥ 22.18) и `/hooks`. Хукам проекта нужно доверие к папке. Отладка: `claude --debug`.
 - **Verify-гейт пишет, что команд нет.** Заполни `.claude/verify.json` или секцию `## Commands` в CLAUDE.md.
 - **Нужен push без вопроса.** Узкое правило в `.claude/guard.json`: `"allow": ["^git push origin (feat|fix)/"]`. Блоки (`--force`, `--no-verify`) это правило не снимает.
+- **В моём проекте спеки и планы лежат в другом месте или хранятся в репозитории постоянно.** Ключ `workDocs` в `.claude/guard.json` перечисляет папки рабочих документов (по умолчанию `["docs/specs", "docs/plans"]`); `[]` отключает это правило.
 - **Хочу временно выключить плагин.** `claude plugin disable eng-kit@eng-kit`, обратно — `enable`.
 - **Удалить.** `claude plugin uninstall eng-kit@eng-kit`, затем `claude plugin marketplace remove eng-kit`.
 - **Windows.** Хуки — это Node-скрипты, guard понимает инструмент PowerShell. На Windows этот сценарий пока не прогонялся.

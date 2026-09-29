@@ -34,7 +34,7 @@ jobs:
       - uses: gitleaks/gitleaks-action@<sha>
       - uses: google/osv-scanner-action/osv-scanner-action@<sha>
         with: { scan-args: "--recursive ./" }
-  working-docs:                             # eng-kit: working-docs
+  working-docs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -79,7 +79,7 @@ secrets:
   stage: verify
   image: zricethezav/gitleaks@sha256:<digest>
   script: [gitleaks detect --source . --redact]
-working-docs:                               # eng-kit: working-docs
+working-docs:
   stage: verify
   image: alpine/git@sha256:<digest>
   script:
