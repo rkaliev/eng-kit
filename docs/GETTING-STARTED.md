@@ -200,7 +200,7 @@ node eng-kit/scripts/install-project.ts <project folder> --yes    # install
 ```
 
 What appears:
-- `.claude/skills/*`: 33 skills;
+- `.claude/skills/*`: 34 skills;
 - `.claude/agents/reviewer.md`, `implementer.md`;
 - `.claude/eng-kit/`: hook code, scripts, templates, `manifest.json`;
 - `.claude/settings.json`: hooks and deny rules for secrets;

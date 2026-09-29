@@ -37,7 +37,7 @@ This document describes how the plugin works and why it works that way. What plu
 │   PostToolUse(+Failure)  tracker: edit → "unverified"                 │
 │   Stop              verify, approval, working-docs gates              │
 │   UserPromptSubmit  re-arms the gates                                 │
-│ skills/   33 skills: 27 methodology + 6 entry points                  │
+│ skills/   34 skills: 28 methodology + 6 entry points                  │
 │ agents/   reviewer (opus, read-only), implementer (sonnet)            │
 │ scripts/  verify.ts, init.ts, install-project.ts                      │
 │ templates/ CLAUDE.md, task.md, verify.json, guard.json, …             │
@@ -106,7 +106,7 @@ The hook code is the same in both modes. The kit root is the parent folder of `h
 
 **Starting point: new or existing code:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
-**Platforms:** web-frontend, backend-services, mobile-development (Android and iOS in `references/`), desktop-development (Windows and Linux in `references/`).
+**Platforms:** web-frontend, backend-services, mobile-development (Android and iOS in `references/`), desktop-development (Windows and Linux in `references/`), ui-motion (animation and gestures on every platform: whether to animate at all, then easing, budgets, interruptibility, reduced motion; values and per-platform APIs in `references/`). web-frontend keeps state and optimistic updates, and the design system with destructive-action copy, in `references/`; mobile and desktop point to them.
 
 **High-risk domains:** payments-and-money, pos-systems, security-review, observability, database-changes.
 
