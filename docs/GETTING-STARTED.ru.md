@@ -62,6 +62,7 @@ claude ─▶ SessionStart-хук ─▶ в контекст: правила usi
    │        git push --force   ─▶ «запрещено»
    │        Read .env          ─▶ «запрещено»
    │        gh pr create       ─▶ «запрещено», пока файл задачи в git
+   │                              или без «Yes» ревьюера для HEAD
    │        npm test           ─▶ без мнения (решают обычные разрешения)
    │
    ├─ Edit / Write ─▶ PostToolUse-хук: «рабочая копия не проверена»
@@ -242,7 +243,7 @@ claude
 - `git push --force` — отказ с подсказкой про `--force-with-lease`;
 - `git push` — вопрос;
 - `git commit --no-verify` — отказ;
-- `gh pr create`, пока в `docs/tasks/` есть файлы в git, — отказ.
+- `gh pr create`, пока в `docs/tasks/` есть файлы в git или нет вердикта `Yes` ревьюера для HEAD, — отказ.
 
 `/hooks` показывает зарегистрированные хуки, `claude plugin details eng-kit` — всё, что загрузил плагин.
 

@@ -62,6 +62,7 @@ claude ─▶ SessionStart hook ─▶ into context: using-skills rules + paths 
    │        git push --force   ─▶ "denied"
    │        Read .env          ─▶ "denied"
    │        gh pr create       ─▶ "denied" while a task file is in git
+   │                              or without a reviewer "Yes" for HEAD
    │        npm test           ─▶ no opinion (normal permissions decide)
    │
    ├─ Edit / Write ─▶ PostToolUse hook: "workspace unverified"
@@ -242,7 +243,7 @@ claude
 - `git push --force`: denied, with a hint about `--force-with-lease`;
 - `git push`: a question;
 - `git commit --no-verify`: denied;
-- `gh pr create` while `docs/tasks/` has tracked files: denied.
+- `gh pr create` while `docs/tasks/` has tracked files, or without a reviewer `Yes` for HEAD: denied.
 
 `/hooks` shows the registered hooks, `claude plugin details eng-kit` shows everything the plugin loaded.
 

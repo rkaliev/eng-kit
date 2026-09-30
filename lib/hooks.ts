@@ -3,9 +3,10 @@
  * `hooks/hook.ts` wires them to stdin/stdout; tests call them directly.
  *
  * - SessionStart: loads the using-skills rules into the session (bootstrap).
- * - PreToolUse: guard, which denies irreversible or secret-leaking calls and task files reaching the base
- *   branch, and asks before outward-facing ones.
+ * - PreToolUse: guard, which denies irreversible or secret-leaking calls, task files reaching the base
+ *   branch and code reaching it without a passing review, and asks before outward-facing ones.
  * - PostToolUse / PostToolUseFailure: the verify tracker (edits make the workspace unverified; green runs clear it).
+ * - SubagentStop: records the kit reviewer's verdict for the commit it reviewed (the review gate's stamp).
  * - Stop: the verify gate, the approval gate (an approved design or plan must be committed) and the working-docs gate
  *   (implemented task files must be deleted), at most one reminder each per user prompt.
  * - UserPromptSubmit: re-arms the gate for the new prompt.
@@ -16,6 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
+import { checkReview, recordReview } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
@@ -28,6 +30,9 @@ export interface HookInput {
 	tool_input?: Record<string, unknown>;
 	stop_hook_active?: boolean;
 	agent_id?: string;
+	agent_type?: string;
+	last_assistant_message?: string;
+	prompt_id?: string;
 }
 
 export interface HookEnv {
@@ -38,6 +43,8 @@ export interface HookEnv {
 	stateDir: string;
 	/** Where the verify script records its runs (tests override it). */
 	runsRoot?: string;
+	/** Where review stamps live (tests override it). */
+	reviewsRoot?: string;
 }
 
 export interface HookResult {
@@ -64,6 +71,8 @@ export function handle(input: HookInput, env: HookEnv): HookResult {
 		case "PostToolUse":
 		case "PostToolUseFailure":
 			return postToolUse(input, env);
+		case "SubagentStop":
+			return subagentStop(input, env);
 		case "Stop":
 			return stop(input, env);
 		case "UserPromptSubmit":
@@ -104,7 +113,12 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (SHELL_TOOLS.has(tool)) {
 		const command = String(args.command ?? "");
 		decision = checkCommand(command, env.projectDir, config);
-		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, config.workDocs ?? WORK_DOC_DIRS) ?? decision;
+		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
+		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
+		if (decision.action !== "block" && config.reviewGate !== false) {
+			const options = { ignore: resolveIgnore(env.projectDir), workDocs, missing: "block" as const };
+			decision = checkReview(command, env.projectDir, options, env.reviewsRoot) ?? decision;
+		}
 	} else if (tool === "Read" || tool === "Grep") {
 		const path = String(args.file_path ?? args.path ?? "");
 		decision = path ? checkPath("read", resolve(cwd, path), env.projectDir, config) : { action: "allow" };
@@ -150,6 +164,7 @@ function loadGuardConfig(projectDir: string): { config: GuardConfig; warnings: s
 			allow: regexes(raw.allow),
 			protectedPaths: strings(raw.protectedPaths),
 			workDocs: Array.isArray(raw.workDocs) ? strings(raw.workDocs) : undefined,
+			reviewGate: raw.reviewGate !== false,
 		},
 		warnings,
 	};
@@ -219,6 +234,13 @@ function sameCommands(a: string[], b: string[]): boolean {
 /** A run of the kit's verify script (piped or not: the script records its own result). */
 export function runsVerifyScript(shell: string): boolean {
 	return /scripts[\\/]verify\.ts\b/.test(shell);
+}
+
+/** The kit reviewer (plugin `eng-kit:reviewer`, project install `reviewer`) ends with its verdict: stamp it. */
+function subagentStop(input: HookInput, env: HookEnv): HookResult {
+	if (!/(^|:)reviewer$/.test(input.agent_type ?? "")) return {};
+	const result = recordReview(env.projectDir, input.last_assistant_message ?? "", input.prompt_id, env.reviewsRoot);
+	return typeof result === "string" ? { warning: `eng-kit review gate: no stamp recorded: ${result}.` } : {};
 }
 
 function stop(input: HookInput, env: HookEnv): HookResult {

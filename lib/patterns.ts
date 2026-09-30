@@ -20,6 +20,8 @@ export interface GuardConfig {
 	protectedPaths?: string[];
 	/** Folders holding task files that must never reach the base branch. `[]` turns the check off. */
 	workDocs?: string[];
+	/** Code reaches the base branch only with a passing reviewer verdict for it. `false` turns the check off. */
+	reviewGate?: boolean;
 }
 
 const ALLOW: GuardDecision = { action: "allow" };
@@ -107,6 +109,12 @@ export function checkPath(tool: "read" | "write" | "edit", path: string, cwd: st
 
 	if (/(^|\/)\.git(\/|$)/.test(inside ? rel : absolute.replaceAll("\\", "/"))) {
 		return { action: "block", reason: "Never edit .git internals directly; use git commands." };
+	}
+	if (/(^|\/)eng-kit\/reviews\//.test(absolute.replaceAll("\\", "/"))) {
+		return { action: "block", reason: "Review stamps are written only by the hook, from the reviewer's own report. Dispatch the reviewer instead." };
+	}
+	if (inside && rel === ".claude/guard.json") {
+		return { action: "confirm", reason: "The guard config decides what the guard blocks. Loosening it is the user's call; show them the change first." };
 	}
 	const hit = (config.protectedPaths ?? []).find((prefix) => inside && rel.startsWith(prefix.replace(/^\.\//, "")));
 	if (hit) return { action: "block", reason: `${path} is protected by .claude/guard.json (${hit}). Ask the user before changing it.` };

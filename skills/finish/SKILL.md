@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 Use the verification-before-completion skill on the current branch. If any check fails, stop and report it.
 
-If the branch has not been reviewed since its last change, run requesting-code-review first.
+If the branch has not been reviewed since its last code change, run requesting-code-review first, and repeat it after fixes until the verdict is `Yes`. The review gate denies a PR or a merge into the base otherwise.
 
 If the branch still carries a task file (`docs/tasks/`), finish it as in executing-plans (Finish, step 4): move what lasts into docs/, show me its Follow-ups, then delete it in one commit.
 

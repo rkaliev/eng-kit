@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0
+
+- Review gate. The guard denies `gh pr create/merge`, `glab mr create/merge`, `git merge` into the base and `git push` to the base unless the kit reviewer's last verdict is `Yes` for the commit being landed.
+  - A new `SubagentStop` hook records the verdict from the reviewer's own last message (`Reviewed HEAD: <sha>` and `Ready to merge: …`); the main agent never writes it. Parallel reviewers from one prompt combine to the worst verdict.
+  - A commit after the review that changes more than task files or ignored paths (verify.json `ignore`, docs by default) needs a new review; deleting the task files doesn't. A branch that only changes ignored paths needs no review.
+  - `.claude/guard.json` gets `reviewGate` (`false` turns it off). The guard now asks before `.claude/guard.json` is edited and denies writes to the stamp files.
+- The reviewer's output ends with `Reviewed HEAD:` and adds the verdict `Inconclusive` for a review that could not read the requirements, the range or the rules. A finding against a project rule cites the rule. The reviewer doesn't repeat what the verification commands and linters check, gives wordy prose at most one grouped Minor, and matches repeat-round findings by the underlying defect.
+- Parallel reviewers merge by root cause; the same `file:line` keeps the higher severity. executing-plans and `/finish` re-review after fixes until `Yes`. receiving-code-review doesn't call a finding resolved before a re-review closed it.
+- ci-quality-gates offers one required human approval and a CODEOWNERS file for the files that steer every change (template in `references/ci-templates.md`), both only on the user's yes.
+
 ## 0.11.0
 
 - One task file replaces the roadmap, spec, plan and ledger. Each piece of work gets `docs/tasks/YYYY-MM-DD-<slug>.md` from `templates/task.md`, which stands in for a tracker issue: the user's request verbatim, the description (Intent, Context, Success criteria, Scope, Decisions, Design, Rollout, Risks), Follow-ups, Plan and Progress. `templates/spec.md` is gone.

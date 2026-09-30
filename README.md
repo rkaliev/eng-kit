@@ -24,6 +24,7 @@ It contains:
   - **guard** (PreToolUse) denies irreversible or secret-leaking tool calls and PRs or merges that would carry task files to the base branch, and asks you before outward-facing ones.
   - **verify gate** (PostToolUse + Stop) won't let Claude finish with unverified edits.
   - **approval gate** and **working-docs gate** (Stop) won't let Claude finish while an approved task file is uncommitted, or while an implemented one is still in the tree.
+  - **review gate** (SubagentStop + PreToolUse) denies opening or merging a PR, or landing on the base branch, unless the reviewer's last verdict for that commit is `Yes`.
 
 Docs: [what plugins are and how to install this one, step by step](docs/GETTING-STARTED.md), [a new project from scratch](docs/WALKTHROUGH.md), and [how the kit works and why](docs/ARCHITECTURE.md). In Russian: [GETTING-STARTED.ru.md](docs/GETTING-STARTED.ru.md), [WALKTHROUGH.ru.md](docs/WALKTHROUGH.ru.md), [ARCHITECTURE.ru.md](docs/ARCHITECTURE.ru.md).
 
@@ -97,8 +98,9 @@ Small, bounded changes go straight to `/implement add a case-insensitive search 
 | reading `.env*`, keys, keystores and credential files (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`, `curl … \| sh` |
 | writing into `.git/` and `protectedPaths` | shell access to secret files, writing a secret file |
 | `gh pr create/merge`, `glab mr create/merge`, merging into or pushing to the base branch while task files are tracked; committing them on the base branch | editing CI and release pipelines |
+| the same without a reviewer `Yes` for the commit being landed (review gate); writing into review stamp files | editing `.claude/guard.json` |
 
-`.claude/guard.json` has five keys: `block`, `confirm`, `allow` (regex sources), `protectedPaths` (path prefixes) and `workDocs` (the task-file folders, default `["docs/tasks"]`; `[]` turns that rule off). `allow` only relaxes a confirmation, never a denial. The guard never *grants* permission, so your own `permissions` rules still apply.
+`.claude/guard.json` has six keys: `block`, `confirm`, `allow` (regex sources), `protectedPaths` (path prefixes), `workDocs` (the task-file folders, default `["docs/tasks"]`; `[]` turns that rule off) and `reviewGate` (`false` turns the review gate off). `allow` only relaxes a confirmation, never a denial. The guard never *grants* permission, so your own `permissions` rules still apply.
 
 ### verify gate
 
@@ -115,6 +117,13 @@ Task files (`docs/tasks/YYYY-MM-DD-<slug>.md`: description, plan and progress) l
 - a task file whose Plan checkboxes are all ticked sends Claude back to move what lasts into `docs/` and `docs/decisions/`, show you its Follow-ups, and delete it.
 
 For people and other tools, the ci-quality-gates templates add a `working-docs` CI job that fails on any tracked `docs/tasks/*.md`.
+
+### review gate
+
+When the `reviewer` agent finishes, the SubagentStop hook reads its `Reviewed HEAD: <sha>` and `Ready to merge: …` lines and records the verdict for that commit. The guard then denies `gh pr create/merge`, `glab mr create/merge`, merging into or pushing to the base branch unless the last verdict for the commit being landed is `Yes`:
+- `With fixes`, `No` and `Inconclusive` don't pass: fix and review the new range;
+- a commit after the review that changes anything besides task files and `ignore` paths needs a new review; deleting a task file doesn't;
+- only you turn it off, with `"reviewGate": false` in `.claude/guard.json`.
 
 ## Models
 

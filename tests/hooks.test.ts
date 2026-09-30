@@ -303,7 +303,10 @@ test("task files: guard blocks a PR while they exist; Stop reminds once to delet
 	spawnSync("git", ["add", "-A"], { cwd: off });
 	spawnSync("git", ["commit", "-qm", "x"], { cwd: off });
 	const offEnv: HookEnv = { ...env, projectDir: off, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) };
-	assert.equal(decision(handle({ session_id: "s", cwd: off, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } }, offEnv)), undefined, "workDocs: [] opts out");
+	const offPr = handle({ session_id: "s", cwd: off, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } }, offEnv);
+	const offReason = String((offPr.output?.hookSpecificOutput as Record<string, string> | undefined)?.permissionDecisionReason);
+	assert.doesNotMatch(offReason, /Task files/, "workDocs: [] opts out");
+	assert.match(offReason, /Review gate: no reviewer verdict/, "the branch changes .claude/guard.json, which needs a review");
 	assert.equal(handle({ session_id: "s", cwd: off, hook_event_name: "Stop" }, offEnv).output, undefined);
 });
 
@@ -318,4 +321,39 @@ test("approval gate and verify gate combine into one reminder; no git repo means
 
 	const { call: plain } = setup({ "docs/tasks/x.md": "Status: design approved\n" });
 	assert.equal(plain({ hook_event_name: "Stop" }).output, undefined);
+});
+
+test("review gate: SubagentStop stamps the kit reviewer's verdict; the guard lets the PR through", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const head = git("rev-parse", "HEAD");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
+	const pr = () => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
+	const stopOf = (agent_type: string, last_assistant_message: string) => call({ hook_event_name: "SubagentStop", agent_type, last_assistant_message, prompt_id: "p1" });
+	const verdict = `Reviewed HEAD: ${head.slice(0, 8)}\nReady to merge: Yes`;
+
+	assert.equal(decision(pr()), "deny");
+	assert.deepEqual(stopOf("Explore", verdict), {}, "other agents never stamp");
+	assert.equal(decision(pr()), "deny");
+	assert.match(String(stopOf("eng-kit:reviewer", "Looks fine.").warning), /no stamp recorded/);
+	assert.deepEqual(stopOf("eng-kit:reviewer", verdict), {});
+	assert.equal(decision(pr()), undefined);
+
+	const off = { ...env, projectDir: gitRepo({ ".claude/guard.json": JSON.stringify({ reviewGate: false }) }) };
+	spawnSync("git", ["switch", "-qc", "feat/b"], { cwd: off.projectDir });
+	spawnSync("git", ["add", "-A"], { cwd: off.projectDir });
+	spawnSync("git", ["commit", "-qm", "x"], { cwd: off.projectDir });
+	assert.equal(decision(handle({ session_id: "s", cwd: off.projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } }, off)), undefined, "reviewGate: false opts out");
+});
+
+test("review gate: the agent can't loosen the guard or write a stamp itself", () => {
+	const { call, projectDir } = setup();
+	const pre = (tool_name: string, file_path: string) => call({ hook_event_name: "PreToolUse", tool_name, tool_input: { file_path, content: "{}" } });
+	assert.equal(decision(pre("Edit", join(projectDir, ".claude", "guard.json"))), "ask");
+	assert.equal(decision(pre("Write", join(tmpdir(), "eng-kit", "reviews", "x.json"))), "deny");
 });
