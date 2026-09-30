@@ -55,12 +55,13 @@ Claude Code copies the plugin files into the cache `~/.claude/plugins/cache/…`
 claude ─▶ SessionStart hook ─▶ into context: using-skills rules + paths to kit scripts
    │
    ├─ you: "add a discount to the cart" ─▶ Claude sees the brainstorming description ─▶ loads the skill
-   │                                      (or you yourself: /eng-kit:implement tasks/01.md)
+   │                                      (or you yourself: /eng-kit:implement docs/tasks/2026-09-26-discount.md)
    │
    ├─ every tool call ─▶ PreToolUse hook (guard)
    │        git push           ─▶ "ask the human"
    │        git push --force   ─▶ "denied"
    │        Read .env          ─▶ "denied"
+   │        gh pr create       ─▶ "denied" while a task file is in git
    │        npm test           ─▶ no opinion (normal permissions decide)
    │
    ├─ Edit / Write ─▶ PostToolUse hook: "workspace unverified"
@@ -70,6 +71,8 @@ claude ─▶ SessionStart hook ─▶ into context: using-skills rules + paths 
    │
    └─ Claude wants to finish ─▶ Stop hook: any unverified edits?
                                   yes ─▶ "run the checks first" (once per prompt)
+                                  an approved task file uncommitted? ─▶ "commit it on a work branch"
+                                  its Plan fully ticked? ─▶ "move what lasts to docs/, show Follow-ups, delete it"
                                   no  ─▶ answer to you
 ```
 
@@ -108,7 +111,7 @@ claude
 /eng-kit:brainstorming REST API for an online store cart: products, discounts, total
 ```
 
-The agent classifies the work. A new project is "Architectural", so next it asks questions one at a time. Choosing a stack is a fork, and the agent offers 2–3 options with a recommendation. Then it writes a spec and asks you to approve it. No code is written before that point.
+The agent classifies the work. A new project is "Architectural", so next it asks questions one at a time. Choosing a stack is a fork, and the agent offers 2–3 options with a recommendation. Then it writes the task file `docs/tasks/…-cart-api.md` and asks you to approve the description. No code is written before that point.
 
 **Step 4.** Once the project exists (there is a `package.json`, `go.mod` and so on):
 
@@ -121,11 +124,14 @@ The agent shows a plan and, on your "yes", creates `.claude/verify.json` (the te
 **Step 5. Then the working loop:**
 
 ```
-/eng-kit:writing-plans docs/specs/…-cart-api.md     a plan of small TDD tasks
-/eng-kit:implement docs/plans/…-cart-api.md         execution with tests and a report
+/eng-kit:writing-plans docs/tasks/…-cart-api.md     fills its Plan: small TDD tasks
+/eng-kit:implement docs/tasks/…-cart-api.md         execution with tests and a report; at the end
+                                                    what lasts moves to docs/, the task file is deleted
 /eng-kit:requesting-code-review                     review by the reviewer agent
 /eng-kit:finish                                     merge / PR / keep / discard, your choice
 ```
+
+The task file (description, plan and progress in one file) lives only on the work branch, and the guard won't open a PR or merge while it exists. The details: [WALKTHROUGH.md](WALKTHROUGH.md).
 
 For a small change one line is enough: `/eng-kit:implement add quantity validation > 0`.
 
@@ -194,7 +200,7 @@ node eng-kit/scripts/install-project.ts <project folder> --yes    # install
 ```
 
 What appears:
-- `.claude/skills/*`: 33 skills;
+- `.claude/skills/*`: 34 skills;
 - `.claude/agents/reviewer.md`, `implementer.md`;
 - `.claude/eng-kit/`: hook code, scripts, templates, `manifest.json`;
 - `.claude/settings.json`: hooks and deny rules for secrets;
@@ -235,7 +241,8 @@ claude
 **How to check the guard:**
 - `git push --force`: denied, with a hint about `--force-with-lease`;
 - `git push`: a question;
-- `git commit --no-verify`: denied.
+- `git commit --no-verify`: denied;
+- `gh pr create` while `docs/tasks/` has tracked files: denied.
 
 `/hooks` shows the registered hooks, `claude plugin details eng-kit` shows everything the plugin loaded.
 
@@ -253,6 +260,7 @@ claude
 - **Hooks don't fire.** Check `node --version` (≥ 22.18 required) and `/hooks`. Project hooks need folder trust. Debugging: `claude --debug`.
 - **The verify gate says there are no commands.** Fill in `.claude/verify.json` or the `## Commands` section in CLAUDE.md.
 - **I need push without a question.** A narrow rule in `.claude/guard.json`: `"allow": ["^git push origin (feat|fix)/"]`. This rule doesn't lift blocks (`--force`, `--no-verify`).
+- **My project keeps task files elsewhere, or in the repo for good.** The `workDocs` key in `.claude/guard.json` lists the task-file folders (default `["docs/tasks"]`); `[]` turns that rule off.
 - **I want to disable the plugin temporarily.** `claude plugin disable eng-kit@eng-kit`; to turn it back on, `enable`.
 - **Uninstall.** `claude plugin uninstall eng-kit@eng-kit`, then `claude plugin marketplace remove eng-kit`.
 - **Windows.** The hooks are Node scripts, and the guard understands the PowerShell tool. This scenario hasn't been run on Windows yet.

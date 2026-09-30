@@ -13,7 +13,7 @@ Learn the repo from its evidence (manifests, CI, scripts, tests), not from guess
 - **Stack and runtime:** `package.json`, lockfiles, `pyproject.toml`, `go.mod`, `Cargo.toml`, `*.csproj`/`global.json`, `build.gradle(.kts)`/`libs.versions.toml`, `Podfile`/`Package.swift`, `.nvmrc`, `.tool-versions`, Dockerfiles.
 - **Real commands:** the CI config (`.github/workflows`, `.gitlab-ci.yml`, Jenkinsfile), `Makefile`/`justfile`, package scripts, the Gradle wrapper, Xcode schemes. **CI is the truth**; the README may be stale.
 - **Structure:** entry points, modules and layers, and where business logic lives. Note generated code, vendored code, migrations and anything else that must not be hand-edited.
-- **Conventions:** formatter and linter configs, commit style (`git log --oneline -30`), branch naming, test layout and naming, error-handling and logging patterns.
+- **Conventions:** formatter and linter configs, commit style (`git log --oneline -30`), branch naming, test layout and naming, error-handling and logging patterns, and the design system (a `design.md`, token files, Storybook), if there is UI.
 - **Existing agent files:** AGENTS.md, CLAUDE.md, `.cursor/rules`, `.github/copilot-instructions.md`. Reuse them; don't duplicate them.
 - **Risky areas:** payments, auth, data migrations, fiscal or device integrations, anything without tests.
 
@@ -32,7 +32,7 @@ Create or update `CLAUDE.md` from `../../templates/CLAUDE.md` (in a project inst
 - the boundaries (don't touch, ask first);
 - the Definition of Done.
 
-Keep it under about 150 lines. Link to docs instead of copying them. In a monorepo, a short nested `CLAUDE.md` per package adds to the root one when work touches that package. Path-specific rules can also go into `.claude/rules/*.md`.
+Keep it under about 150 lines: it loads in every session. Link to docs instead of copying them, and fill its Docs section: the index, a task map, which source wins. In a monorepo, a short nested `CLAUDE.md` per package loads when work reads files there. Rules for one area go into `.claude/rules/*.md` with `paths:` frontmatter, so they load only for matching files.
 
 Create `.claude/verify.json` with the fast, reliable checks (the kit-init skill does this and the rest of the `.claude/` setup):
 

@@ -55,12 +55,13 @@ eng-kit/
 claude ─▶ SessionStart-хук ─▶ в контекст: правила using-skills + пути к скриптам кита
    │
    ├─ ты: «добавь скидку в корзину» ─▶ Claude видит описание brainstorming ─▶ подгружает скилл
-   │                                    (или ты сам: /eng-kit:implement tasks/01.md)
+   │                                    (или ты сам: /eng-kit:implement docs/tasks/2026-09-26-discount.md)
    │
    ├─ каждый вызов инструмента ─▶ PreToolUse-хук (guard)
    │        git push           ─▶ «спросить человека»
    │        git push --force   ─▶ «запрещено»
    │        Read .env          ─▶ «запрещено»
+   │        gh pr create       ─▶ «запрещено», пока файл задачи в git
    │        npm test           ─▶ без мнения (решают обычные разрешения)
    │
    ├─ Edit / Write ─▶ PostToolUse-хук: «рабочая копия не проверена»
@@ -70,6 +71,8 @@ claude ─▶ SessionStart-хук ─▶ в контекст: правила usi
    │
    └─ Claude хочет закончить ─▶ Stop-хук: есть непроверенные правки?
                                   да  ─▶ «сначала прогони проверки» (один раз на промпт)
+                                  одобренный файл задачи не в git? ─▶ «закоммить в рабочей ветке»
+                                  все пункты Plan отмечены? ─▶ «перенеси долгоживущее в docs/, покажи Follow-ups, удали»
                                   нет ─▶ ответ тебе
 ```
 
@@ -108,7 +111,7 @@ claude
 /eng-kit:brainstorming REST API корзины для интернет-магазина: товары, скидки, итог
 ```
 
-Агент классифицирует работу. Новый проект — это «Architectural», поэтому дальше он будет задавать вопросы по одному. Выбор стека — это развилка, и агент предложит 2–3 варианта с рекомендацией. Потом он запишет spec и попросит его подтвердить. Код до этого момента не пишется.
+Агент классифицирует работу. Новый проект — это «Architectural», поэтому дальше он будет задавать вопросы по одному. Выбор стека — это развилка, и агент предложит 2–3 варианта с рекомендацией. Потом он запишет файл задачи `docs/tasks/…-cart-api.md` и попросит подтвердить описание. Код до этого момента не пишется.
 
 **Шаг 4.** Когда проект создан (есть `package.json`, `go.mod` и т. п.):
 
@@ -121,11 +124,14 @@ claude
 **Шаг 5. Дальше рабочий цикл:**
 
 ```
-/eng-kit:writing-plans docs/specs/…-cart-api.md     план из маленьких TDD-задач
-/eng-kit:implement docs/plans/…-cart-api.md         исполнение с тестами и отчётом
+/eng-kit:writing-plans docs/tasks/…-cart-api.md     заполняет его Plan: маленькие TDD-задачи
+/eng-kit:implement docs/tasks/…-cart-api.md         исполнение с тестами и отчётом; в конце
+                                                    долгоживущее уходит в docs/, файл задачи удаляется
 /eng-kit:requesting-code-review                     ревью агентом reviewer
 /eng-kit:finish                                     merge / PR / keep / discard — на твой выбор
 ```
+
+Файл задачи (описание, план и прогресс в одном файле) живёт только в рабочей ветке, и guard не откроет PR и не сделает merge, пока он есть. Подробнее — в [WALKTHROUGH.ru.md](WALKTHROUGH.ru.md).
 
 Для мелкой правки хватит одной строки: `/eng-kit:implement добавить валидацию количества > 0`.
 
@@ -194,7 +200,7 @@ node eng-kit/scripts/install-project.ts <папка проекта> --yes    # �
 ```
 
 Что появится:
-- `.claude/skills/*` — 33 скилла;
+- `.claude/skills/*` — 34 скилла;
 - `.claude/agents/reviewer.md`, `implementer.md`;
 - `.claude/eng-kit/` — код хуков, скрипты, шаблоны, `manifest.json`;
 - `.claude/settings.json` — хуки и deny-правила на секреты;
@@ -235,7 +241,8 @@ claude
 **Как проверить guard:**
 - `git push --force` — отказ с подсказкой про `--force-with-lease`;
 - `git push` — вопрос;
-- `git commit --no-verify` — отказ.
+- `git commit --no-verify` — отказ;
+- `gh pr create`, пока в `docs/tasks/` есть файлы в git, — отказ.
 
 `/hooks` показывает зарегистрированные хуки, `claude plugin details eng-kit` — всё, что загрузил плагин.
 
@@ -253,6 +260,7 @@ claude
 - **Хуки не срабатывают.** Проверь `node --version` (нужен ≥ 22.18) и `/hooks`. Хукам проекта нужно доверие к папке. Отладка: `claude --debug`.
 - **Verify-гейт пишет, что команд нет.** Заполни `.claude/verify.json` или секцию `## Commands` в CLAUDE.md.
 - **Нужен push без вопроса.** Узкое правило в `.claude/guard.json`: `"allow": ["^git push origin (feat|fix)/"]`. Блоки (`--force`, `--no-verify`) это правило не снимает.
+- **В моём проекте файлы задач лежат в другом месте или хранятся в репозитории постоянно.** Ключ `workDocs` в `.claude/guard.json` перечисляет папки файлов задач (по умолчанию `["docs/tasks"]`); `[]` отключает это правило.
 - **Хочу временно выключить плагин.** `claude plugin disable eng-kit@eng-kit`, обратно — `enable`.
 - **Удалить.** `claude plugin uninstall eng-kit@eng-kit`, затем `claude plugin marketplace remove eng-kit`.
 - **Windows.** Хуки — это Node-скрипты, guard понимает инструмент PowerShell. На Windows этот сценарий пока не прогонялся.

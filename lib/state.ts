@@ -11,8 +11,10 @@ export interface SessionState {
 	green: string[];
 	/** The Stop gate already sent its one reminder for the current user prompt. */
 	reminded: boolean;
-	/** The approval gate already reminded about uncommitted approved specs or plans this prompt. */
+	/** The approval gate already reminded about uncommitted approved task files this prompt. */
 	approvalReminded: boolean;
+	/** The working-docs gate already reminded about implemented task files this prompt. */
+	workDocsReminded: boolean;
 	/** Project-relative paths edited since the last green run, newest last (at most 5). */
 	edited: string[];
 	/** When the last counted edit happened (ms since epoch). */
@@ -26,7 +28,7 @@ export interface RunRecord {
 	finishedAt: number;
 }
 
-const EMPTY: SessionState = { unverified: false, green: [], reminded: false, approvalReminded: false, edited: [], editedAt: 0 };
+const EMPTY: SessionState = { unverified: false, green: [], reminded: false, approvalReminded: false, workDocsReminded: false, edited: [], editedAt: 0 };
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** `$CLAUDE_PLUGIN_DATA` when running as a plugin, else a folder in the OS temp dir. */
@@ -46,6 +48,7 @@ export function loadState(dir: string, sessionId: string): SessionState {
 			green: Array.isArray(raw.green) ? raw.green.filter((c): c is string => typeof c === "string") : [],
 			reminded: raw.reminded === true,
 			approvalReminded: raw.approvalReminded === true,
+			workDocsReminded: raw.workDocsReminded === true,
 			edited: Array.isArray(raw.edited) ? raw.edited.filter((c): c is string => typeof c === "string") : [],
 			editedAt: typeof raw.editedAt === "number" ? raw.editedAt : 0,
 		};

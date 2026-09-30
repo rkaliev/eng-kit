@@ -8,4 +8,6 @@ Use the verification-before-completion skill on the current branch. If any check
 
 If the branch has not been reviewed since its last change, run requesting-code-review first.
 
+If the branch still carries a task file (`docs/tasks/`), finish it as in executing-plans (Finish, step 4): move what lasts into docs/, show me its Follow-ups, then delete it in one commit.
+
 Then follow the finishing section of the git-workflow skill: show the options (merge locally / push and open a PR / keep / discard) and wait for my choice. Never push or merge without it. After a push, offer to follow CI as described in git-workflow ("After a push").

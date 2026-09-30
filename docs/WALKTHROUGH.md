@@ -37,7 +37,7 @@ You don't have to type a command. Claude sees that the task fits the `brainstorm
 2. **Questions one per message,** for example "Where will it run?", "Do we need a DB, or is memory enough for now?".
 3. **Domain questions come in by themselves.** The task is about money, so `payments-and-money` loads with questions about currency, rounding and idempotency. They are asked right away because changing them later is expensive.
 4. **Choosing the stack is always your decision.** There will be 2–3 options (for example, TypeScript + Fastify, Kotlin + Spring, Go) with pros and cons and a recommendation. You choose.
-5. **The spec** is written to `docs/specs/2026-09-26-cart-api.md`, and the agent asks you to approve it.
+5. **The task file** is written on a work branch to `docs/tasks/2026-09-26-cart-api.md`: your request verbatim, then the description (intent, criteria, scope, decisions, design). The agent asks you to approve it, and on your "yes" sets `Status: design approved` and commits. One task file per piece of work stands in for a tracker issue: the plan and the progress record are added to the same file later. It lives only on the work branch and never reaches `main`.
 
 **Until you say "yes", no code is written.** This is a hard rule of the skill.
 
@@ -59,21 +59,25 @@ If there is no CLAUDE.md yet, the agent offers to build it from the code.
 ## Step 4. Plan
 
 ```
-/eng-kit:writing-plans docs/specs/2026-09-26-cart-api.md
+/eng-kit:writing-plans docs/tasks/2026-09-26-cart-api.md
 ```
 
-The result is `docs/plans/2026-09-26-cart-api.md`: small tasks, each with the exact files and the tests that prove it's done. At the end of the plan there is a "Post-implementation" block: which documentation the change will make stale (README, docs, CHANGELOG, CLAUDE.md) and what to update in it. Then the agent asks how to execute and recommends one of the options:
+The plan goes into the `## Plan` section of the same task file, and `Base:` records the commit it was written from. The plan is small tasks with `- [ ]` checkboxes, each with the exact files and the tests that prove it's done. At the end there is a "Post-implementation" block: which documentation the change will make stale (README, docs, CHANGELOG, CLAUDE.md) and what to update in it. Then the agent asks how to execute and recommends one of the options:
 - **inline**: in this same session, cheaper;
 - **subagent per task**: a fresh `implementer` agent for each task plus a check by the `reviewer` agent; more expensive, but more reliable.
+
+This is the second approval: on your "yes" the status becomes `plan approved` and the file is committed again.
 
 ## Step 5. Implementation
 
 ```
-/eng-kit:implement docs/plans/2026-09-26-cart-api.md
+/eng-kit:implement docs/tasks/2026-09-26-cart-api.md
 ```
 
+The file has a filled Plan, so `implement` hands it to `executing-plans`.
+
 - **A separate branch:** the agent doesn't work on `main` without your consent.
-- **Ledger:** the progress log `docs/plans/…progress.md`. If the context runs out or you close the session, the next session continues from the same place.
+- **Progress:** the `## Progress` section of the task file records the baseline, drift, rulings and a `Task N: complete (…)` line per task, while the Plan's checkboxes get ticked. If the context runs out or you close the session, the next session continues from the same place.
 - **Test first in every task:** first a test that fails, then the code, then a green run.
 - **If the agent wants to finish too early,** the hook sends it back: "Verify gate: files changed…". The agent runs the checks and only then reports.
 
@@ -85,21 +89,29 @@ The final report has the changed files, the commands with real results, each cri
 /eng-kit:requesting-code-review
 ```
 
-The `reviewer` agent (opus, read-only) looks at the diff with fresh eyes. You get "Confirmed" issues with `file:line` and evidence, "Assumptions" and a verdict. The agent fixes Critical and Important.
+The `reviewer` agent (opus, read-only) looks at the diff with fresh eyes and against the project's rules (CLAUDE.md, `.claude/rules/`, decision records). You get "Confirmed" issues with `file:line` and evidence, "Assumptions" and a verdict. The agent fixes Critical and Important.
+
+Then the agent closes the task file:
+- behavior goes into the topic chapter, for example `docs/02-cart.md`;
+- decisions and lasting rulings go into `docs/decisions/` (for example, "money in integer minor units");
+- you are shown its Follow-ups, if any, and offered to start the next one;
+- the file is deleted in one commit, `docs: remove the task file for cart-api`. Git keeps it.
+
+If the agent forgets, the Stop hook reminds it ("Working-docs gate: …"), and the guard won't open a PR or merge into `main` while the file exists.
 
 ```
 /eng-kit:finish
 ```
 
-The checks run once more, then the choice: merge locally, push and PR, keep the branch or delete it. **Nothing is pushed without your choice.** On `git push` the guard shows a confirmation dialog.
+The checks run once more, then the choice: merge locally, push and PR, keep the branch or delete it. **Nothing is pushed without your choice.** On `git push` the guard shows a confirmation dialog. The PR description links the task file at the last commit that had it (`blob/<sha>/docs/tasks/…`).
 
 ## Everyday work
 
 | Situation | What to write |
 |---|---|
 | A bug | Describe it in words: "the total is wrong with a 15% discount". `systematic-debugging` loads: root cause → failing test → one fix |
-| A small task | `/eng-kit:implement add validation: quantity > 0` |
-| You want to write up the task first | `/eng-kit:new-task …` → `tasks/01-….md` with numbered criteria, then `/eng-kit:implement tasks/01-….md` |
+| A small task | `/eng-kit:implement add validation: quantity > 0`. Bounded work stays in the chat, with no task file |
+| You want to write up the task first | `/eng-kit:new-task …` → `docs/tasks/2026-09-27-….md` with only the description and numbered criteria, then `/eng-kit:implement docs/tasks/2026-09-27-….md` |
 | Just run the checks | `/eng-kit:verify` |
 | A big new feature | Again `brainstorming` → `writing-plans` → `implement` |
 | Someone else's or an old repository | `/eng-kit:onboarding-existing-codebase`: repo map, proven commands, CLAUDE.md |
@@ -134,7 +146,7 @@ The output is a map of the old code:
 /eng-kit:brainstorming a new version of legacy-shop based on docs/legacy-map.md.
 Keep the cart and discount behavior, improve the architecture and tests, remove the old admin panel.
 ```
-The agent asks questions one at a time, and you choose the stack from the proposed options. Then it writes a spec with three lists:
+The agent asks questions one at a time, and you choose the stack from the proposed options. Then it writes a task file whose description has three lists:
 - **keep**: the legacy behavior as a contract;
 - **improve**: what must change;
 - **remove**: what gets dropped.
@@ -143,13 +155,13 @@ The agent asks questions one at a time, and you choose the stack from the propos
 
 **5. A plan in vertical slices**
 ```
-/eng-kit:writing-plans docs/specs/…-shop-v2.md
+/eng-kit:writing-plans docs/tasks/…-shop-v2.md
 ```
-Each task is one feature moved over whole: "catalog", then "cart", then "discounts". For each feature **golden tests** are written: inputs and expected results are taken from the legacy (the `changing-legacy-code` skill handles this). This proves the new code is no worse than the old, and intentional differences are recorded in the spec.
+Each task is one feature moved over whole: "catalog", then "cart", then "discounts". For each feature **golden tests** are written: inputs and expected results are taken from the legacy (the `changing-legacy-code` skill handles this). This proves the new code is no worse than the old, and intentional differences are recorded in the task file's Decisions.
 
 **6. Move and verify**
 ```
-/eng-kit:implement docs/plans/…-shop-v2.md
+/eng-kit:implement docs/tasks/…-shop-v2.md
 /eng-kit:requesting-code-review
 /eng-kit:finish
 ```
@@ -158,11 +170,11 @@ Each task is one feature moved over whole: "catalog", then "cart", then "discoun
 
 ## A big project: rewriting legacy in parts
 
-One spec isn't enough for such a task. You need a **roadmap** and several short loops, one per part. Example: rewrite `legacy-shop` into `shop-v2`.
+One task file isn't enough for such a task. It becomes several independent tasks, each with its own short loop, chained through **Follow-ups**; no separate file tracks the parts. Example: rewrite `legacy-shop` into `shop-v2`.
 
 **What runs by itself and what you call by hand.** In the terminal there's only `claude`; everything else happens inside the session.
-- **Within one part, skills hand the work over by themselves** and stop at each gate, waiting for your "yes": brainstorming → (spec approved) → writing-plans → (plan approved, inline or subagents chosen) → executing-plans → tests and verify gate → reviewer → finish (your choice).
-- **Moving to the next part is your decision.** That's by design: after each part you look at the result.
+- **Within one task, skills hand the work over by themselves** and stop at each gate, waiting for your "yes": brainstorming → (design approved) → writing-plans → (plan approved, inline or subagents chosen) → executing-plans → tests and verify gate → reviewer → finish (your choice).
+- **Moving to the next task is your decision.** That's by design: after each task you look at the result.
 
 **Phase 0. Map of the old code** (one session)
 ```bash
@@ -172,51 +184,50 @@ cd shop-v2 && claude --add-dir ../legacy-shop
 /eng-kit:onboarding-existing-codebase ../legacy-shop, read-only, result in docs/legacy-map.md
 ```
 
-**Phase 1. Roadmap** (one session)
+**Phase 1. The first task and the Follow-ups** (one session)
 ```
 /eng-kit:brainstorming rewrite legacy-shop based on docs/legacy-map.md. The project is big, split it into parts first
 ```
-Brainstorming writes `docs/specs/…-roadmap.md` and asks you to approve it. It contains:
-- parts with checkboxes;
-- order and dependencies;
-- contracts between parts;
-- a migration plan;
-- open decisions.
+Brainstorming names the independent subsystems before refining any of them and proposes the split: the task to start now, and the rest one line each in its `## Follow-ups`, with order and the contracts between them (API, data, events). For example, the first task file `docs/tasks/…-foundation.md` gets:
 
-For example:
+```markdown
+## Follow-ups
 
-| # | Part | Depends on |
-|---|---|---|
-| 1 | Foundation: stack, CI, DB schema, auth | — |
-| 2 | Catalog | 1 |
-| 3 | Cart and discounts | 2 |
-| 4 | Checkout and payment | 3 |
-| 5 | Admin panel | 2 |
-| 6 | Data migration and cutover from the old system | all |
+- Catalog: port product listing and search from legacy-shop; reads the schema from Foundation.
+- Cart and discounts: after Catalog; the cart API contract from docs/legacy-map.md.
+- Checkout and payment: after Cart; payments-and-money rules, idempotent payment calls.
+- Admin panel: after Catalog, independent of Cart.
+- Data migration and cutover from the old system: last, after all the others.
+```
 
-**Phases 2…N. One part = one loop = one fresh session**
+**Phases 2…N. One task = one task file = one branch = one PR, in a fresh session**
+
+When a task finishes, the agent shows you its Follow-ups and offers to start the next one. You pick it:
 ```
 /clear
-/eng-kit:brainstorming part 2 "Catalog" from the roadmap. We port the behavior from legacy-shop
+/eng-kit:brainstorming Catalog, from the Foundation follow-ups. We port the behavior from legacy-shop
 ```
-From there everything runs by itself: the part's spec → plan → implementation with golden tests on legacy data → review → `finish`. The checkbox in the roadmap is ticked after `finish`. If you open a new session and say "let's continue the project", the agent reads the roadmap and takes the next unticked part.
+From there everything runs by itself: the task file with its description → plan → implementation with golden tests on legacy data → review → the file's lasting content moved into `docs/` and the file deleted → `finish`. The Follow-ups that are still open move into the new task file, so the chain continues. Git keeps each deleted task file, and the PR links it.
 
-**Final phase: migration and cutover.** This is a separate part: `payments-and-money` and `security-review` come in, and the guard asks before migrations and deploys.
+**Final task: migration and cutover.** `payments-and-money` and `security-review` come in, and the guard asks before migrations and deploys.
 
-**If the session was interrupted:** `claude --continue`, or a new session and the phrase "continue the plan docs/plans/…". The `*.progress.md` ledger shows which tasks are already done.
+**If the session was interrupted:** `claude --continue`, or a new session and the phrase "continue docs/tasks/…". The `## Progress` section shows which tasks of the plan are already done.
 
 **Rules:**
-- one part = one spec + one plan + one branch;
-- `/clear` between parts;
-- "subagent per task" for parts with many independent tasks;
-- don't start the next part until the current one has passed `finish`.
+- one task = one task file + one branch + one PR;
+- split only at real seams: each task delivers value or a rollout step and is green on its own; never by size;
+- `/clear` between tasks;
+- "subagent per task" for plans with many independent tasks;
+- don't start the next task until the current one has passed `finish`.
 
-## Spec format
+## Task file format
 
-Every spec is written from the `templates/spec.md` template. Each section has an exact heading, answers one question and doesn't repeat the others. If there's nothing to write, the section says "None"; the section itself isn't removed.
+Every task file is written from the `templates/task.md` template. It stands in for a tracker issue: the sections before Plan are its description. Each section has an exact heading, answers one question and doesn't repeat the others. If there's nothing to write, the section says "None"; the section itself isn't removed.
 
 | Section | The question it answers |
 |---|---|
+| Status / Base / Links | where the work stands, the commit the plan was written from, related issues and decisions |
+| Original request | your words verbatim, collapsed |
 | Intent | one sentence: who gets what and why |
 | Context | up to three sentences: what exists now and what's wrong |
 | Success criteria | a table "No. — observable criterion — how it's checked" |
@@ -225,43 +236,54 @@ Every spec is written from the `templates/spec.md` template. Each section has an
 | Design | only what applies: components, contracts, data, errors, security |
 | Rollout | migration, flags, cutover, rollback, or None |
 | Risks and open questions | risks and questions; an open question blocks approval |
+| Follow-ups | independent pieces left for later, one line each; shown to you when the task finishes |
+| Plan | small tasks with `- [ ]` checkboxes, written by writing-plans |
+| Progress | baseline, drift, rulings, `Task N: complete (…)`; no checkboxes; written by executing-plans |
 
 **Before asking questions** the agent builds a context map: files, patterns, types, test conventions, unfinished work, standards, stack. Then it writes the intent, up to five assumptions and the open questions. After that it asks its questions one at a time.
 
-**Size.** A spec longer than about 300 lines or with more than 10 criteria is several parts, and they should be split out into a roadmap. A roadmap part is one topic, one plan (up to 10 tasks) and one PR (up to about 1000 lines).
+**Size.** A description longer than about 300 lines or with more than 10 criteria usually hides several concerns. If they split at a seam, the rest goes to Follow-ups. A coherent change isn't cut to fit a size: it gets a longer plan and ordered commits.
 
-**The plan** keeps `Base:`, the commit it was written from. Before execution the agent checks whether the plan's files have changed since then, and if they have, re-checks the affected tasks.
+**`Base:`** is the commit the plan was written from. Before execution the agent checks whether the plan's files have changed since then, and if they have, records the drift in Progress and re-checks the affected tasks.
 
-## Spec and plan statuses
+## Task file statuses
 
-Every spec and every plan has `Status:` on its second line. From it, both a new session and a colleague see right away what state the document is in.
+Every task file has `Status:` on its second line. From it, both a new session and a colleague see right away what state the work is in.
 
-| Document | Statuses | Who changes it |
-|---|---|---|
-| Spec `docs/specs/…` | `draft` → `approved (date)` → `implemented (date)`, or `superseded by <path>` | brainstorming sets `draft`, and after your "yes" sets `approved` and commits. executing-plans sets `implemented` at the end |
-| Plan `docs/plans/…` | `draft` → `approved` → `in progress` → `done` | writing-plans and executing-plans |
+| Status | Who sets it |
+|---|---|
+| `draft` | brainstorming (or `/eng-kit:new-task`) writes the description |
+| `design approved (date)` | brainstorming, after your "yes" to the description; commits on the work branch |
+| `plan approved (date)` | writing-plans, after your "yes" to the plan; commits again |
+| `in progress` | executing-plans, when execution starts |
 
-- **Only you approve.** The agent doesn't set `approved` on its own; it only records your "yes".
-- **No plan is written from a draft.** If the spec is in `draft`, writing-plans asks you to approve it first.
-- **Anything approved must be in git.** A hook checks this: if a spec or plan with status `approved`, `implemented`, `superseded` or `done` is uncommitted, the agent can't end its turn until it commits them (one reminder per prompt). The hook doesn't touch drafts and `in progress` plans.
+There is no final status: when the work is finished, what lasts moves into `docs/`, you see the Follow-ups, and the task file is deleted. A task file replaced by a new one is deleted in the same commit.
+
+- **Only you approve.** Description and plan each need their own "yes"; the agent only records it.
+- **No plan is written from a draft.** If the file is in `draft`, writing-plans asks you to approve the description first.
+- **Anything approved must be in git.** A hook checks this: if a task file with status `design approved` or `plan approved` is uncommitted, the agent can't end its turn until it commits it (one reminder per prompt). On `main` it first asks for a work branch. The hook doesn't touch drafts and `in progress` files.
+- **Anything implemented must be deleted.** A task file whose Plan has every checkbox ticked gets the same kind of reminder: move what lasts, show the Follow-ups, delete it.
 - There is no "in review" status: `draft` already means "waiting for your review". Who changed the status and when is visible in the git history.
 
 ## Project documentation: what is created and by which command
 
 | What | Where | Who creates it |
 |---|---|---|
-| Specs, roadmap | `docs/specs/` | `/eng-kit:brainstorming` |
-| Plans and progress ledgers | `docs/plans/` | `/eng-kit:writing-plans`, `/eng-kit:implement` |
+| Task files (description, plan, progress) | `docs/tasks/`, only on the work branch | `/eng-kit:brainstorming` or `/eng-kit:new-task`, then `/eng-kit:writing-plans`, `/eng-kit:implement` |
 | Legacy map | `docs/legacy-map.md` | `/eng-kit:onboarding-existing-codebase` |
 | CLAUDE.md | root | `/eng-kit:onboarding-existing-codebase` |
-| **README, `docs/NN-topic.md` chapters and the `docs/README.md` index** | root, `docs/` | **`/eng-kit:docs`**: a documentation map; after your "yes" it writes everything from the code and the implemented specs |
+| **README, `docs/NN-topic.md` chapters and the `docs/README.md` index** | root, `docs/` | **`/eng-kit:docs`**: a documentation map; after your "yes" it writes everything from the code and the decision records |
 | One chapter | `docs/NN-topic.md` | `/eng-kit:docs poll-engine` |
 | CHANGELOG | `CHANGELOG.md` | `/eng-kit:docs changelog` (from git history) |
-| ADR | `docs/decisions/` | `/eng-kit:docs adr <decision>` |
+| Decision records | `docs/decisions/NNNN-slug.md` | `/eng-kit:docs decision <topic>`, and plan execution when a decision is made |
 
-**From then on, documentation maintains itself.** Every plan has a Post-implementation block: which chapter to update and, for a new feature, which one to create. Plan execution does this in the same branch, a Docs line appears in the report, and the reviewer counts stale documentation as Important.
+**From then on, documentation maintains itself.** Every plan in a task file has a Post-implementation block: which chapter to update and, for a new feature, which one to create. Plan execution does this in the same branch, a Docs line appears in the report, and the reviewer counts stale documentation as Important.
 
-**Example for a project that already has specs but no README:**
+**Decision records are kept current, not piled up.** One topic per file, with a stable number for citations ("see decision 0007"). When a decision changes, its record is rewritten in place; when it no longer applies, it is deleted. There is no status or date: git keeps the history, and the agent reads only the rules that hold now.
+
+**CLAUDE.md points the agent to the docs.** Its Docs section has the index, a "Task → Start with" table, and which source wins: code, tests and CI say what exists; decision records say which rules hold and why; topic docs describe. Rules for one area go into `.claude/rules/*.md` with `paths:` and load only for matching files.
+
+**Example for a project that has code but no README:**
 
 ```
 /eng-kit:docs
@@ -275,18 +297,19 @@ The agent proposes, for example:
 - `docs/04-strangler-routing.md`;
 - CHANGELOG.
 
-After "yes" it writes these documents and links the specs to the chapters.
+After "yes" it writes these documents and lists them in `docs/README.md`.
 
 ## What the guard stops
 
 - `git push --force` and `git commit --no-verify`: denied immediately.
 - `git push`, deploys, migrations: it asks you first.
 - Reading `.env`: denied, so secrets don't reach the model.
+- Creating or merging a PR/MR, a merge or a push into `main` while a task file is in git, or committing a task file on `main`: denied until it's moved and deleted. Pushing the work branch itself only asks. In CI the `working-docs` job fails if `docs/tasks/*.md` is tracked.
 - Everything else is decided by Claude Code's normal permissions.
 
 ## What to commit to the project
 
-`CLAUDE.md`, `.claude/verify.json`, `.claude/guard.json`, `.claude/settings.json`, `docs/specs/`, `docs/plans/`. Don't commit `.claude/settings.local.json`.
+`CLAUDE.md`, `.claude/verify.json`, `.claude/guard.json`, `.claude/settings.json`, `.claude/rules/`, `docs/` (chapters, decision records). Task files are committed only on the work branch and deleted before it merges. Don't commit `.claude/settings.local.json`; personal notes go into the agent's memory, not the repo.
 
 For a team, do one more thing: pin the plugin in the project, and colleagues get it automatically when they open the project.
 
@@ -301,13 +324,13 @@ claude plugin install eng-kit@eng-kit --scope project
 |---|---|
 | `/eng-kit:brainstorming <idea>` | Design before code |
 | `/eng-kit:kit-init` | Set up the project's checks, guard and deny rules |
-| `/eng-kit:writing-plans <spec>` | A plan of small TDD tasks |
-| `/eng-kit:implement <task, plan or phrase>` | Implementation with tests and a report |
+| `/eng-kit:writing-plans <task file>` | A plan of small TDD tasks in the task file |
+| `/eng-kit:implement <task file or phrase>` | Implementation with tests and a report; a task file with a Plan goes to executing-plans |
 | `/eng-kit:systematic-debugging <symptom>` | Finding a bug's root cause |
 | `/eng-kit:requesting-code-review` | Review by the `reviewer` agent |
 | `/eng-kit:verify` | Run the checks |
-| `/eng-kit:new-task <what to do>` | A task with criteria |
-| `/eng-kit:docs [topic \| changelog \| adr …]` | Project documentation: README, docs chapters, CHANGELOG, ADR |
+| `/eng-kit:new-task <what to do>` | A task file with only the description and criteria |
+| `/eng-kit:docs [topic \| changelog \| decision …]` | Project documentation: README, docs chapters, CHANGELOG, decision records |
 | `/eng-kit:finish` | merge / PR / keep / discard |
 | "watch CI" after push | CI through `gh pr checks --watch`: up to 2 attempts per failed check, then a question; the agent doesn't merge by itself |
 | `/eng-kit:ci-quality-gates` | The project's CI: commands from verify.json, `gate`, secrets, audit, migrations, e2e without retries. `/eng-kit:kit-init` shows whether all the checks are in CI |

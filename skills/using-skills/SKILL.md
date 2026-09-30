@@ -19,7 +19,7 @@ Precedence: the user's direct instructions, then project files (CLAUDE.md, AGENT
 |---|---|---|
 | Spike | "can we…", a feasibility question, throwaway code | State the question and the probe, get a nod, investigate, report a recommendation |
 | Bounded | A small change to a flow that already exists in this repo | Short design in chat → approval → test-driven-development → verification-before-completion |
-| Architectural | A new project, subsystem or interface, or a change across components | brainstorming → spec → writing-plans → executing-plans → requesting-code-review |
+| Architectural | A new project, subsystem or interface, or a change across components | brainstorming → task file → writing-plans → executing-plans → requesting-code-review |
 
 When unsure, take the heavier path. If hidden complexity shows up mid-task, stop, say so, and move up a path. Never move down mid-task.
 
@@ -33,7 +33,7 @@ When unsure, take the heavier path. If hidden complexity shows up mid-task, stop
 | Bug, failing test, unexpected behavior | systematic-debugging |
 | Unfamiliar or legacy repo, no CLAUDE.md | onboarding-existing-codebase |
 | New project, or a technology choice | choosing-a-stack |
-| Continuing a large project | its `docs/specs/*-roadmap.md`: next unchecked piece |
+| Continuing work | the branch's `docs/tasks/*.md`: its Plan and Progress |
 | About to say done, fixed or passing | verification-before-completion |
 | Web, mobile or desktop code | the platform skill: web-frontend, mobile-development, desktop-development |
 | Money, payments, POS or fiscal, auth and other security-sensitive code | the domain skill: payments-and-money, pos-systems, security-review |
@@ -53,7 +53,7 @@ When unsure, take the heavier path. If hidden complexity shows up mid-task, stop
 - The user can type `/<name>` (`/eng-kit:<name>` as a plugin).
 - **Verification:** the kit verify script ("Kit verify script" in the session context) runs `.claude/verify.json` or CLAUDE.md's Commands; prefer it as completion evidence. A Stop hook returns you once if files changed after the last green run.
 - **Delegation:** for a subagent use the Agent tool: `Explore` to scout, `reviewer` to review, `implementer` for one plan task. Send independent agents in one message, each with a self-contained prompt.
-- **Tasks:** use a todo for multi-step work; plans keep their `- [ ]` checkboxes and ledger.
+- **Tasks:** use a todo for multi-step work; task files keep their Plan checkboxes and Progress.
 - **Guard:** a hook denies irreversible or secret-leaking calls and asks before outward-facing ones. Never reword a denied command to get past it; ask.
 
 ## Red flags
