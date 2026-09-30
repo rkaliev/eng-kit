@@ -132,6 +132,8 @@ claude plugin validate .
 
 Edit skills with the `writing-skills` skill, and keep `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.ru.md` in sync.
 
+**Releasing:** bump `version` in `package.json` and `.claude-plugin/plugin.json`, add its `## X.Y.Z` section to `CHANGELOG.md`, and merge to `main`. CI checks both on every PR, and after a green run on `main` it creates the `vX.Y.Z` tag and GitHub Release with that section as the notes.
+
 ## License
 
 MIT, see [LICENSE](LICENSE). Third-party notices: [NOTICE.md](NOTICE.md).
