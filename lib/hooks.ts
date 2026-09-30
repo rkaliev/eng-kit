@@ -17,7 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkReview, recordReview } from "./reviews.ts";
+import { checkGateFiles, checkReview, recordReview } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
@@ -115,9 +115,10 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		decision = checkCommand(command, env.projectDir, config);
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
+		if (decision.action !== "block") decision = checkGateFiles(command, ".claude/guard.json") ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {
-			const options = { ignore: resolveIgnore(env.projectDir), workDocs, missing: "block" as const };
-			decision = checkReview(command, env.projectDir, options, env.reviewsRoot) ?? decision;
+			const options = { workDocs, missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json' };
+			decision = checkReview(command, cwd, env.projectDir, options, env.reviewsRoot) ?? decision;
 		}
 	} else if (tool === "Read" || tool === "Grep") {
 		const path = String(args.file_path ?? args.path ?? "");
@@ -236,11 +237,24 @@ export function runsVerifyScript(shell: string): boolean {
 	return /scripts[\\/]verify\.ts\b/.test(shell);
 }
 
-/** The kit reviewer (plugin `eng-kit:reviewer`, project install `reviewer`) ends with its verdict: stamp it. */
+/**
+ * The kit reviewer (plugin `eng-kit:reviewer`, project install `reviewer`) ends with its verdict: record it.
+ * A report without the verdict lines sends the reviewer back once to add them.
+ */
 function subagentStop(input: HookInput, env: HookEnv): HookResult {
-	if (!/(^|:)reviewer$/.test(input.agent_type ?? "")) return {};
-	const result = recordReview(env.projectDir, input.last_assistant_message ?? "", input.prompt_id, env.reviewsRoot);
-	return typeof result === "string" ? { warning: `eng-kit review gate: no stamp recorded: ${result}.` } : {};
+	if (!/^(eng-kit:)?reviewer$/.test(input.agent_type ?? "")) return {};
+	const ids = { promptId: input.prompt_id || input.session_id || "none", run: input.agent_id || "none" };
+	const result = recordReview(env.projectDir, input.last_assistant_message ?? "", ids, env.reviewsRoot);
+	if (typeof result !== "string") return {};
+	const warning = `eng-kit review gate: no verdict recorded: ${result}.`;
+	if (input.stop_hook_active) return { warning };
+	return {
+		warning,
+		output: {
+			decision: "block",
+			reason: `Review gate: ${result}. End your report with exactly two lines: \`Reviewed HEAD: <the SHA you reviewed>\` and \`Ready to merge: <one of Yes, No, With fixes, Inconclusive>\`.`,
+		},
+	};
 }
 
 function stop(input: HookInput, env: HookEnv): HookResult {

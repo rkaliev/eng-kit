@@ -28,12 +28,7 @@ A review in a fresh context catches what the author's context hides. The reviewe
 
 ## Review gate
 
-The guard denies opening or merging a PR/MR, merging into the base branch and pushing to it unless the kit reviewer's last verdict is `Yes` for the commit being landed. The hook records the verdict from the reviewer's own `Reviewed HEAD:` and `Ready to merge:` lines when the reviewer finishes; you never write it yourself.
-
-- A commit after the review that touches more than task files or ignored paths (docs by default) needs a new review. Deleting the task files after the final review doesn't.
-- `With fixes`, `No` and `Inconclusive` all block: fix, then re-review the new range.
-- Parallel reviewers dispatched for one user prompt combine to the worst verdict. A finding you pushed back on without changing code is withdrawn by a re-review in a later prompt, after the user has seen your reasoning.
-- A branch that only changes ignored paths needs no review. Only the user can waive the gate (`"reviewGate": false` in `.claude/guard.json`, whose edits the guard asks about). A self-review in a separate pass does not satisfy the gate.
+The guard denies a PR/MR, a merge into the base branch and a push to it unless the kit reviewer's last verdict is `Yes` for the change being landed. The hook records the verdict from the reviewer's own lines; you never write it. Land in a command of its own. The rules (what stays valid after a review, what needs a new one, how parallel verdicts combine, the waiver) are in `references/review-gate.md`.
 
 ## Reviewer rules (they are in the prompt too)
 

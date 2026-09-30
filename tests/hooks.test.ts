@@ -334,13 +334,18 @@ test("review gate: SubagentStop stamps the kit reviewer's verdict; the guard let
 	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 	const pr = () => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
-	const stopOf = (agent_type: string, last_assistant_message: string) => call({ hook_event_name: "SubagentStop", agent_type, last_assistant_message, prompt_id: "p1" });
+	const stopOf = (agent_type: string, last_assistant_message: string, stop_hook_active = false) =>
+		call({ hook_event_name: "SubagentStop", agent_type, last_assistant_message, prompt_id: "p1", agent_id: "a1", stop_hook_active });
 	const verdict = `Reviewed HEAD: ${head.slice(0, 8)}\nReady to merge: Yes`;
 
 	assert.equal(decision(pr()), "deny");
 	assert.deepEqual(stopOf("Explore", verdict), {}, "other agents never stamp");
+	assert.deepEqual(stopOf("other-plugin:reviewer", verdict), {}, "only the kit's reviewer");
 	assert.equal(decision(pr()), "deny");
-	assert.match(String(stopOf("eng-kit:reviewer", "Looks fine.").warning), /no stamp recorded/);
+	const missing = stopOf("eng-kit:reviewer", "Looks fine.");
+	assert.equal(missing.output?.decision, "block", "a report without the verdict lines sends the reviewer back");
+	assert.match(String(missing.output?.reason), /Reviewed HEAD: <the SHA you reviewed>/);
+	assert.equal(stopOf("eng-kit:reviewer", "Still fine.", true).output, undefined, "only once");
 	assert.deepEqual(stopOf("eng-kit:reviewer", verdict), {});
 	assert.equal(decision(pr()), undefined);
 
@@ -356,4 +361,7 @@ test("review gate: the agent can't loosen the guard or write a stamp itself", ()
 	const pre = (tool_name: string, file_path: string) => call({ hook_event_name: "PreToolUse", tool_name, tool_input: { file_path, content: "{}" } });
 	assert.equal(decision(pre("Edit", join(projectDir, ".claude", "guard.json"))), "ask");
 	assert.equal(decision(pre("Write", join(tmpdir(), "eng-kit", "reviews", "x.json"))), "deny");
+	const bash = (command: string) => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } }));
+	assert.equal(bash(`echo '{"reviewGate":false}' > .claude/guard.json`), "ask");
+	assert.equal(bash(`echo x > ${join(tmpdir(), "eng-kit", "reviews", "x.json")}`), "deny");
 });
