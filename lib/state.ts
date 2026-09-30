@@ -11,9 +11,9 @@ export interface SessionState {
 	green: string[];
 	/** The Stop gate already sent its one reminder for the current user prompt. */
 	reminded: boolean;
-	/** The approval gate already reminded about uncommitted approved specs or plans this prompt. */
+	/** The approval gate already reminded about uncommitted approved task files this prompt. */
 	approvalReminded: boolean;
-	/** The working-docs gate already reminded about implemented plans or roadmaps this prompt. */
+	/** The working-docs gate already reminded about implemented task files this prompt. */
 	workDocsReminded: boolean;
 	/** Project-relative paths edited since the last green run, newest last (at most 5). */
 	edited: string[];

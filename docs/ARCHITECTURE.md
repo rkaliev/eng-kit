@@ -15,10 +15,10 @@ This document describes how the plugin works and why it works that way. What plu
 
 ## 1. The idea in four sentences
 
-1. **The process scales with the size of the task.** A small change takes the short path, an architectural one takes the full path from spec to review. When in doubt, choose the heavier path. Risk sets the floor: CI and release pipelines, permissions, auth, secrets, money, schema and deploy config never take the short path, however small the change.
+1. **The process scales with the size of the task.** A small change takes the short path, an architectural one takes the full path from a task file to review. When in doubt, choose the heavier path. Risk sets the floor: CI and release pipelines, permissions, auth, secrets, money, schema and deploy config never take the short path, however small the change.
 2. **The model doesn't decide by itself that the work is done.** The project's checks decide: the Stop hook sends the agent back to work if there was no green run after the edits.
 3. **Anything irreversible or outward-facing goes through a human.** The PreToolUse hook (guard) blocks dangerous commands and asks for confirmation on push, deploy, migrations and publishing.
-4. **Working documents stay on the work branch.** Spec, plan and ledger never reach the base branch: what lasts moves into `docs/`, and the guard blocks a PR or merge while they exist.
+4. **Task files stay on the work branch.** A task file (description, plan and progress of one piece of work) never reaches the base branch: what lasts moves into `docs/`, and the guard blocks a PR or merge while it exists.
 
 ---
 
@@ -50,8 +50,8 @@ This document describes how the plugin works and why it works that way. What plu
 idea ──/brainstorming──▶ classification: Spike | Bounded | Architectural
   Spike ─────────▶ probe → recommendation (throwaway code)
   Bounded ───────▶ design in chat → "yes" → /implement (TDD) → verify → report
-  Architectural ─▶ spec → "yes" → /writing-plans → "yes" → /implement (executing-plans)
-                    → reviewer agent → move what lasts to docs/, delete working docs
+  Architectural ─▶ task file → "yes" → /writing-plans → "yes" → /implement (executing-plans)
+                    → reviewer agent → move what lasts to docs/, delete the task file
                     → /finish (merge / PR / keep / discard)
 bug ──/systematic-debugging──▶ root cause → failing test → one fix → verify
 someone else's repo ──/onboarding-existing-codebase──▶ map → proven commands → CLAUDE.md + .claude/verify.json
@@ -65,11 +65,12 @@ someone else's repo ──/onboarding-existing-codebase──▶ map → proven 
 
 ---
 
-**The spec** is written from the `templates/spec.md` template:
-- sections Intent / Context / Success criteria / Scope / Decisions / Design / Rollout / Risks;
-- each has an exact heading and one question; an empty section is marked "None".
+**The task file** `docs/tasks/YYYY-MM-DD-<slug>.md` is written from the `templates/task.md` template and stands in for a tracker issue: the description on top, the plan and progress appended below it:
+- Status / Base / Links, the original request verbatim, then Intent / Context / Success criteria / Scope / Decisions / Design / Rollout / Risks / Follow-ups, then Plan and Progress;
+- each has an exact heading and one question; an empty section is marked "None";
+- status: draft → design approved (brainstorming, your "yes") → plan approved (writing-plans fills `## Plan`, your "yes") → in progress. Bounded work stays in chat, with no file.
 
-Before asking questions, the agent builds a **context map** (`brainstorming/references/context-map.md`): tickets, old plans and docs count as hypotheses to check against the code. Then it writes down the intent, assumptions and open questions. A plan has a `Base:` with a commit SHA; during execution the agent checks whether the code has drifted. A PR has a description format, and one topic per PR.
+Before asking questions, the agent builds a **context map** (`brainstorming/references/context-map.md`): tickets, old plans and docs count as hypotheses to check against the code. Then it writes down the intent, assumptions and open questions. The task file has a `Base:` with a commit SHA; during execution the agent checks whether the code has drifted and keeps its log in `## Progress`. A PR has a description format, and one topic per PR.
 
 ---
 
@@ -83,8 +84,8 @@ One file, `hooks/hook.ts`, handles all events. It reads JSON from stdin, and the
 | `PreToolUse` | Guard: `permissionDecision: "deny"` or `"ask"`. It has no opinion on other calls | `ask` shows the native permission dialog; in `-p` without a UI such a call is denied. The guard never grants "allow", so Claude Code's own permission rules keep applying |
 | `PostToolUse` / `PostToolUseFailure` | Tracker: after Edit/Write/MultiEdit/NotebookEdit the workspace is "unverified". An exact, unpiped run of a verify command marks it green; a non-zero exit code marks it red | Hooks are separate processes, so the state is kept in a file per `session_id` in `${CLAUDE_PLUGIN_DATA}` (in folder mode, in the temp directory) |
 | `Stop` | If the workspace is unverified: `{"decision":"block","reason":…}`, once per prompt, and never when `stop_hook_active` | The model doesn't decide by itself that the work is done. One reminder per prompt keeps the gate from looping |
-| `Stop` (approval gate) | If a spec or plan in `docs/specs` / `docs/plans` with `Status: approved` is uncommitted: `block` with the list of files, once per prompt. On the base branch it says to create a work branch first | An approval that isn't in git can get lost or change unnoticed. The skill asks for this, but the model can skip text, and a hook can't be skipped |
-| `Stop` (working-docs gate) | If a plan has all its checkboxes ticked, or a roadmap has no open piece: `block` with the list of files, once per prompt, asking to move what lasts into `docs/` and delete them | An implemented working document left in the tree becomes a stale second source of truth |
+| `Stop` (approval gate) | If a task file in `docs/tasks` with `Status: design approved` or `plan approved` is uncommitted: `block` with the list of files, once per prompt. On the base branch it says to create a work branch first | An approval that isn't in git can get lost or change unnoticed. The skill asks for this, but the model can skip text, and a hook can't be skipped |
+| `Stop` (working-docs gate) | If a task file has every box in its Plan section ticked: `block` with the list of files, once per prompt, asking to move what lasts into `docs/` and `docs/decisions/`, show the Follow-ups and delete it | An implemented task file left in the tree becomes a stale second source of truth |
 | `UserPromptSubmit` | Re-arms all three gates for the new prompt | — |
 
 `scripts/verify.ts` runs the commands from `.claude/verify.json` (otherwise from `## Commands` in CLAUDE.md or AGENTS.md) and exits with code 0 only if everything is green. The tracker counts such a run as full evidence.
@@ -119,10 +120,10 @@ The hook code is the same in both modes. The kit root is the parent folder of `h
 4. mechanical checks (links, markdownlint, doc-comment linters, API reference generation): `writing-documentation/references/checks.md` suggests adding them to the project's verify and CI.
 
 **Two kinds of documents.**
-- **Working** documents: spec, plan, ledger (`*.progress.md`), roadmap, legacy map. Created as work goes on (`brainstorming`, `writing-plans`, `executing-plans`), they record intent and progress. Spec, plan and ledger live only on the work branch.
+- **Working** documents: the task file (`docs/tasks/`) and the legacy map. The task file is filled as work goes on (`brainstorming` writes the description, `writing-plans` the Plan, `executing-plans` the Progress) and records intent and progress. It lives only on the work branch.
 - **System** documents: README, `docs/NN-topic.md` chapters with the `docs/README.md` index, decision records in `docs/decisions/`, CHANGELOG. They describe what exists now. `/docs` creates them, and the Post-implementation block and the docs step during plan execution keep them current.
 
-At the end of plan execution, what lasts moves out of the working documents: behavior into the chapter about that feature, decisions and lasting rulings into `docs/decisions/`. Then spec, plan and ledger are deleted in one commit (`docs: remove working docs for <feature>`); git keeps them, and the PR body links them at the last commit that had them. A replaced spec is deleted too. The only exception is the **roadmap**: it lives on the base branch while it has open pieces, as the memory between pieces and sessions, and the last piece deletes it. A roadmap is split only at real seams: each piece delivers value or a rollout step and is green on its own.
+At the end of plan execution, what lasts moves out of the task file: behavior into the chapter about that feature, decisions and lasting rulings into `docs/decisions/`. The user sees its Follow-ups, then the file is deleted in one commit (`docs: remove the task file for <feature>`); git keeps it, and the PR body links it at the last commit that had it. A replaced task file is deleted too. There is no roadmap: several independent subsystems become separate tasks, one now and the rest one line each in `## Follow-ups`, and each later one gets its own task file, branch and PR. Work is split only at real seams, never by size: each task delivers value or a rollout step and is green on its own.
 
 **Decision records** are living documents: `docs/decisions/NNNN-slug.md`, one topic per file, a stable number for citations. When a decision changes, its record is rewritten in place; when it no longer applies, the record is deleted. There is no status, date or changelog; the sections are Decision, Why, Consequences, Considered and rejected. Every document keeps only its current version, so the context stays small and consistent.
 
@@ -152,12 +153,12 @@ Claude Code ignores the `hooks`, `mcpServers` and `permissionMode` fields for pl
 | recursive `rm` outside the project and temp | DB migrations, `DROP` / `TRUNCATE` |
 | reading `.env*` (except `.example` and similar), keys, keystores, credentials (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`, `curl … \| sh` |
 | writing into `.git/` and `protectedPaths` | shell access to secret files, writing a secret file |
-| `gh pr create/merge`, `glab mr create/merge`, `git merge` into the base and `git push` to the base while specs, plans or ledgers are tracked (open roadmaps are allowed) | editing CI and release pipelines (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile` and similar) |
-| `git commit` on the base branch with staged working documents | |
+| `gh pr create/merge`, `glab mr create/merge`, `git merge` into the base and `git push` to the base while a task file is tracked | editing CI and release pipelines (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile` and similar) |
+| `git commit` on the base branch with a staged task file | |
 
 Pushing the work branch itself is allowed (it still asks, like any push).
 
-`.claude/guard.json`: `block`, `confirm`, `allow` (regex), `protectedPaths` and `workDocs` (the working-document folders, default `["docs/specs", "docs/plans"]`; `[]` turns the rule off). `allow` only removes a question and never removes a block. A separate trust check isn't needed: Claude Code applies project hooks and settings only after the user trusts the folder.
+`.claude/guard.json`: `block`, `confirm`, `allow` (regex), `protectedPaths` and `workDocs` (the task-file folders, default `["docs/tasks"]`; `[]` turns the rule off). `allow` only removes a question and never removes a block. A separate trust check isn't needed: Claude Code applies project hooks and settings only after the user trusts the folder.
 
 In addition, `kit-init` adds native deny rules `Read(**/.env)`, `Read(**/*.pem)` and so on to `.claude/settings.json`. This is defense in depth: they work even if hooks are disabled.
 
@@ -189,20 +190,20 @@ In addition, `kit-init` adds native deny rules `Read(**/.env)`, `Read(**/*.pem)`
 - **The agent session.** TDD, the verify gate after every edit, the approval and working-docs gates, the guard, review. Catches a problem right away, while the agent is working.
 - **The project's CI** (`ci-quality-gates`). Runs on every change, whoever made it, and doesn't depend on hooks or the model:
   - at minimum, everything from `verify.json`;
-  - the `working-docs` job, so specs, plans and ledgers don't reach the base branch from any author;
+  - the `working-docs` job, which fails on any tracked `docs/tasks/*.md`, so task files don't reach the base branch from any author;
   - one required `gate`;
   - by stack and only with your "yes": test hygiene, e2e without retries with a count of tests run, secret scanning and dependency audit, migrations and schema drift, contracts, coverage as a floor on a schedule.
 - **Linking the layers:**
   - `kit-init` mechanically checks that CI runs every verify command and has the working-docs job;
   - review counts a command missing from CI, a weakened check and a broken project rule as Important.
-- **BDD** is an optional acceptance layer (`test-driven-development/references/bdd.md`). Each user-visible spec criterion is one scenario tagged with the criterion. The result is a chain "criterion → scenario → CI".
+- **BDD** is an optional acceptance layer (`test-driven-development/references/bdd.md`). Each user-visible criterion of the task file is one scenario tagged with the criterion. The result is a chain "criterion → scenario → CI".
 
 ---
 
 ## Testing
 
 The foundation is the iron rule of TDD: a failing test first, then minimal code, then a run of the whole suite. Everything else is collected in the standard `test-driven-development/references/test-standard.md`:
-- **expected values** come from the spec or the criterion, not from the code's output; characterization tests are marked separately;
+- **expected values** come from the task file's criterion, not from the code's output; characterization tests are marked separately;
 - **a test must pay for itself:** no tests of constants, config, schema shape, "it renders", echoing a mock; identical cases are merged into a parameterized test;
 - **structure and names:** Arrange–Act–Assert, one behavior per test, name = subject + circumstance + result;
 - **mocks:** only unmanaged dependencies are faked; your own DB and queues are real in integration tests;

@@ -236,44 +236,46 @@ function gitRepo(files: Record<string, string>): string {
 	return dir;
 }
 
-test("approval gate: an approved spec or plan must be committed before stopping", () => {
+test("approval gate: an approved design or plan must be committed before stopping", () => {
 	const projectDir = gitRepo({
-		"docs/specs/2026-01-01-a.md": "# A\n\nStatus: approved (2026-01-01)\n",
-		"docs/specs/2026-01-01-b.md": "# B\n\nStatus: draft\n",
-		"docs/plans/2026-01-01-a.md": "# Plan\n\n**Status:** in progress\n",
+		"docs/tasks/2026-01-01-a.md": "# A\n\nStatus: design approved (2026-01-01)\n",
+		"docs/tasks/2026-01-01-b.md": "# B\n\nStatus: draft\n",
+		"docs/tasks/2026-01-01-c.md": "# C\n\n**Status:** in progress\n",
+		"docs/tasks/2026-01-01-d.md": "# D\n\n**Status:** plan approved (2026-01-01)\n",
 	});
 	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 
 	const first = call({ hook_event_name: "Stop" }).output;
 	assert.equal(first?.decision, "block");
-	assert.match(String(first?.reason), /Approval gate: .*docs\/specs\/2026-01-01-a\.md/);
-	assert.doesNotMatch(String(first?.reason), /2026-01-01-b\.md|docs\/plans/, "drafts and plans in progress don't count");
+	assert.match(String(first?.reason), /Approval gate: .*docs\/tasks\/2026-01-01-a\.md/);
+	assert.match(String(first?.reason), /docs\/tasks\/2026-01-01-d\.md/);
+	assert.doesNotMatch(String(first?.reason), /2026-01-01-[bc]\.md/, "drafts and tasks in progress don't count");
 	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "one reminder per prompt");
 	assert.equal(call({ hook_event_name: "Stop", stop_hook_active: true }).output, undefined);
 
-	spawnSync("git", ["add", "docs/specs/2026-01-01-a.md"], { cwd: projectDir });
+	spawnSync("git", ["add", "docs/tasks/2026-01-01-a.md", "docs/tasks/2026-01-01-d.md"], { cwd: projectDir });
 	spawnSync("git", ["commit", "-qm", "docs: approve a"], { cwd: projectDir });
 	call({ hook_event_name: "UserPromptSubmit" });
 	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "committed: nothing to remind");
 
-	writeFileSync(join(projectDir, "docs/specs/2026-01-01-a.md"), "# A\n\nStatus: approved (2026-01-01)\n\nEdited after approval.\n");
+	writeFileSync(join(projectDir, "docs/tasks/2026-01-01-a.md"), "# A\n\nStatus: design approved (2026-01-01)\n\nEdited after approval.\n");
 	call({ hook_event_name: "UserPromptSubmit" });
 	const edited = String(call({ hook_event_name: "Stop" }).output?.reason);
 	assert.match(edited, /Approval gate/, "an edit after approval must be committed too");
 	assert.match(edited, /create a work branch/, "the repo is on its base branch");
 
-	writeFileSync(join(projectDir, "docs/specs/2026-01-01-a.md"), "# A\n\nStatus: implemented (2026-01-02)\n");
+	writeFileSync(join(projectDir, "docs/tasks/2026-01-01-a.md"), "# A\n\nStatus: in progress\n");
 	call({ hook_event_name: "UserPromptSubmit" });
-	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "implemented working docs are deleted, not committed");
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "work in progress is committed with the code, not by the gate");
 });
 
-test("working docs: guard blocks a PR while they exist; Stop reminds once to delete a finished plan", () => {
+test("task files: guard blocks a PR while they exist; Stop reminds once to delete a finished one", () => {
 	const projectDir = gitRepo({});
 	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" });
 	git("switch", "-qc", "feat/a");
-	mkdirSync(join(projectDir, "docs/plans"), { recursive: true });
-	writeFileSync(join(projectDir, "docs/plans/p.md"), "# Plan\n\n**Status:** in progress\n\n- [x] one\n- [ ] two\n");
+	mkdirSync(join(projectDir, "docs/tasks"), { recursive: true });
+	writeFileSync(join(projectDir, "docs/tasks/p.md"), "# P\n\nStatus: in progress\n\n## Plan\n\n- [x] one\n- [ ] two\n\n## Progress\n");
 	git("add", "-A");
 	git("commit", "-qm", "docs: plan");
 	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
@@ -282,22 +284,22 @@ test("working docs: guard blocks a PR while they exist; Stop reminds once to del
 
 	const pr = bash("gh pr create --fill");
 	assert.equal(decision(pr), "deny");
-	assert.match((pr.output!.hookSpecificOutput as Record<string, string>).permissionDecisionReason!, /^Guard: Working documents would reach .*docs\/plans\/p\.md/);
+	assert.match((pr.output!.hookSpecificOutput as Record<string, string>).permissionDecisionReason!, /^Guard: Task files would reach .*docs\/tasks\/p\.md/);
 	assert.equal(decision(bash("git push -u origin feat/a")), "ask", "the work branch may be pushed after confirmation");
 	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "a plan with open tasks is not finished");
 
-	writeFileSync(join(projectDir, "docs/plans/p.md"), "# Plan\n\n**Status:** in progress\n\n- [x] one\n- [x] two\n");
+	writeFileSync(join(projectDir, "docs/tasks/p.md"), "# P\n\nStatus: in progress\n\n## Plan\n\n- [x] one\n- [x] two\n\n## Progress\n");
 	const first = call({ hook_event_name: "Stop" }).output;
 	assert.equal(first?.decision, "block");
-	assert.match(String(first?.reason), /Working-docs gate: .*docs\/plans\/p\.md/);
+	assert.match(String(first?.reason), /Working-docs gate: .*docs\/tasks\/p\.md/);
 	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "one reminder per prompt");
 	call({ hook_event_name: "UserPromptSubmit" });
 	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /Working-docs gate/);
 
 	const off = gitRepo({ ".claude/guard.json": JSON.stringify({ workDocs: [] }) });
 	spawnSync("git", ["switch", "-qc", "feat/b"], { cwd: off });
-	mkdirSync(join(off, "docs/plans"), { recursive: true });
-	writeFileSync(join(off, "docs/plans/p.md"), "- [x] done\n");
+	mkdirSync(join(off, "docs/tasks"), { recursive: true });
+	writeFileSync(join(off, "docs/tasks/p.md"), "## Plan\n\n- [x] done\n");
 	spawnSync("git", ["add", "-A"], { cwd: off });
 	spawnSync("git", ["commit", "-qm", "x"], { cwd: off });
 	const offEnv: HookEnv = { ...env, projectDir: off, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) };
@@ -306,14 +308,14 @@ test("working docs: guard blocks a PR while they exist; Stop reminds once to del
 });
 
 test("approval gate and verify gate combine into one reminder; no git repo means no approval gate", () => {
-	const projectDir = gitRepo({ "docs/plans/p.md": "# P\n\n**Status:** approved\n", "CLAUDE.md": "## Commands\n- `npm test`\n" });
+	const projectDir = gitRepo({ "docs/tasks/p.md": "# P\n\n**Status:** plan approved\n", "CLAUDE.md": "## Commands\n- `npm test`\n" });
 	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
 	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
 	assert.match(reason, /Verify gate/);
-	assert.match(reason, /Approval gate: .*docs\/plans\/p\.md/);
+	assert.match(reason, /Approval gate: .*docs\/tasks\/p\.md/);
 
-	const { call: plain } = setup({ "docs/specs/x.md": "Status: approved\n" });
+	const { call: plain } = setup({ "docs/tasks/x.md": "Status: design approved\n" });
 	assert.equal(plain({ hook_event_name: "Stop" }).output, undefined);
 });

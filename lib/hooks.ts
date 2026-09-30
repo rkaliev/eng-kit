@@ -3,11 +3,11 @@
  * `hooks/hook.ts` wires them to stdin/stdout; tests call them directly.
  *
  * - SessionStart: loads the using-skills rules into the session (bootstrap).
- * - PreToolUse: guard, which denies irreversible or secret-leaking calls and working documents reaching the base
+ * - PreToolUse: guard, which denies irreversible or secret-leaking calls and task files reaching the base
  *   branch, and asks before outward-facing ones.
  * - PostToolUse / PostToolUseFailure: the verify tracker (edits make the workspace unverified; green runs clear it).
- * - Stop: the verify gate, the approval gate (approved specs/plans must be committed) and the working-docs gate
- *   (implemented plans and roadmaps must be deleted), at most one reminder each per user prompt.
+ * - Stop: the verify gate, the approval gate (an approved design or plan must be committed) and the working-docs gate
+ *   (implemented task files must be deleted), at most one reminder each per user prompt.
  * - UserPromptSubmit: re-arms the gate for the new prompt.
  */
 import { existsSync, readFileSync } from "node:fs";

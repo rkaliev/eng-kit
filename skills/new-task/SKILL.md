@@ -7,4 +7,4 @@ argument-hint: "<what should be done>"
 
 Request: $ARGUMENTS
 
-Write a task in the format of `../../templates/task.md` (in a project install: `.claude/eng-kit/templates/task.md`): a title, 1–2 sentences of intent, numbered observable criteria (including empty and error states), constraints, and what is out of scope. Ask one question at a time about anything ambiguous. Save it to `tasks/<NN>-<slug>.md`, or wherever the project keeps tasks, and show it to me.
+Write a task file from `../../templates/task.md` (in a project install: `.claude/eng-kit/templates/task.md`) with only the description: the request verbatim, the intent, numbered observable criteria (including empty and error states), scope, and constraints under Decisions; the other sections say "None", Plan and Progress "None yet". Ask one question at a time about anything ambiguous. Save it to `docs/tasks/YYYY-MM-DD-<slug>.md` and show it to me. Commit it only on a work branch: task files never reach the base branch.
