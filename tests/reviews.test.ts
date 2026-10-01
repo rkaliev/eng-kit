@@ -450,3 +450,11 @@ test("a project reached through a symlink keeps its review records", () => {
 	symlinkSync(dir, link);
 	assert.equal(readReviews(link, root)[0]?.sha, head);
 });
+
+test("a backslash-escaped quote doesn't hide a landing from the gate", () => {
+	const { check } = repo();
+	for (const sneaky of ["echo \\' ; gh pr create --fill ; echo \\'", 'echo "a\\\\" ; gh pr create --fill',"echo $'\\'' ; gh pr create --fill ; echo '"]) {
+		assert.equal(action(check(sneaky)), "block", sneaky);
+	}
+	assert.equal(stripRedirects("echo \\' > f").replace(/\s+/g, " ").trim(), "echo \\'", "an escaped quote opens no quote");
+});

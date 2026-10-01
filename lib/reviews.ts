@@ -386,9 +386,26 @@ export function stripRedirects(command: string): string {
 	while (i < command.length) {
 		const ch = command[i]!;
 		if (quote) {
-			if (ch === quote) quote = null;
+			// A backslash escapes the next character in "…" and $'…', never in '…'.
+			if (ch === "\\" && quote !== "'" && i + 1 < command.length) {
+				out += command.slice(i, i + 2);
+				i += 2;
+				continue;
+			}
+			if (ch === (quote === "$'" ? "'" : quote)) quote = null;
 			out += ch;
 			i++;
+			continue;
+		}
+		if (ch === "\\") {
+			out += command.slice(i, i + 2);
+			i += 2;
+			continue;
+		}
+		if (ch === "$" && command[i + 1] === "'") {
+			quote = "$'";
+			out += "$'";
+			i += 2;
 			continue;
 		}
 		if (ch === "'" || ch === '"') {
