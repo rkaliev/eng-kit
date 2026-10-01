@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.0
+
+- **The review gate covers the whole branch.** The reviewer ends with three lines: `Reviewed BASE:`, `Reviewed HEAD:` and `Ready to merge:`. A `Yes` counts only when its range reaches the remote base (`origin/<base>`, or the local base without a remote), directly or through earlier rounds whose own ranges do, up to 20 rounds. A review of only the last commit, an empty range and a chain broken by a rebase cover nothing. **Records written by 0.13.0 have no range: after updating, review each branch once more.**
+- **Earlier findings come from the store.** The hook keeps each reviewer's report with its verdict, and `scripts/review-log.ts <rev>` prints a commit's latest round. A repeat round's reviewer runs it itself, so the author no longer passes the findings on.
+- **A PR the agent opened is a landing.** After a successful `gh pr create` or `glab mr create`, a push to that branch needs the same review. The branch is forgotten once the PR's head is on the base, or after 30 days. PRs opened elsewhere are not seen.
+- **The reviewer only reads.** In the reviewer subagent the guard allows only inspection commands, `git worktree add/remove` in the temp folder, the project's verification commands and review-log. Substitutions, writing redirections, git's `-c`/`--output` and everything else are denied.
+- **The guard fails closed.** A crash while handling PreToolUse answers `ask` with the error instead of exiting 1, which let the call through.
+- The reviewer reads the project's rules as they are on the range's BASE. A parallel security-focused reviewer is required for money, auth, permissions, secrets, schema, CI and release or deploy config.
+- Review records are keyed by the project's real path, so a symlinked checkout keeps them.
+
 ## 0.13.0
 
 - One source for the test rules. test-driven-development's `references/test-standard.md` now holds every test rule. TDD, BDD, writing-plans, the review checklist and the other skills link to it instead of restating it, and the wording that contradicted itself is gone:
