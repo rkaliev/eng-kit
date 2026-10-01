@@ -25,7 +25,7 @@ It contains:
   - **verify gate** (PostToolUse + Stop) won't let Claude finish with unverified edits.
   - **approval gate** and **working-docs gate** (Stop) won't let Claude finish while an approved task file is uncommitted, or while an implemented one is still in the tree.
   - **review gate** (SubagentStop + PreToolUse) denies opening or merging a PR, or landing on the base branch, unless the reviewer's last verdict for that commit is `Yes`. A review that ran on unverified edits counts as `Inconclusive`.
-- **A test-hygiene script** for the project's CI on any stack (`scripts/test-hygiene.ts`, Node only, no dependencies): focused tests, skips without a linked issue, fixed sleeps, retries in runner configs and test code, JUnit test counts and criterion tags on the scenarios a branch changes. In an existing project it checks only the lines a change adds, so old debt doesn't block.
+- **A test-hygiene script** for the project's CI on any stack (`scripts/test-hygiene.ts`, Node only, no dependencies): focused tests, skips without a linked issue, fixed sleeps, retries in runner configs and test code, JUnit test counts and criterion tags on the tag lines a branch adds or changes. In an existing project it checks only the lines a change adds, so old debt doesn't block.
 
 Docs: [what plugins are and how to install this one, step by step](docs/GETTING-STARTED.md), [a new project from scratch](docs/WALKTHROUGH.md), and [how the kit works and why](docs/ARCHITECTURE.md). In Russian: [GETTING-STARTED.ru.md](docs/GETTING-STARTED.ru.md), [WALKTHROUGH.ru.md](docs/WALKTHROUGH.ru.md), [ARCHITECTURE.ru.md](docs/ARCHITECTURE.ru.md).
 

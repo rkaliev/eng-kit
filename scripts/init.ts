@@ -5,7 +5,7 @@
  *
  * Creates the missing `.claude/verify.json` and `.claude/guard.json`, merges secret deny rules into
  * `.claude/settings.json`, and imports AGENTS.md from a new CLAUDE.md when only AGENTS.md exists.
- * Never overwrites a file. Pinning the plugin for a team is Claude Code's own
+ * Never overwrites a file, except an older `.ci/test-hygiene.mts` when asked with `--test-hygiene`. Pinning the plugin for a team is Claude Code's own
  * `claude plugin install eng-kit@eng-kit --scope project`.
  */
 import { readFileSync } from "node:fs";
