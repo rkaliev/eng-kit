@@ -120,7 +120,7 @@ claude
 /eng-kit:kit-init
 ```
 
-Агент покажет план и по твоему «да» создаст `.claude/verify.json` (команды тестов, найденные в проекте), `.claude/guard.json` и deny-правила на секреты. Если нет CLAUDE.md, он предложит `/eng-kit:onboarding-existing-codebase`, чтобы собрать CLAUDE.md из кода.
+Агент покажет план и по твоему «да» создаст `.claude/verify.json` (команды тестов, найденные в проекте), `.claude/guard.json` и deny-правила на секреты. Ещё он предложит необязательную проверку гигиены тестов для CI (`.ci/test-hygiene.ts`) и добавит её только с твоего согласия. Если нет CLAUDE.md, он предложит `/eng-kit:onboarding-existing-codebase`, чтобы собрать CLAUDE.md из кода.
 
 **Шаг 5. Дальше рабочий цикл:**
 

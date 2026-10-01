@@ -17,7 +17,14 @@ export interface InitItem {
 export interface InitOptions {
 	/** Hook settings to merge (project installs; plugins bring their own hooks). */
 	hooks?: Record<string, unknown>;
+	/** The kit's test-hygiene script; copied into the project only when `copyHygiene` is set. */
+	hygieneScript?: string;
+	/** The user agreed to add the test-hygiene script (`--test-hygiene`). */
+	copyHygiene?: boolean;
 }
+
+/** Where kit-init puts the test-hygiene script in a project; CI templates run it from here. */
+export const HYGIENE_TARGET = ".ci/test-hygiene.ts";
 
 /**
  * Defense in depth next to the guard hook: native deny rules still hold when hooks are
@@ -67,6 +74,7 @@ export function planInit(cwd: string, options: InitOptions = {}): InitItem[] {
 	);
 
 	items.push(planSettings(cwd, options));
+	if (options.hygieneScript !== undefined) items.push(planHygiene(cwd, options.hygieneScript, options.copyHygiene === true, "--test-hygiene"));
 	items.push(planCi(cwd, "/eng-kit:ci-quality-gates"));
 
 	if (has("CLAUDE.md")) items.push({ target: "CLAUDE.md", status: "exists", why: "project instructions" });
@@ -176,17 +184,32 @@ function safeList(dir: string): string[] {
 	}
 }
 
+/** The test-hygiene script: offered, copied only on request, and reported when the project's copy is older. */
+export function planHygiene(cwd: string, script: string, copy: boolean, flag: string): InitItem {
+	const version = (text: string) => /export const VERSION = "([^"]+)"/.exec(text)?.[1];
+	const file = join(cwd, HYGIENE_TARGET);
+	if (existsSync(file)) {
+		const theirs = version(readFileSync(file, "utf8"));
+		const ours = version(script);
+		if (theirs === ours) return { target: HYGIENE_TARGET, status: "exists", why: `test-hygiene v${ours}` };
+		return { target: HYGIENE_TARGET, status: "missing", why: `test-hygiene v${theirs ?? "?"} is older than the kit's v${ours}; replace the file with the kit's scripts/test-hygiene.ts after the user agrees` };
+	}
+	if (!copy) return { target: HYGIENE_TARGET, status: "missing", why: `optional: the stack-independent test-hygiene check for CI (ci-quality-gates); add it by re-running with ${flag} after the user agrees` };
+	return { target: HYGIENE_TARGET, status: "create", content: script, why: "test-hygiene check for CI: focused and unexplained skipped tests, sleeps, retries, test counts, criterion tags" };
+}
+
 /** CI is the second line of defence: it must run at least the verification commands. Reported, never written here. */
 function planCi(cwd: string, hint: string): InitItem {
 	const configured = resolveVerifyCommands(cwd).commands;
 	const commands = configured.length > 0 ? configured : detectVerifyCommands(cwd);
-	const { files, missing, workDocsCheck } = ciCoverage(cwd, commands);
+	const { files, missing, workDocsCheck, hygieneCheck } = ciCoverage(cwd, commands);
 	if (files.length === 0) return { target: "CI", status: "missing", why: `no CI configuration found; run ${hint} to set up checks that don't depend on an agent session` };
 	const guard = readProjectJson<{ workDocs: string[] }>(cwd, "guard");
 	const wantsDocsCheck = !(Array.isArray(guard.workDocs) && guard.workDocs.length === 0);
 	const gaps = [
 		...(missing.length > 0 ? [`doesn't run: ${missing.join(", ")}`] : []),
 		...(wantsDocsCheck && !workDocsCheck ? ["has no working-docs check (task files must not reach the base branch)"] : []),
+		...(existsSync(join(cwd, HYGIENE_TARGET)) && !hygieneCheck ? [`doesn't run ${HYGIENE_TARGET}`] : []),
 	];
 	if (gaps.length > 0) return { target: "CI", status: "missing", why: `${files.join(", ")} ${gaps.join("; ")}; run ${hint}` };
 	return { target: "CI", status: "exists", why: `${files.join(", ")} runs every verification command${wantsDocsCheck ? " and the working-docs check" : ""}` };

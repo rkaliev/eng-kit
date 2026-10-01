@@ -41,7 +41,7 @@ export function kitFiles(kitRoot: string): Map<string, string> {
 	add("agents", ".claude/agents", (f) => f.endsWith(".md"));
 	add("hooks", `${KIT_DIR}/hooks`, (f) => f.endsWith(".ts"));
 	add("lib", `${KIT_DIR}/lib`, (f) => f.endsWith(".ts"));
-	add("scripts", `${KIT_DIR}/scripts`, (f) => /(verify|init)\.ts$/.test(f));
+	add("scripts", `${KIT_DIR}/scripts`, (f) => /(verify|init|test-hygiene)\.ts$/.test(f));
 	add("templates", `${KIT_DIR}/templates`);
 	return files;
 }

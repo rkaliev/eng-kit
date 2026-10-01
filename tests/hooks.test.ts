@@ -372,3 +372,28 @@ test("review gate: the agent can't loosen the guard or write a stamp itself", ()
 	assert.equal(bash(`echo '{"reviewGate":false}' > .claude/guard.json`), "ask");
 	assert.equal(bash(`echo x > ${join(tmpdir(), "eng-kit", "reviews", "x.json")}`), "deny");
 });
+
+test("review gate: a review that ran on unverified edits counts as Inconclusive", () => {
+	const projectDir = gitRepo({ "CLAUDE.md": "## Commands\n- `npm test`\n" });
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("add", "-A");
+	git("commit", "-qm", "manifest");
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const head = git("rev-parse", "HEAD");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
+	const pr = () => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } }));
+	const verdict = `Reviewed HEAD: ${head}\nReady to merge: Yes`;
+
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "a.ts") } });
+	const stamped = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a1" });
+	assert.match(String(stamped.warning), /unverified, so it counts as Inconclusive/);
+	assert.equal(pr(), "deny");
+
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" } });
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p2", agent_id: "a2" });
+	assert.equal(pr(), undefined, "after a green run the review counts");
+});

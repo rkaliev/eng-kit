@@ -40,7 +40,7 @@ This document describes how the plugin works and why it works that way. What plu
 │   UserPromptSubmit  re-arms the gates                                 │
 │ skills/   34 skills: 28 methodology + 6 entry points                  │
 │ agents/   reviewer (opus, read-only), implementer (sonnet)            │
-│ scripts/  verify.ts, init.ts, install-project.ts                      │
+│ scripts/  verify.ts, init.ts, install-project.ts, test-hygiene.ts     │
 │ templates/ CLAUDE.md, task.md, verify.json, guard.json, …             │
 └───────────────────────────────────────────────────────────────────────┘
 ```
@@ -170,7 +170,8 @@ In addition, `kit-init` adds native deny rules `Read(**/.env)`, `Read(**/*.pem)`
 ## Review and after push
 
 **Review** (`requesting-code-review`, the `reviewer` agent):
-- **fixed severity** from the table in the checklist. Critical: secrets, injections and authZ, loss of money or data, weakened tests, stub code, type or linter errors suppressed without a reason. Important: a criterion without a test, stale docs, a broken project rule (CLAUDE.md, `.claude/rules/`, decision records), an unmarked breaking change, a function longer than ~100 lines or a file longer than ~1000 lines;
+- **fixed severity** from the table in the checklist. Critical: secrets, injections and authZ, loss of money or data, a test weakened, skipped or changed in a way test-standard's "Changing tests" doesn't allow, a committed focused test, a CI check removed, skipped or retried, retries in a runner config, stub code, type or linter errors suppressed without a reason. Important: a criterion without a test or with a manual check that isn't necessary or agreed, a plan's Review focus line without a test, a test without an assertion or asserting mock echo, an expected value copied from the code or recomputed with its algorithm, a test-only helper in production code, a fixed sleep or a real network call outside the sandbox suite, payments without a sandbox test, POS without a list of what ran on real hardware, stale docs, a broken project rule (CLAUDE.md, `.claude/rules/`, decision records), an unmarked breaking change, a function longer than ~100 lines or a file longer than ~1000 lines;
+- **only verified code:** a review that ran while edits were unverified (the verify gate wasn't green) is recorded as Inconclusive; checks first, then review;
 - **rules against persuasion:** "it's like this everywhere in the project" is debt, not permission; severity isn't lowered under pressure from arguments; what's judged is the changed lines and what they break;
 - **rule changes in the diff itself:** if a diff changes the rules (agent manifest, linter config, standards), it is judged by the base branch's rules;
 - **repeat round:** only what's new since the last review is checked, and every earlier finding is re-checked;
@@ -181,7 +182,7 @@ In addition, `kit-init` adds native deny rules `Read(**/.env)`, `Read(**/*.pem)`
 - **verdict** `Ready to merge: <exactly one of Yes, No, With fixes, Inconclusive>` and a `Reviewed HEAD: <sha>` line; an echoed template (`Yes / No / …`) is not a verdict. Inconclusive means the reviewer couldn't read the requirements, the range or the rules;
 - **no noise:** no praise and no made-up references.
 
-**Review gate** (mechanics, not an instruction). The guard denies `gh pr create/merge`, `glab mr create/merge`, `git merge` into the base and `git push` to it unless the reviewer's last verdict for that commit is `Yes`. The verdict record is written by the `SubagentStop` hook. A review covers the branch's own change to reviewable files compared with the remote base (`origin/<base>`), matched by its diff with one line of context but without line numbers (binaries by content): deleting task files, changing docs or rebasing onto a newer base keeps it valid; any other change, whitespace and binaries included, needs a new review. Exempt are task files (`docs/tasks/`), prose and pictures in `docs/` and other `*.md`/`*.mdx`, except markdown that steers the agent: CLAUDE.md, AGENTS.md, SKILL.md and anything under `.claude/`, `rules/`, `skills/`, `agents/`, `prompts/`. The list is fixed; the project can't widen it. A branch with only exempt files needs no review. `cd <dir>` and `git -C <dir>` are followed from the session cwd, so a worktree's branch is checked where the command runs. A landing chained after anything but read-only steps and the project's verification commands (`git commit … && gh pr create`, `git switch main && git merge …`) is denied: the guard can't see what it lands. `gh pr merge <number|URL>` asks, because the PR head isn't known locally; `gh pr merge <branch>` and `gh pr create --head <branch>` check that branch. `With fixes`, `No` and `Inconclusive` don't pass: fix and review the new range. A finding the author declined without a code change is cleared by a repeat review in the next prompt, after the user has seen the arguments. Only the user turns the gate off: `"reviewGate": false` in `.claude/guard.json`; the guard asks before that file is changed (Edit/Write or shell) and denies writes to the review records. It protects against a forgotten or skipped review, not against an agent that deliberately feeds the reviewer a ready answer.
+**Review gate** (mechanics, not an instruction). The guard denies `gh pr create/merge`, `glab mr create/merge`, `git merge` into the base and `git push` to it unless the reviewer's last verdict for that commit is `Yes`. The verdict record is written by the `SubagentStop` hook; a review that ran while the session's edits were unverified (in a project with verification commands) is recorded as `Inconclusive`. A review covers the branch's own change to reviewable files compared with the remote base (`origin/<base>`), matched by its diff with one line of context but without line numbers (binaries by content): deleting task files, changing docs or rebasing onto a newer base keeps it valid; any other change, whitespace and binaries included, needs a new review. Exempt are task files (`docs/tasks/`), prose and pictures in `docs/` and other `*.md`/`*.mdx`, except markdown that steers the agent: CLAUDE.md, AGENTS.md, SKILL.md and anything under `.claude/`, `rules/`, `skills/`, `agents/`, `prompts/`. The list is fixed; the project can't widen it. A branch with only exempt files needs no review. `cd <dir>` and `git -C <dir>` are followed from the session cwd, so a worktree's branch is checked where the command runs. A landing chained after anything but read-only steps and the project's verification commands (`git commit … && gh pr create`, `git switch main && git merge …`) is denied: the guard can't see what it lands. `gh pr merge <number|URL>` asks, because the PR head isn't known locally; `gh pr merge <branch>` and `gh pr create --head <branch>` check that branch. `With fixes`, `No` and `Inconclusive` don't pass: fix and review the new range. A finding the author declined without a code change is cleared by a repeat review in the next prompt, after the user has seen the arguments. Only the user turns the gate off: `"reviewGate": false` in `.claude/guard.json`; the guard asks before that file is changed (Edit/Write or shell) and denies writes to the review records. It protects against a forgotten or skipped review, not against an agent that deliberately feeds the reviewer a ready answer.
 
 **Responding to review** (`receiving-code-review`): every comment is either fixed or answered; none is skipped silently. You can't write "resolved" while a blocker is open or until a repeat review has closed the finding.
 
@@ -204,26 +205,36 @@ In addition, `kit-init` adds native deny rules `Read(**/.env)`, `Read(**/*.pem)`
   - at minimum, everything from `verify.json`;
   - the `working-docs` job, which fails on any tracked `docs/tasks/*.md`, so task files don't reach the base branch from any author;
   - one required `gate`;
-  - by stack and only with your "yes": test hygiene, e2e without retries with a count of tests run, secret scanning and dependency audit, migrations and schema drift, contracts, coverage as a floor on a schedule.
+  - by stack and only with your "yes": test hygiene, e2e without retries with a JUnit test-count check, provider sandboxes as a separate job, secret scanning and dependency audit, migrations and schema drift, contracts, coverage as a floor on a schedule.
+- **The `test-hygiene` script** (`scripts/test-hygiene.ts`): one dependency-free file that needs only Node ≥22.18, whatever the project's stack. `kit-init` offers it and copies it into `.ci/test-hygiene.ts` only with `--test-hygiene` (`node <kit>/scripts/init.ts --test-hygiene`), after your "yes"; the `test-hygiene` and `e2e` jobs from the ci-quality-gates templates run it. It checks:
+  - focused tests and skips without a linked issue (JS/TS, Python, JVM, Go, Swift, .NET, Gherkin), fixed sleeps, retries in runner configs;
+  - with `--junit`: a missing or empty report, a declared count that differs from the cases that ran, skips without a reason;
+  - criterion tags (`@C<n>`) against the criteria table of the task file in the branch: a criterion without a scenario, two scenarios for one criterion, a tag without a criterion.
+
+  In an existing project it is a ratchet: only lines the change adds count, and pre-existing debt is counted in the summary, not blocking (`--all` checks everything). `test-hygiene: allow <reason>` on the line covers a deliberate case; an allow without a reason is itself reported. `.claude/test-hygiene.json` adds test files, ignores and patterns. Next to it go the stack's native linters (table in `ci-quality-gates/references/ci-templates.md`).
 - **Linking the layers:**
-  - `kit-init` mechanically checks that CI runs every verify command and has the working-docs job;
-  - review counts a command missing from CI, a weakened check and a broken project rule as Important.
-- **BDD** is an optional acceptance layer (`test-driven-development/references/bdd.md`). Each user-visible criterion of the task file is one scenario tagged with the criterion. The result is a chain "criterion → scenario → CI".
+  - `kit-init` mechanically checks that CI runs every verify command, has the working-docs job and runs `.ci/test-hygiene.ts` when the project has it, and reports a copy older than the kit's;
+  - review counts a command missing from CI and a broken project rule as Important, and a removed, skipped or retried check as Critical.
+- **BDD** is an optional acceptance layer (`test-driven-development/references/bdd.md`). Each user-visible criterion of the task file is exactly one scenario tagged with the criterion. The result is a chain "criterion → scenario → CI", and `test-hygiene` checks the tags.
 
 ---
 
 ## Testing
 
-The foundation is the iron rule of TDD: a failing test first, then minimal code, then a run of the whole suite. Everything else is collected in the standard `test-driven-development/references/test-standard.md`:
-- **expected values** come from the task file's criterion, not from the code's output; characterization tests are marked separately;
-- **a test must pay for itself:** no tests of constants, config, schema shape, "it renders", echoing a mock; identical cases are merged into a parameterized test;
-- **structure and names:** Arrange–Act–Assert, one behavior per test, name = subject + circumstance + result;
-- **mocks:** only unmanaged dependencies are faked; your own DB and queues are real in integration tests;
-- **determinism and flakiness:** time and randomness under control, no network, a run outside UTC; a retry doesn't count as a fix;
-- **acceptance level:** each task criterion → a test that shows it the way the user sees it (API, UI/e2e, BDD if the project has it);
-- **coverage** is a floor, not a goal.
+The foundation is the iron rule of TDD: a failing test first, then minimal code, then a run of the whole suite. Every other test rule lives in one place, the standard `test-driven-development/references/test-standard.md`; TDD, BDD, writing-plans and the review checklist link to it instead of restating it:
+- **expected values** come from the task file's criterion, not from the code's output. The one exception is characterization tests of legacy code: `*.char.test.*` (or the stack's tag), they pass on first run by design and don't count as coverage of new behavior;
+- **a test must pay for itself:** no tests of constants, config, schema shape, "it renders", echoing a mock; identical cases are merged into a parameterized test; snapshots are small and inline;
+- **structure and names:** Arrange–Act–Assert, one behavior per test, name = subject + circumstance + result; test-only helpers live in test code;
+- **mocks:** only unmanaged dependencies are faked; your own DB and queues are real in integration tests. Provider sandboxes are a separate suite and CI job, the only place a test talks to the network;
+- **determinism and isolation:** time and randomness under control, no network, a run outside UTC; waits are on a condition with one project-wide ceiling, never a fixed sleep; tests run in any order and in parallel; missing test infrastructure (a database, a container, an emulator) fails the run, never skips it;
+- **no retries:** a test never retries, not in the runner config, not in CI, not in a loop. A flake is fixed only when five criteria hold: the failing run and boundary found, the root cause removed, a repeated run green on the same commit, green in the configuration where it failed, the full suite green;
+- **criteria and levels:** with BDD a user-visible criterion has exactly one scenario tagged with it; any other criterion has at least one test at the cheapest level that shows it the way a user or caller sees it; end-to-end without BDD covers critical flows only, one journey each; a unit test doesn't repeat a scenario's happy path, it keeps the edge cases and failure paths;
+- **manual check** replaces a test only where automation is impossible (real hardware, a store review, a fiscal device, a physical signature): the task file gives the reason, you agree, the report says it ran. Elsewhere a criterion without a test is a gap;
+- **outside-in with BDD:** the scenario is written first and seen failing, unit TDD cycles drive the code, and the scenario passing closes the criterion;
+- **changing tests:** deleting a test together with its behavior needs only the reason in the commit; editing an assertion, deleting a test whose behavior still exists, or a skip or quarantine needs your agreement and its own commit;
+- **coverage** is a floor, not a goal; visual baselines are produced only in CI.
 
-The plan names an acceptance test for each criterion. The reviewer checks these rules against the checklist. The standard suggests mechanical lint rules for tests to the project but doesn't impose them.
+The plan names the test for each criterion, and the PR body says how each new test was seen failing first. The reviewer checks the rules with the checklist's fixed severities. The mechanical layer (the `test-hygiene` script and the stack's linters) is added by ci-quality-gates only with your "yes".
 
 ---
 
@@ -241,12 +252,13 @@ The plan names an acceptance test for each criterion. The reviewer checks these 
 ## 9. How it's verified
 
 - **`npm test`**:
-  - guard (block, ask, allow, config, paths, temp, working documents, review gate: verdict record, verdict merging, parallel runs, code after review, deleting a task file, remote base, rebase, worktree and `cd`, chained landings, `gh pr merge` by number, shell writes);
+  - guard (block, ask, allow, config, paths, temp, working documents, review gate: verdict record, verdict merging, parallel runs, code after review, deleting a task file, remote base, rebase, worktree and `cd`, chained landings, `gh pr merge` by number, shell writes, a review of unverified edits as Inconclusive);
   - the command parser and the evidence rule;
   - hook handlers (SessionStart, PreToolUse for Bash, PowerShell, Read, Grep, Edit, NotebookEdit; the tracker and the Stop gates);
   - `hook.ts` over stdin/stdout, including a crash;
   - `verify.ts`;
-  - `kit-init`;
+  - `test-hygiene.ts` (rules in 7 languages, ratchet, JUnit, criterion tags, config, CLI);
+  - `kit-init` (including the test-hygiene item: offered, copied with `--test-hygiene`, an older copy reported, a CI that doesn't run it);
   - `install-project` (install, update, conflicts, hooks without duplicates);
   - the skill and agent linter, manifest consistency.
 - **`npm run typecheck`** and **`claude plugin validate .`**.

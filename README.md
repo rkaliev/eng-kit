@@ -24,7 +24,8 @@ It contains:
   - **guard** (PreToolUse) denies irreversible or secret-leaking tool calls and PRs or merges that would carry task files to the base branch, and asks you before outward-facing ones.
   - **verify gate** (PostToolUse + Stop) won't let Claude finish with unverified edits.
   - **approval gate** and **working-docs gate** (Stop) won't let Claude finish while an approved task file is uncommitted, or while an implemented one is still in the tree.
-  - **review gate** (SubagentStop + PreToolUse) denies opening or merging a PR, or landing on the base branch, unless the reviewer's last verdict for that commit is `Yes`.
+  - **review gate** (SubagentStop + PreToolUse) denies opening or merging a PR, or landing on the base branch, unless the reviewer's last verdict for that commit is `Yes`. A review that ran on unverified edits counts as `Inconclusive`.
+- **A test-hygiene script** for the project's CI on any stack (`scripts/test-hygiene.ts`, Node only, no dependencies): focused tests, skips without a linked issue, fixed sleeps, retries in runner configs, JUnit test counts and criterion tags. In an existing project it checks only the lines a change adds, so old debt doesn't block.
 
 Docs: [what plugins are and how to install this one, step by step](docs/GETTING-STARTED.md), [a new project from scratch](docs/WALKTHROUGH.md), and [how the kit works and why](docs/ARCHITECTURE.md). In Russian: [GETTING-STARTED.ru.md](docs/GETTING-STARTED.ru.md), [WALKTHROUGH.ru.md](docs/WALKTHROUGH.ru.md), [ARCHITECTURE.ru.md](docs/ARCHITECTURE.ru.md).
 
@@ -70,7 +71,7 @@ Re-running updates only the files the kit wrote before (tracked in `.claude/eng-
 
 ## Set up a project
 
-1. Run `/eng-kit:kit-init` (`/kit-init` in folder mode). It shows a dry run first, then creates the missing files: `.claude/verify.json` (commands detected from CLAUDE.md or AGENTS.md, package scripts or build tools), `.claude/guard.json`, and deny rules in `.claude/settings.json`. If only AGENTS.md exists, it creates a `CLAUDE.md` that imports it (`@AGENTS.md`). It never overwrites files.
+1. Run `/eng-kit:kit-init` (`/kit-init` in folder mode). It shows a dry run first, then creates the missing files: `.claude/verify.json` (commands detected from CLAUDE.md or AGENTS.md, package scripts or build tools), `.claude/guard.json`, and deny rules in `.claude/settings.json`. If only AGENTS.md exists, it creates a `CLAUDE.md` that imports it (`@AGENTS.md`). It never overwrites files. It also offers the test-hygiene script and copies it into `.ci/test-hygiene.ts` only if you agree (`--test-hygiene`); it reports an older copy and a CI that doesn't run it.
 2. Run `/onboarding-existing-codebase` when CLAUDE.md is missing or stale. It maps the repo, proves the commands, and proposes CLAUDE.md from [templates/CLAUDE.md](templates/CLAUDE.md).
 3. Each piece of work gets one task file from [templates/task.md](templates/task.md): description, numbered testable criteria, plan and progress in `docs/tasks/` (`/new-task` writes the description).
 
@@ -136,7 +137,7 @@ When the kit's `reviewer` agent finishes (`reviewer` or `eng-kit:reviewer`; othe
 
 ```bash
 npm install
-npm test                  # hook handlers, hook e2e over stdin, init, install, skill/agent linter
+npm test                  # hook handlers, hook e2e over stdin, init, install, test-hygiene, skill/agent linter
 npm run typecheck
 claude plugin validate .
 ```
