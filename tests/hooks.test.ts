@@ -449,3 +449,23 @@ test("review-log prints the stored reports of a commit's latest round; with none
 	assert.match(printed.stdout, /## Reviewer run a1 — No/);
 	assert.match(printed.stdout, /`a\.ts:1` · any input · wrong total/);
 });
+
+test("review gate: a successful gh pr create registers its branch for the push gate; a failed one does not", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
+	git("remote", "add", "origin", remote);
+	git("push", "-q", "origin", "main");
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
+	const push = () => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push" } }));
+	call({ hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
+	assert.equal(push(), "ask", "a failed PR creation opened nothing: only the guard's usual question before a push");
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
+	assert.equal(push(), "deny", "the branch now has an open PR");
+});

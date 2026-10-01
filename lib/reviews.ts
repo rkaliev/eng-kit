@@ -61,6 +61,8 @@ const READ_ONLY = new Set(["cat", "less", "head", "tail", "grep", "rg", "ls", "w
 const READ_ONLY_GIT = new Set(["diff", "show", "log", "status", "blame"]);
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_REPORT = 200_000;
+/** The PRs/MRs the agent opened: `{ "<branch>": <ms> }`, next to the verdict records. */
+const PRS_FILE = "prs.json";
 /** Rounds a chain may pass through back to the remote base. */
 const MAX_CHAIN = 20;
 
@@ -133,6 +135,67 @@ export function readReviews(projectDir: string, root?: string): ReviewRound[] {
 	return combined.sort((a, b) => b.at - a.at);
 }
 
+/**
+ * Remember the branch of a PR/MR the agent opened (call after the command succeeded): a later push to it
+ * updates the PR, so it is a landing too. `cd` in the command is followed like in checkReview.
+ */
+export function rememberPr(projectDir: string, command: string, cwd: string, root?: string): void {
+	let dir: string | undefined = cwd;
+	for (const raw of splitSegments(tokenize(stripRedirects(command)))) {
+		const tokens = raw.map((t) => t.replace(/^\(+|\)+$/g, "")).filter(Boolean);
+		if (isCd(tokens)) {
+			dir = dir === undefined ? undefined : follow(dir, tokens[1]);
+			continue;
+		}
+		const l = landing(tokens);
+		if (l?.kind !== "pr" || l.merge || l.repo || dir === undefined) continue;
+		const branch = l.target ?? currentBranch(dir);
+		if (!branch) continue;
+		const prs = readPrs(projectDir, root);
+		prs[branch] = Date.now();
+		writePrs(projectDir, prs, root);
+	}
+}
+
+/**
+ * Branches of the PRs the agent opened that are still open. A merged one is dropped once the PR's head as the
+ * remote last showed it (`<remote>/<branch>`, else the local branch) is on `anchor`; so is one older than 30 days.
+ */
+export function openPrBranches(projectDir: string, where: string, remote: string, anchor: string, root?: string, now = Date.now()): string[] {
+	const prs = readPrs(projectDir, root);
+	let changed = false;
+	for (const [branch, at] of Object.entries(prs)) {
+		const tip = git(where, ["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}/${branch}^{commit}`]) ?? git(where, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`]);
+		if (now - at > MAX_AGE_MS || (tip !== undefined && isAncestor(where, tip, anchor))) {
+			delete prs[branch];
+			changed = true;
+		}
+	}
+	if (changed) writePrs(projectDir, prs, root);
+	return Object.keys(prs);
+}
+
+function readPrs(projectDir: string, root?: string): Record<string, number> {
+	try {
+		const dir = reviewsDir(projectDir, root);
+		if (!ownDir(dir)) return {};
+		const raw = JSON.parse(readFileSync(join(dir, PRS_FILE), "utf8")) as Record<string, unknown>;
+		return Object.fromEntries(Object.entries(raw).filter((e): e is [string, number] => typeof e[1] === "number"));
+	} catch {
+		return {};
+	}
+}
+
+function writePrs(projectDir: string, prs: Record<string, number>, root?: string): void {
+	const dir = reviewsDir(projectDir, root);
+	try {
+		mkdirSync(dir, { recursive: true, mode: 0o700 });
+		if (ownDir(dir)) writeAtomic(join(dir, PRS_FILE), JSON.stringify(prs));
+	} catch {
+		// best effort: a lost entry only means a later push to that PR is not gated
+	}
+}
+
 /** The reports of the latest round of reviews of `sha`, for a repeat round to re-check (see scripts/review-log.ts). */
 export function readReports(projectDir: string, sha: string, root?: string): Array<{ run: string; verdict: Verdict; report: string }> {
 	const dir = reviewsDir(projectDir, root);
@@ -202,7 +265,7 @@ export function checkReview(command: string, cwd: string, projectDir: string, op
 		}
 		const base = baseBranch(where);
 		if (!base) continue;
-		const refs = targets(l, where, base);
+		const refs = targets(l, where, base, l.kind === "push" ? openPrBranches(projectDir, where, l.remote ?? "origin", anchorRef(where, l.remote ?? "origin", base), root) : []);
 		if (refs.length === 0) continue;
 		if (unsafeBefore) {
 			return decision(options.missing, "this command runs a step before it lands that may commit or move a ref (only read-only steps and the project's verification commands may come first), so the guard can't see what it lands. Run the landing as its own command.", options);
@@ -330,10 +393,12 @@ function landsOnBase(l: Extract<Landing, { kind: "merge" }>, dir: string): boole
 }
 
 /** The refs a landing puts on the base; `undefined` for a PR/MR merge whose head isn't known locally. */
-function targets(l: Exclude<Landing, { kind: "commit" }>, where: string, base: string): Array<string | undefined> {
-	const onBase = currentBranch(where) === base;
+function targets(l: Exclude<Landing, { kind: "commit" }>, where: string, base: string, prBranches: string[]): Array<string | undefined> {
+	const current = currentBranch(where);
+	const onBase = current === base;
 	if (l.kind === "merge") return l.refs;
-	if (l.kind === "push") return pushedToBase(l, base, onBase);
+	// A push to the branch of an open PR updates the PR, so it lands like a push to the base.
+	if (l.kind === "push") return [...pushedToBase(l, base, onBase), ...prBranches.flatMap((b) => pushedToBase(l, b, current === b))];
 	if (l.target !== undefined && (/^\d+$/.test(l.target) || l.target.includes("://") || /^[#!]/.test(l.target))) return [undefined];
 	if (!l.merge && l.target === undefined) return ["HEAD"];
 	const branch = l.target ?? currentBranch(where);
@@ -366,10 +431,16 @@ function uncovered(where: string, projectDir: string, base: string, ref: string,
 	if (match.verdict !== "Yes") return `the review of ${short(match.sha)} returned "${match.verdict}".`;
 	// The reviewed range must reach the remote base, directly or through earlier rounds. Without a tracking
 	// ref (no remote) the local base branch is all there is.
-	const anchor = git(where, ["rev-parse", "--verify", "--quiet", tracking]) ? tracking : `refs/heads/${base}`;
+	const anchor = anchorRef(where, remote, base);
 	if (match.bases.some((b) => chainOk(where, b, sha, reviews, anchor, 1))) return undefined;
 	const range = match.bases.length > 0 ? `${short(match.bases[0]!)}..${short(sha)}` : "no recorded range (a review from before ranges were recorded)";
 	return `the review of ${short(sha)} does not cover the whole branch: it covers ${range}, and nothing reviewed connects it to ${anchor.replace(/^refs\/(remotes|heads)\//, "")}. Review the whole branch from its merge-base, or the commits before ${short(match.bases[0] ?? sha)}.`;
+}
+
+/** What a review chain must reach: the remote's base branch, or the local one when there is no tracking ref (no remote). */
+function anchorRef(where: string, remote: string, base: string): string {
+	const tracking = `refs/remotes/${remote}/${base}`;
+	return git(where, ["rev-parse", "--verify", "--quiet", tracking]) ? tracking : `refs/heads/${base}`;
 }
 
 /** Whether `base..sha` is a real range that reaches `anchor`, directly or through recorded rounds (any verdict: a repeat round re-checks them). */

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { checkGateFiles, checkReview, parseReview, readReviews, recordReview, recordVerdict, reviewsDir, stripRedirects, type ReviewGateOptions } from "../lib/reviews.ts";
+import { checkGateFiles, checkReview, parseReview, readReviews, recordReview, recordVerdict, rememberPr, reviewsDir, stripRedirects, type ReviewGateOptions } from "../lib/reviews.ts";
 
 const OPTIONS: ReviewGateOptions = { missing: "block", waiver: "reviewGate: false", verify: ["npm test", "npm run lint"] };
 
@@ -391,4 +391,40 @@ test("without a tracking ref the local base anchors the chain; with one, the loc
 	git("switch", "-q", "main");
 	assert.equal(check("git merge feat/a"), undefined, "no remote: the local base is all there is");
 	assert.ok(head);
+});
+
+test("after the agent opens a PR, pushing a new unreviewed commit to its branch is refused until it is reviewed", () => {
+	const { dir, root, commit, head, base, check, review } = repo();
+	review(report(head, "Yes", base));
+	assert.equal(check("git push -u origin feat/a"), undefined, "no PR yet: a work-branch push");
+	rememberPr(dir, "gh pr create --fill", dir, root);
+	const next = commit({ "src/a.ts": "export const a = 2;\n" });
+	for (const push of ["git push", "git push -u origin feat/a", "git push origin HEAD"]) assert.match(String(check(push)?.reason), /no reviewer verdict recorded/, push);
+	review(report(next, "Yes", head));
+	assert.equal(check("git push"), undefined, "the new commit, reviewed");
+});
+
+test("a PR branch named with --head is remembered; a merged PR branch is forgotten", () => {
+	const { dir, root, git, commit, head, base, check, review } = repo();
+	review(report(head, "Yes", base));
+	git("push", "-q", "origin", "feat/a");
+	git("switch", "-q", "main");
+	rememberPr(dir, "gh pr create --head feat/a --fill", dir, root);
+	git("switch", "-q", "feat/a");
+	const second = commit({ "src/a.ts": "export const a = 2;\n" });
+	assert.equal(action(check("git push origin feat/a")), "block");
+	review(report(second, "Yes", head));
+	git("push", "-q", "origin", "feat/a");
+	git("switch", "-q", "main");
+	git("merge", "-q", "--ff-only", "feat/a");
+	git("push", "-q", "origin", "main");
+	git("switch", "-q", "feat/a");
+	commit({ "src/a.ts": "export const a = 3;\n" });
+	assert.equal(check("git push origin feat/a"), undefined, "its PR was merged: a plain work-branch push again");
+});
+
+test("shell writes to the open-PR list are blocked like the verdict records", () => {
+	const project = mkdtempSync(join(tmpdir(), "gate-files-"));
+	const records = join(tmpdir(), "eng-kit", "reviews");
+	assert.equal(checkGateFiles(`echo '{}' > ${records}/h/prs.json`, project, project, ".claude/guard.json")?.action, "block");
 });

@@ -17,7 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, parseReview, recordReview, recordVerdict, reviewedHead } from "./reviews.ts";
+import { checkGateFiles, checkReview, parseReview, recordReview, recordVerdict, rememberPr, reviewedHead } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
@@ -194,6 +194,8 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		return {};
 	}
 	if (!SHELL_TOOLS.has(tool)) return {};
+	// A PR/MR the agent opened makes later pushes to its branch landings (review gate).
+	if (!failed) rememberPr(env.projectDir, String(args.command ?? ""), input.cwd || env.projectDir, env.reviewsRoot);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 
