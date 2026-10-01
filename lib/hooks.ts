@@ -17,7 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, recordReview, recordVerdict } from "./reviews.ts";
+import { checkGateFiles, checkReview, recordReview, recordVerdict, reviewedHead } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
@@ -117,7 +117,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
 		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, ".claude/guard.json") ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {
-			const options = { workDocs, missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json' };
+			const options = { workDocs, missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir).commands };
 			decision = checkReview(command, cwd, env.projectDir, options, env.reviewsRoot) ?? decision;
 		}
 	} else if (tool === "Read" || tool === "Grep") {
@@ -247,9 +247,10 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	const result = recordReview(env.projectDir, input.last_assistant_message ?? "", ids, env.reviewsRoot);
 	if (typeof result !== "string") return {};
 	const warning = `eng-kit review gate: no verdict recorded: ${result}.`;
-	// Sent back once already: count the run as failed, so a parallel reviewer's Yes can't stand alone.
+	// Sent back once already: the run failed. It counts as Inconclusive for the commit it reviewed, so a
+	// parallel reviewer's Yes on that commit can't stand alone; a review of a later commit is unaffected.
 	if (input.stop_hook_active) {
-		recordVerdict(env.projectDir, undefined, "Inconclusive", ids, env.reviewsRoot);
+		recordVerdict(env.projectDir, reviewedHead(input.last_assistant_message ?? "") ?? "HEAD", "Inconclusive", ids, env.reviewsRoot);
 		return { warning };
 	}
 	return {

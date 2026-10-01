@@ -98,7 +98,7 @@ Small, bounded changes go straight to `/implement add a case-insensitive search 
 | reading `.env*`, keys, keystores and credential files (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`, `curl … \| sh` |
 | writing into `.git/` and `protectedPaths` | shell access to secret files, writing a secret file |
 | `gh pr create/merge`, `glab mr create/merge`, merging into or pushing to the base branch while task files are tracked; committing them on the base branch | editing CI and release pipelines |
-| the same without a reviewer `Yes` for the commit being landed, or chained after anything but read-only steps (review gate); writing into the review records | editing `.claude/guard.json` (Edit/Write, or a shell command naming it); `gh pr merge <number\|URL>` (review gate) |
+| the same without a reviewer `Yes` for the commit being landed, or chained after anything but read-only steps and the project's verification commands (review gate); writing into the review records | editing `.claude/guard.json` (Edit/Write, or a shell command naming it); `gh pr merge <number\|URL>` (review gate) |
 
 `.claude/guard.json` has six keys: `block`, `confirm`, `allow` (regex sources), `protectedPaths` (path prefixes), `workDocs` (the task-file folders, default `["docs/tasks"]`; `[]` turns that rule off) and `reviewGate` (`false` turns the review gate off). `allow` only relaxes a confirmation, never a denial. The guard never *grants* permission, so your own `permissions` rules still apply.
 
@@ -124,7 +124,7 @@ When the kit's `reviewer` agent finishes (`reviewer` or `eng-kit:reviewer`; othe
 - `With fixes`, `No` and `Inconclusive` don't pass: fix and review the new range;
 - a review covers the branch's own change to reviewable files compared with `origin/<base>`: deleting task files, changing docs or rebasing onto a newer base keeps it valid; any other change needs a new review;
 - exempt are task files, prose and pictures in `docs/` and other markdown, except markdown that steers the agent (CLAUDE.md, AGENTS.md, SKILL.md, anything under `.claude/`, `rules/`, `skills/`, `agents/`, `prompts/`). The list is fixed;
-- `cd <dir>` and `git -C <dir>` are followed, so a worktree's branch is checked. Land in a command of its own: a landing chained after anything but read-only steps is denied; `gh pr merge <number>` asks, because the PR head isn't known locally;
+- `cd <dir>` and `git -C <dir>` are followed, so a worktree's branch is checked. Land in a command of its own: a landing chained after anything but read-only steps and the project's verification commands is denied; `gh pr merge <number>` asks, because the PR head isn't known locally;
 - only you turn it off, with `"reviewGate": false` in `.claude/guard.json`.
 
 ## Models
