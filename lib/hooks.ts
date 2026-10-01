@@ -282,7 +282,7 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir).commands.length > 0;
 	const parsed = parseReview(report);
 	if (unverified && parsed) {
-		recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot);
+		recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report });
 		return { warning: "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again." };
 	}
 	const result = recordReview(env.projectDir, report, ids, env.reviewsRoot);

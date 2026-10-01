@@ -392,6 +392,7 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "a.ts") } });
 	const stamped = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a1" });
 	assert.match(String(stamped.warning), /unverified, so it counts as Inconclusive/);
+	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.bases.length, 1, "it keeps its range, so a later round can chain through it");
 	assert.equal(pr(), "deny");
 
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" } });

@@ -543,3 +543,28 @@ test("gate files: >| and >&file are writes too", () => {
 	}
 	assert.equal(checkGateFiles("cat .claude/guard.json >&2", project, project, ".claude/guard.json"), undefined, ">&2 is not a file");
 });
+
+test("a PR created inside a compound command is registered, even when a later step fails or a subshell moved", () => {
+	const { dir, root } = repo();
+	const open = () => openPrBranches(dir, dir, "origin", "refs/remotes/origin/main", root);
+	notePr(dir, "t1", "(cd /tmp) && gh pr create --fill", dir, root);
+	settlePr(dir, "t1", true, root);
+	assert.deepEqual(open(), ["feat/a"], "the subshell's cd ends with it");
+	const other = repo();
+	notePr(other.dir, "t2", "gh pr create --fill && gh pr view --web", other.dir, other.root);
+	settlePr(other.dir, "t2", false, other.root);
+	assert.deepEqual(openPrBranches(other.dir, other.dir, "origin", "refs/remotes/origin/main", other.root), ["feat/a"], "the call failed after the PR step: it may exist");
+});
+
+test("without a tracking ref for the base, a remote branch that merely ends in /<base> is not the anchor", () => {
+	const { git, commit, check, review } = repo();
+	git("remote", "remove", "origin");
+	git("switch", "-qc", "other", "main");
+	const x = commit({ "src/x.ts": "export const x = 1;\n" });
+	git("update-ref", "refs/remotes/up/team/main", x);
+	git("switch", "-qc", "feat/b", x);
+	const c = commit({ "src/c.ts": "export const c = 1;\n" });
+	review(report(c, "Yes", x));
+	git("switch", "-q", "main");
+	assert.match(String(check("git merge feat/b")?.reason), /does not cover/, "x is on up/team/main, not on the local main");
+});
