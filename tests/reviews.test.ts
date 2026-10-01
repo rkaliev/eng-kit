@@ -191,6 +191,7 @@ test("shell writes to the gate's own files: records are blocked, the guard confi
 	const records = join(tmpdir(), "eng-kit", "reviews");
 	assert.equal(check(`echo '{}' > ${records}/x/y.json`), "block");
 	assert.equal(check(`cd ${join(tmpdir(), "eng-kit")} && echo x > reviews/h/y.json`), "block", "cd is followed");
+	assert.equal(check(`cd ${join(tmpdir(), "eng-kit", "reviews", "not-yet")} && echo x > y.json`), "block", "into a folder that doesn't exist yet");
 	assert.equal(check(`grep -rn eng-kit/reviews lib/`), "allow", "reading is fine");
 	assert.equal(check(`ls ${records}`), "allow");
 	for (const write of [`echo '{"reviewGate":false}' > .claude/guard.json`, "sed -i '' s/x/y/ ./.claude/guard.json", "cat new.json > .claude/guard.json", "jq . x | tee .claude/guard.json", "git checkout main -- .claude/guard.json", "git restore -s HEAD~1 .claude/guard.json", "cd .claude && sed -i '' s/a/b/ guard.json", "(cd .claude && sed -i '' s/a/b/ guard.json)"]) {
