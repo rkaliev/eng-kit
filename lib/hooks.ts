@@ -64,6 +64,25 @@ export function verifyScriptCommand(root: string): string {
 	return `node "${join(root, "scripts", "verify.ts")}"`;
 }
 
+/**
+ * One hook call from raw stdin to what `hooks/hook.ts` prints and its exit code. A crash while handling
+ * PreToolUse asks the user (with the error) rather than exiting 1, which Claude Code treats as a non-blocking
+ * error that lets the call through. Other events keep exit 1: they gate nothing at that moment.
+ */
+export function respond(raw: string, makeEnv: (input: HookInput) => HookEnv, handler: (input: HookInput, env: HookEnv) => HookResult = handle): { stdout: string; stderr: string; code: 0 | 1 } {
+	let input: HookInput | undefined;
+	try {
+		input = JSON.parse(raw || "{}") as HookInput;
+		const result = handler(input, makeEnv(input));
+		return { stdout: result.output ? JSON.stringify(result.output) : "", stderr: result.warning ? `${result.warning}\n` : "", code: 0 };
+	} catch (err) {
+		const stderr = `eng-kit hook failed: ${(err as Error).stack ?? err}\n`;
+		if (input?.hook_event_name !== "PreToolUse") return { stdout: "", stderr, code: 1 };
+		const permissionDecisionReason = `eng-kit guard failed: ${(err as Error).message ?? err}. It could not check this call, so it asks instead of letting it through.`;
+		return { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason } }), stderr, code: 0 };
+	}
+}
+
 export function handle(input: HookInput, env: HookEnv): HookResult {
 	switch (input.hook_event_name) {
 		case "SessionStart":

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { BOOTSTRAP_MARKER, handle, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
+import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
 import { readReviews } from "../lib/reviews.ts";
 import { readRun, writeRun } from "../lib/state.ts";
 
@@ -480,4 +480,23 @@ test("guard: inside the kit reviewer a writing command is denied; the main agent
 	}
 	assert.doesNotMatch(JSON.stringify(pre(undefined)), /reviewer is read-only/);
 	assert.doesNotMatch(JSON.stringify(pre("Explore")), /reviewer is read-only/);
+});
+
+test("a crash while handling PreToolUse asks with the error instead of failing open; other events keep exit 1", () => {
+	const env = (input: HookInput): HookEnv => ({ root, projectDir: input.cwd ?? tmpdir(), stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) });
+	const boom = (): never => {
+		throw new Error("boom");
+	};
+	const pre = respond(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push" } }), env, boom);
+	assert.equal(pre.code, 0);
+	const out = JSON.parse(pre.stdout).hookSpecificOutput;
+	assert.equal(out.permissionDecision, "ask");
+	assert.match(out.permissionDecisionReason, /eng-kit guard failed: boom/);
+	for (const raw of [JSON.stringify({ hook_event_name: "Stop" }), "{not json"]) {
+		const other = respond(raw, env, boom);
+		assert.equal(other.code, 1, raw);
+		assert.equal(other.stdout, "", raw);
+	}
+	const ok = respond(JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "s" }), env);
+	assert.equal(ok.code, 0, "a normal call still works");
 });
