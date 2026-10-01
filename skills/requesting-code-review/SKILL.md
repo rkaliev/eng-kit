@@ -14,10 +14,11 @@ A review in a fresh context catches what the author's context hides. The reviewe
 
 ## How
 
-1. **Fix the range:** `BASE=$(git merge-base <base-branch> HEAD)` (or the task's BASE) and `HEAD=$(git rev-parse HEAD)`. For a repeat round after fixes, pass the previous round's HEAD and its open findings, so only the new commits are reviewed and every earlier finding is re-checked (a rewritten history means a full review). Commit or stash first so the review is of a known state. Include untracked files you created.
-2. **Fill `reviewer-prompt.md`** with: what was built, the requirements (the task file path or the request, numbered criteria; once the task file is removed, its path at its last commit, `git show <sha>:docs/tasks/…`), the range, the verification commands, the plan's Review focus if it has one, and `{SKILL_DIR}` = this skill's absolute directory.
+1. **Fix the range:** `BASE=$(git merge-base origin/<base-branch> HEAD)` and `HEAD=$(git rev-parse HEAD)`. The range must start on the remote base: the gate counts a review only when its range reaches it, directly or through earlier rounds. For a repeat round after fixes, `BASE` is the previous round's HEAD: only the new commits are reviewed, and the reviewer reads the previous round's findings from the gate's store itself (a rewritten history means a full review from the merge-base). Commit or stash first so the review is of a known state. Include untracked files you created.
+2. **Fill `reviewer-prompt.md`** with: what was built, the requirements (the task file path or the request, numbered criteria; once the task file is removed, its path at its last commit, `git show <sha>:docs/tasks/…`), the range, the verification commands, the plan's Review focus if it has one, `{SKILL_DIR}` = this skill's absolute directory and `{KIT_ROOT}` = the "Kit root" from the session context (a project install: `.claude/eng-kit`). Don't paste earlier findings: the reviewer runs review-log.
 3. **Dispatch:**
-   - **Default:** dispatch the kit's `reviewer` agent (read-only, on the most capable model) with the filled prompt. For large or high-risk diffs (payments, auth, migrations), run 2–3 reviewers in parallel in one message, each with a different focus (correctness, security, tests). Merge their findings: one finding per root cause, and where two reviewers flag the same `file:line`, keep the higher severity. The merged verdict is the worst one.
+   - **Default:** dispatch the kit's `reviewer` agent (read-only, on the most capable model) with the filled prompt.
+   - **Required for risk-floor changes** (money, auth, permissions, secrets, schema, CI or release config, deploy config): a second reviewer in parallel, in the same message, whose Review focus is security (security-review's method). For other large diffs, 2–3 reviewers with different focuses (correctness, security, tests) are optional. Merge their findings: one finding per root cause, and where two reviewers flag the same `file:line`, keep the higher severity. The merged verdict is the worst one.
    - **If delegation is unavailable:** do the review yourself in a *separate pass*. Re-read the requirements, then walk the diff file by file with the checklist. Don't rely on your memory of writing it.
 4. **Act on the findings** with receiving-code-review:
    - fix Critical before anything else;
@@ -28,7 +29,7 @@ A review in a fresh context catches what the author's context hides. The reviewe
 
 ## Review gate
 
-The guard denies a PR/MR, a merge into the base branch and a push to it unless the kit reviewer's verdict is `Yes` for exactly the commit being landed; any change after the review needs a new one. The hook records the verdict from the reviewer's own lines; you never write it. Land in a command of its own. The rules (why any change needs a new review, how parallel verdicts combine, the waiver) are in `references/review-gate.md`.
+The guard denies a PR/MR, a merge into the base branch, a push to it and a push to the branch of a PR you opened unless the kit reviewer's verdict is `Yes` for exactly the commit being landed, and its range reaches the remote base (directly or through earlier rounds). Any change after the review needs a new one. The hook records the verdict and the report from the reviewer's own lines; you never write them. The reviewer's shell runs only inspection commands. Land in a command of its own. The rules (why any change needs a new review, how parallel verdicts combine, the waiver) are in `references/review-gate.md`.
 
 ## Reviewer rules (they are in the prompt too)
 
