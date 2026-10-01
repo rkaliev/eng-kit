@@ -438,16 +438,24 @@ test("review-log prints the stored reports of a commit's latest round; with none
 	git("commit", "-qm", "feat: a");
 	const head = git("rev-parse", "HEAD");
 	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
-	const log = () => spawnSync(process.execPath, [join(root, "scripts", "review-log.ts"), "HEAD"], { cwd: projectDir, encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir, ENG_KIT_REVIEWS_ROOT: env.reviewsRoot } });
+	// The reviewer's shell has no CLAUDE_PROJECT_DIR, and may run from a subfolder or a temp worktree.
+	const { CLAUDE_PROJECT_DIR: _unset, ...shellEnv } = process.env;
+	const log = (cwd = projectDir) => spawnSync(process.execPath, [join(root, "scripts", "review-log.ts"), head], { cwd, encoding: "utf8", env: { ...shellEnv, ENG_KIT_REVIEWS_ROOT: env.reviewsRoot } });
 	const none = log();
 	assert.equal(none.status, 1);
+	assert.equal(none.stdout, "");
 	assert.match(none.stderr, new RegExp(`no recorded review for ${head.slice(0, 7)}`));
 	const finding = "#### Critical\n`a.ts:1` · any input · wrong total · seen in code · fix the sum";
 	handle({ session_id: "s", cwd: projectDir, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `${finding}\n### Verdict\nReviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: No`, prompt_id: "p1", agent_id: "a1" }, env);
-	const printed = log();
-	assert.equal(printed.status, 0, printed.stderr);
-	assert.match(printed.stdout, /## Reviewer run a1 — No/);
-	assert.match(printed.stdout, /`a\.ts:1` · any input · wrong total/);
+	mkdirSync(join(projectDir, "src"));
+	const worktree = join(mkdtempSync(join(tmpdir(), "hooks-wt-")), "r");
+	git("worktree", "add", "-q", "--detach", worktree, head);
+	for (const cwd of [projectDir, join(projectDir, "src"), worktree]) {
+		const printed = log(cwd);
+		assert.equal(printed.status, 0, `${cwd}: ${printed.stderr}`);
+		assert.match(printed.stdout, /## Reviewer run a1 — No/);
+		assert.match(printed.stdout, /`a\.ts:1` · any input · wrong total/);
+	}
 });
 
 test("review gate: a successful gh pr create registers its branch for the push gate; a failed one does not", () => {

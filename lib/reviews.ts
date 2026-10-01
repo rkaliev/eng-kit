@@ -610,9 +610,14 @@ function isAncestor(where: string, ancestor: string, rev: string): boolean {
 	return spawnSync("git", ["merge-base", "--is-ancestor", ancestor, rev], { cwd: where, timeout: 5000 }).status === 0;
 }
 
-/** Where a project's review records live. Needs no environment, and symlinks are resolved, so every process agrees. */
+/**
+ * Where a project's review records live: keyed by the repository's git common directory (real path), so the
+ * hook, a subfolder and every worktree of the repository agree. Outside a repository, by the folder itself.
+ */
 export function reviewsDir(projectDir: string, root = join(tmpdir(), "eng-kit", "reviews")): string {
-	return join(root, hash(safeRealpath(resolve(projectDir))));
+	const dir = resolve(projectDir);
+	const common = git(dir, ["rev-parse", "--git-common-dir"]);
+	return join(root, hash(safeRealpath(common ? resolve(dir, common) : dir)));
 }
 
 function decision(action: "block" | "confirm", problem: string, options: ReviewGateOptions): GuardDecision {
