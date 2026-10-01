@@ -117,7 +117,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
 		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, ".claude/guard.json") ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {
-			const options = { workDocs, missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir).commands };
+			const options = { missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir).commands };
 			decision = checkReview(command, cwd, env.projectDir, options, env.reviewsRoot) ?? decision;
 		}
 	} else if (tool === "Read" || tool === "Grep") {

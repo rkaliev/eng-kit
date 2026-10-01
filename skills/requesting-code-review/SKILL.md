@@ -15,7 +15,7 @@ A review in a fresh context catches what the author's context hides. The reviewe
 ## How
 
 1. **Fix the range:** `BASE=$(git merge-base <base-branch> HEAD)` (or the task's BASE) and `HEAD=$(git rev-parse HEAD)`. For a repeat round after fixes, pass the previous round's HEAD and its open findings, so only the new commits are reviewed and every earlier finding is re-checked (a rewritten history means a full review). Commit or stash first so the review is of a known state. Include untracked files you created.
-2. **Fill `reviewer-prompt.md`** with: what was built, the requirements (the task file path or the request, numbered criteria), the range, the verification commands, the plan's Review focus if it has one, and `{SKILL_DIR}` = this skill's absolute directory.
+2. **Fill `reviewer-prompt.md`** with: what was built, the requirements (the task file path or the request, numbered criteria; once the task file is removed, its path at its last commit, `git show <sha>:docs/tasks/…`), the range, the verification commands, the plan's Review focus if it has one, and `{SKILL_DIR}` = this skill's absolute directory.
 3. **Dispatch:**
    - **Default:** dispatch the kit's `reviewer` agent (read-only, on the most capable model) with the filled prompt. For large or high-risk diffs (payments, auth, migrations), run 2–3 reviewers in parallel in one message, each with a different focus (correctness, security, tests). Merge their findings: one finding per root cause, and where two reviewers flag the same `file:line`, keep the higher severity. The merged verdict is the worst one.
    - **If delegation is unavailable:** do the review yourself in a *separate pass*. Re-read the requirements, then walk the diff file by file with the checklist. Don't rely on your memory of writing it.
@@ -28,7 +28,7 @@ A review in a fresh context catches what the author's context hides. The reviewe
 
 ## Review gate
 
-The guard denies a PR/MR, a merge into the base branch and a push to it unless the kit reviewer's last verdict is `Yes` for the change being landed. The hook records the verdict from the reviewer's own lines; you never write it. Land in a command of its own. The rules (what stays valid after a review, what needs a new one, how parallel verdicts combine, the waiver) are in `references/review-gate.md`.
+The guard denies a PR/MR, a merge into the base branch and a push to it unless the kit reviewer's verdict is `Yes` for exactly the commit being landed; any change after the review needs a new one. The hook records the verdict from the reviewer's own lines; you never write it. Land in a command of its own. The rules (why any change needs a new review, how parallel verdicts combine, the waiver) are in `references/review-gate.md`.
 
 ## Reviewer rules (they are in the prompt too)
 
