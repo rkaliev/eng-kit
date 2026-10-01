@@ -27,7 +27,7 @@ The plan already did the thinking. Execute it exactly, prove each step with a te
    - **The plan is wrong:** choose the smallest change that satisfies the description, add `Ruling: <what> — <why> — <cost if wrong>` to Progress, and continue.
 3. Commit as the plan says.
 4. **Completion contract**, with evidence from this session:
-   - every named test exists and ran, and was seen failing before its code (with BDD, the criterion's scenario failed first and passes now);
+   - every named test exists and ran, and was seen failing first as test-standard defines it (with BDD, the criterion's scenario failed first and passes now);
    - the full suite is green;
    - every `Expected` was compared;
    - every deviation has a ruling.

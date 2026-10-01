@@ -396,4 +396,16 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" } });
 	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p2", agent_id: "a2" });
 	assert.equal(pr(), undefined, "after a green run the review counts");
+
+	const bare = gitRepo({});
+	spawnSync("git", ["switch", "-qc", "feat/b"], { cwd: bare });
+	writeFileSync(join(bare, "b.ts"), "export const b = 1;\n");
+	spawnSync("git", ["add", "-A"], { cwd: bare });
+	spawnSync("git", ["commit", "-qm", "b"], { cwd: bare });
+	const bareHead = spawnSync("git", ["rev-parse", "HEAD"], { cwd: bare, encoding: "utf8" }).stdout.trim();
+	const bareEnv: HookEnv = { ...env, projectDir: bare, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) };
+	const bareCall = (input: HookInput) => handle({ session_id: "s", cwd: bare, ...input }, bareEnv);
+	bareCall({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(bare, "b.ts") } });
+	assert.deepEqual(bareCall({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed HEAD: ${bareHead}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1" }), {});
+	assert.equal(decision(bareCall({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } })), undefined, "no verification commands: nothing to be green, the review counts");
 });

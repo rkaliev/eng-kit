@@ -204,16 +204,16 @@ In addition, `kit-init` adds native deny rules `Read(**/.env)`, `Read(**/*.pem)`
 - **The project's CI** (`ci-quality-gates`). Runs on every change, whoever made it, and doesn't depend on hooks or the model:
   - at minimum, everything from `verify.json`;
   - the `working-docs` job, which fails on any tracked `docs/tasks/*.md`, so task files don't reach the base branch from any author;
-  - one required `gate`;
-  - by stack and only with your "yes": test hygiene, e2e without retries with a JUnit test-count check, provider sandboxes as a separate job, secret scanning and dependency audit, migrations and schema drift, contracts, coverage as a floor on a schedule.
-- **The `test-hygiene` script** (`scripts/test-hygiene.ts`): one dependency-free file that needs only Node ≥22.18, whatever the project's stack. `kit-init` offers it and copies it into `.ci/test-hygiene.ts` only with `--test-hygiene` (`node <kit>/scripts/init.ts --test-hygiene`), after your "yes"; the `test-hygiene` and `e2e` jobs from the ci-quality-gates templates run it. It checks:
-  - focused tests and skips without a linked issue (JS/TS, Python, JVM, Go, Swift, .NET, Gherkin), fixed sleeps, retries in runner configs;
-  - with `--junit`: a missing or empty report, a declared count that differs from the cases that ran, skips without a reason;
-  - criterion tags (`@C<n>`) against the criteria table of the task file in the branch: a criterion without a scenario, two scenarios for one criterion, a tag without a criterion.
+  - one required `gate` (it lists `e2e` only if the project has that job);
+  - by stack and only with your "yes": test hygiene, e2e without retries whose JUnit reports are checked with `--junit test-results/` (reports only), provider sandboxes as a separate job, secret scanning and dependency audit, migrations and schema drift, contracts, coverage as a floor on a schedule.
+- **The `test-hygiene` script** (`scripts/test-hygiene.ts`): one dependency-free file that needs only Node ≥22.18, whatever the project's stack. `kit-init` offers it and copies it into `.ci/test-hygiene.mts` (an ES module whatever the project's `package.json` says) only with `--test-hygiene` (`node <kit>/scripts/init.ts --test-hygiene`), after your "yes". The same flag replaces an older copy (versions compared numerically), and the CI gap is reported in the same run. The `test-hygiene` and `e2e` jobs from the ci-quality-gates templates run it. It checks:
+  - focused tests and skips without a linked issue (`#123`, a URL or `ABC-123`; a reason in words is not enough) in JS/TS (Playwright `test.describe.only/skip/fixme`, Cypress, Mocha and Nest layouts), Python, JVM, Go, Swift, .NET, Gherkin; fixed sleeps; retries in runner configs and in test code (`this.retries`, `describe.configure`, pytest `flaky`);
+  - criterion tags (`@C<n>`) on the scenarios the branch adds or changes, against the criteria table of the task file in the branch: a criterion without a scenario, two scenarios for one criterion, a tag without a criterion. Tags of finished tasks never fail a run; `--all` skips the tag check;
+  - `--junit <dir>` alone checks only the reports: missing or empty, or a declared count that differs from the cases that ran (a crashed shard).
 
-  In an existing project it is a ratchet: only lines the change adds count, and pre-existing debt is counted in the summary, not blocking (`--all` checks everything). `test-hygiene: allow <reason>` on the line covers a deliberate case; an allow without a reason is itself reported. `.claude/test-hygiene.json` adds test files, ignores and patterns. Next to it go the stack's native linters (table in `ci-quality-gates/references/ci-templates.md`).
+  In an existing project it is a ratchet: only lines the change adds count (renames are followed), and pre-existing debt is counted in the summary, not blocking (`--all` checks every line). Without a merge base it stops with a message: CI needs `fetch-depth: 0` and, on GitLab, an explicit fetch of the target branch. `test-hygiene: allow <reason>` marks a line where the pattern is the behavior under test; an allow without a reason is itself reported, and one that hides a forbidden skip, retry or sleep needs your agreement. `.claude/test-hygiene.json` adds test files, ignores and patterns. Next to it go the stack's native linters (table in `ci-quality-gates/references/ci-templates.md`).
 - **Linking the layers:**
-  - `kit-init` mechanically checks that CI runs every verify command, has the working-docs job and runs `.ci/test-hygiene.ts` when the project has it, and reports a copy older than the kit's;
+  - `kit-init` mechanically checks that CI runs every verify command, has the working-docs job and runs `.ci/test-hygiene.mts` when the project has it, and reports a copy older than the kit's;
   - review counts a command missing from CI and a broken project rule as Important, and a removed, skipped or retried check as Critical.
 - **BDD** is an optional acceptance layer (`test-driven-development/references/bdd.md`). Each user-visible criterion of the task file is exactly one scenario tagged with the criterion. The result is a chain "criterion → scenario → CI", and `test-hygiene` checks the tags.
 
@@ -222,16 +222,17 @@ In addition, `kit-init` adds native deny rules `Read(**/.env)`, `Read(**/*.pem)`
 ## Testing
 
 The foundation is the iron rule of TDD: a failing test first, then minimal code, then a run of the whole suite. Every other test rule lives in one place, the standard `test-driven-development/references/test-standard.md`; TDD, BDD, writing-plans and the review checklist link to it instead of restating it:
-- **expected values** come from the task file's criterion, not from the code's output. The one exception is characterization tests of legacy code: `*.char.test.*` (or the stack's tag), they pass on first run by design and don't count as coverage of new behavior;
+- **expected values** come from the task file's criterion, not from the code's output. The one exception is characterization tests of legacy code: `*.char.test.*` (or the stack's tag), they pass on first run by design and don't count as coverage of new behavior. Golden data in a port is an acceptance test that fails first, not characterization;
+- **seen failing first:** every new test, except a characterization test;
 - **a test must pay for itself:** no tests of constants, config, schema shape, "it renders", echoing a mock; identical cases are merged into a parameterized test; snapshots are small and inline;
 - **structure and names:** Arrange–Act–Assert, one behavior per test, name = subject + circumstance + result; test-only helpers live in test code;
 - **mocks:** only unmanaged dependencies are faked; your own DB and queues are real in integration tests. Provider sandboxes are a separate suite and CI job, the only place a test talks to the network;
 - **determinism and isolation:** time and randomness under control, no network, a run outside UTC; waits are on a condition with one project-wide ceiling, never a fixed sleep; tests run in any order and in parallel; missing test infrastructure (a database, a container, an emulator) fails the run, never skips it;
-- **no retries:** a test never retries, not in the runner config, not in CI, not in a loop. A flake is fixed only when five criteria hold: the failing run and boundary found, the root cause removed, a repeated run green on the same commit, green in the configuration where it failed, the full suite green;
-- **criteria and levels:** with BDD a user-visible criterion has exactly one scenario tagged with it; any other criterion has at least one test at the cheapest level that shows it the way a user or caller sees it; end-to-end without BDD covers critical flows only, one journey each; a unit test doesn't repeat a scenario's happy path, it keeps the edge cases and failure paths;
+- **no retries:** a test never retries, not in the runner config, not in CI, not in a loop. Waiting on a condition (web-first assertions, `expect.poll`, `waitFor`) is not a retry. A flake is fixed only when five criteria hold: the failing run and boundary found, the root cause removed, a repeated run green on the same commit, green in the configuration where it failed, the full suite green;
+- **criteria and levels:** with BDD a user-visible criterion has exactly one scenario tagged with it; any other criterion has at least one test at the cheapest level that shows it the way a user or caller sees it; end-to-end without BDD covers critical flows only, one journey each;
 - **manual check** replaces a test only where automation is impossible (real hardware, a store review, a fiscal device, a physical signature): the task file gives the reason, you agree, the report says it ran. Elsewhere a criterion without a test is a gap;
-- **outside-in with BDD:** the scenario is written first and seen failing, unit TDD cycles drive the code, and the scenario passing closes the criterion;
-- **changing tests:** deleting a test together with its behavior needs only the reason in the commit; editing an assertion, deleting a test whose behavior still exists, or a skip or quarantine needs your agreement and its own commit;
+- **outside-in with BDD:** the scenario is written first and seen failing, unit TDD cycles drive the code, and the scenario passing closes the criterion. The unit tests underneath test their unit's own contract and stay; only a unit test asserting the user-level outcome the scenario already proves is left out;
+- **changing tests:** deleting a test together with its behavior needs only the reason in the commit; editing an assertion, deleting a test whose behavior still exists, or a skip or quarantine needs your agreement and its own commit; a skip names a linked issue. `test-hygiene: allow <reason>` is for a pattern that is the behavior under test; using it to hide a forbidden skip, retry or sleep needs your agreement, and review rates it like the pattern;
 - **coverage** is a floor, not a goal; visual baselines are produced only in CI.
 
 The plan names the test for each criterion, and the PR body says how each new test was seen failing first. The reviewer checks the rules with the checklist's fixed severities. The mechanical layer (the `test-hygiene` script and the stack's linters) is added by ci-quality-gates only with your "yes".
@@ -257,8 +258,8 @@ The plan names the test for each criterion, and the PR body says how each new te
   - hook handlers (SessionStart, PreToolUse for Bash, PowerShell, Read, Grep, Edit, NotebookEdit; the tracker and the Stop gates);
   - `hook.ts` over stdin/stdout, including a crash;
   - `verify.ts`;
-  - `test-hygiene.ts` (rules in 7 languages, ratchet, JUnit, criterion tags, config, CLI);
-  - `kit-init` (including the test-hygiene item: offered, copied with `--test-hygiene`, an older copy reported, a CI that doesn't run it);
+  - `test-hygiene.ts` (rules in 7 languages, ratchet with renames, no merge base, JUnit reports only, criterion tags on changed scenarios, config, CLI);
+  - `kit-init` (including the test-hygiene item: offered, copied with `--test-hygiene`, an older copy reported and replaced with the flag, a CI that doesn't run it reported in the same run);
   - `install-project` (install, update, conflicts, hooks without duplicates);
   - the skill and agent linter, manifest consistency.
 - **`npm run typecheck`** and **`claude plugin validate .`**.

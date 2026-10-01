@@ -124,16 +124,21 @@ test("test-hygiene: offered without the flag, copied with it, and an older copy 
 	assert.match(item(fresh).why, /--test-hygiene/);
 	assert.deepEqual([item(fresh, true).status, item(fresh, true).content], ["create", script]);
 	assert.equal(item(project({ [HYGIENE_TARGET]: script })).status, "exists");
-	const old = item(project({ [HYGIENE_TARGET]: 'export const VERSION = "1";\n' }));
+	const olderDir = project({ [HYGIENE_TARGET]: 'export const VERSION = "1";\n' });
+	const old = item(olderDir);
 	assert.equal(old.status, "missing");
 	assert.match(old.why, /v1 is older than the kit's v2/);
+	assert.deepEqual([item(olderDir, true).status, item(olderDir, true).content], ["merge", script], "--test-hygiene replaces an older copy");
+	assert.equal(item(project({ [HYGIENE_TARGET]: 'export const VERSION = "10";\n' })).status, "exists", "a newer copy is not called older");
 	assert.equal(planInit(fresh).some((i) => i.target === HYGIENE_TARGET), false, "no script, no item");
 
 	const ci = (files: Record<string, string>) => planInit(project(files), { hygieneScript: script }).find((i) => i.target === "CI")!;
 	const workflow = "jobs:\n  t:\n    steps:\n      - run: npm test\n  working-docs:\n";
 	const pkg = JSON.stringify({ scripts: { test: "vitest run" } });
-	assert.match(ci({ "package.json": pkg, [HYGIENE_TARGET]: script, ".github/workflows/ci.yml": workflow }).why, /doesn't run \.ci\/test-hygiene\.ts/);
-	assert.equal(ci({ "package.json": pkg, [HYGIENE_TARGET]: script, ".github/workflows/ci.yml": `${workflow}      - run: node .ci/test-hygiene.ts\n` }).status, "exists");
+	assert.match(ci({ "package.json": pkg, [HYGIENE_TARGET]: script, ".github/workflows/ci.yml": workflow }).why, /doesn't run \.ci\/test-hygiene\.mts/);
+	assert.equal(ci({ "package.json": pkg, [HYGIENE_TARGET]: script, ".github/workflows/ci.yml": `${workflow}      - run: node .ci/test-hygiene.mts\n` }).status, "exists");
+	const sameRun = planInit(project({ "package.json": pkg, ".github/workflows/ci.yml": workflow }), { hygieneScript: script, copyHygiene: true }).find((i) => i.target === "CI")!;
+	assert.match(sameRun.why, /doesn't run \.ci\/test-hygiene\.mts/, "the run that adds the script reports the CI gap");
 });
 
 test("init.ts --test-hygiene copies the kit's own script", () => {

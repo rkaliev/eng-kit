@@ -120,7 +120,7 @@ The agent classifies the work. A new project is "Architectural", so next it asks
 /eng-kit:kit-init
 ```
 
-The agent shows a plan and, on your "yes", creates `.claude/verify.json` (the test commands found in the project), `.claude/guard.json` and deny rules for secrets. It also offers the optional test-hygiene check for CI (`.ci/test-hygiene.ts`) and adds it only if you agree. If there is no CLAUDE.md, it suggests `/eng-kit:onboarding-existing-codebase` to build CLAUDE.md from the code.
+The agent shows a plan and, on your "yes", creates `.claude/verify.json` (the test commands found in the project), `.claude/guard.json` and deny rules for secrets. It also offers the optional test-hygiene check for CI (`.ci/test-hygiene.mts`) and adds it, or replaces an older copy, only if you agree. If there is no CLAUDE.md, it suggests `/eng-kit:onboarding-existing-codebase` to build CLAUDE.md from the code.
 
 **Step 5. Then the working loop:**
 
