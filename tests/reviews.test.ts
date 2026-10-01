@@ -320,12 +320,14 @@ test("commits on the base count as landed only against the push remote's trackin
 });
 
 test("a Yes whose BASE is not on the remote base and has no covered record of its own does not cover HEAD", () => {
-	const { commit, head, check, review } = repo();
+	const { git, commit, head, check, review } = repo();
 	const second = commit({ "src/a2.ts": "export const a2 = 1;\n" });
 	review(report(second, "Yes", head));
 	for (const landing of ["gh pr create --fill", "git push origin feat/a:main"]) {
 		assert.match(String(check(landing)?.reason), /does not cover/, landing);
 	}
+	git("switch", "-q", "main");
+	assert.match(String(check("git merge feat/a")?.reason), /does not cover/, "a merge into the base");
 });
 
 test("a repeat round chains to a covered earlier round at any verdict", () => {
