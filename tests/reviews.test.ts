@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -441,4 +441,12 @@ test("the reviewer's shell runs only inspection, temp worktrees, the verify comm
 		assert.equal(check(bad), "block", bad);
 	}
 	assert.match(String(checkReviewerCommand("rm f", project, [])?.reason), /reviewer is read-only/);
+});
+
+test("a project reached through a symlink keeps its review records", () => {
+	const { dir, root, head, base, review } = repo();
+	review(report(head, "Yes", base));
+	const link = join(mkdtempSync(join(tmpdir(), "reviews-link-")), "project");
+	symlinkSync(dir, link);
+	assert.equal(readReviews(link, root)[0]?.sha, head);
 });

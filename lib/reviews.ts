@@ -515,9 +515,9 @@ function isAncestor(where: string, ancestor: string, rev: string): boolean {
 	return spawnSync("git", ["merge-base", "--is-ancestor", ancestor, rev], { cwd: where, timeout: 5000 }).status === 0;
 }
 
-/** Where a project's review records live. Needs no environment, so every hook process agrees. */
+/** Where a project's review records live. Needs no environment, and symlinks are resolved, so every process agrees. */
 export function reviewsDir(projectDir: string, root = join(tmpdir(), "eng-kit", "reviews")): string {
-	return join(root, hash(resolve(projectDir)));
+	return join(root, hash(safeRealpath(resolve(projectDir))));
 }
 
 function decision(action: "block" | "confirm", problem: string, options: ReviewGateOptions): GuardDecision {
