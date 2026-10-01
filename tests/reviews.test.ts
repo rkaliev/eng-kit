@@ -439,7 +439,7 @@ test("the reviewer's shell runs only inspection, temp worktrees, the verify comm
 	const kit = "/kit";
 	const check = (command: string) => checkReviewerCommand(command, project, ["npm test", "npm run lint"], kit)?.action ?? "allow";
 	const tmp = join(tmpdir(), "r");
-	for (const ok of ["git diff a..b", "git diff --stat a..b -- src", "git log --oneline -5", "git -C /x log --oneline", "git show a:CLAUDE.md", "git merge-base origin/main HEAD", `git worktree add ${tmp} abc`, `git worktree add --detach ${tmp} abc`, `git worktree remove --force ${tmp}`, "git worktree list", "git diff a..b | head -50", "cat f | grep x", "grep -rn foo src 2>/dev/null", "npm test", "npm test 2>&1 | tail -20", "cd lib && git status", `node ${kit}/scripts/review-log.ts abc`]) {
+	for (const ok of ["git diff a..b", "git diff --stat a..b -- src", "git log --oneline -5", "git -C /x log --oneline", "git show a:CLAUDE.md", "git merge-base origin/main HEAD", `git worktree add ${tmp} abc`, `git worktree add --detach ${tmp} abc`, `git worktree remove --force ${tmp}`, "git worktree list", "git diff a..b | head -50", "cat f | grep x", "grep -rn foo src 2>/dev/null", "npm test", "npm test 2>&1 | tail -20", "cd tests && git status", `node ${kit}/scripts/review-log.ts abc`]) {
 		assert.equal(check(ok), "allow", ok);
 	}
 	const bad = [
