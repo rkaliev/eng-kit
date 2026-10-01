@@ -533,10 +533,20 @@ function uncovered(where: string, projectDir: string, base: string, ref: string,
 	return `the review of ${short(sha)} does not cover the whole branch: it covers ${range}, and nothing reviewed connects it to ${anchor.replace(/^refs\/(remotes|heads)\//, "")}. Review the whole branch from its merge-base, or the commits before ${short(match.bases[0] ?? sha)}.`;
 }
 
-/** What a review chain must reach: the remote's base branch, or the local one when there is no tracking ref (no remote). */
+/**
+ * What a review chain must reach: the push remote's base branch, else origin's, else any remote's. Only a
+ * repository with no remote-tracking ref for the base at all anchors on the local base branch.
+ */
 function anchorRef(where: string, remote: string, base: string): string {
-	const tracking = `refs/remotes/${remote}/${base}`;
-	return git(where, ["rev-parse", "--verify", "--quiet", tracking]) ? tracking : `refs/heads/${base}`;
+	for (const ref of [`refs/remotes/${remote}/${base}`, `refs/remotes/origin/${base}`]) {
+		if (git(where, ["rev-parse", "--verify", "--quiet", ref])) return ref;
+	}
+	const other = lines(git(where, ["for-each-ref", "--format=%(refname)", "refs/remotes/"])).find((r) => r.endsWith(`/${base}`));
+	return other ?? `refs/heads/${base}`;
+}
+
+function lines(text: string | undefined): string[] {
+	return (text ?? "").split("\n").filter(Boolean);
 }
 
 /** Whether `base..sha` is a real range that reaches `anchor`, directly or through recorded rounds (any verdict: a repeat round re-checks them). */

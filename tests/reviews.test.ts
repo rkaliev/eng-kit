@@ -467,3 +467,17 @@ test("a backslash-escaped quote doesn't hide a landing from the gate", () => {
 	}
 	assert.equal(stripRedirects("echo \\' > f").replace(/\s+/g, " ").trim(), "echo \\'", "an escaped quote opens no quote");
 });
+
+test("a push to a remote with no tracking ref still anchors the chain on the remote base, not the local one", () => {
+	const { git, run, commit, check, review } = repo();
+	const fork = mkdtempSync(join(tmpdir(), "reviews-fork-"));
+	run(fork, "init", "-q", "--bare", "-b", "main");
+	git("remote", "add", "fork", fork);
+	git("switch", "-q", "main");
+	commit({ "src/u1.ts": "export const u1 = 1;\n" });
+	const u2 = commit({ "src/u2.ts": "export const u2 = 1;\n" });
+	const c3 = commit({ "src/c3.ts": "export const c3 = 1;\n" });
+	review(report(c3, "Yes", u2));
+	assert.equal(action(check("git push origin main")), "block");
+	assert.match(String(check("git push fork main")?.reason), /does not cover/, "fork has no fork/main: origin/main is still the remote base");
+});
