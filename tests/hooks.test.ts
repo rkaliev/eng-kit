@@ -348,7 +348,11 @@ test("review gate: SubagentStop stamps the kit reviewer's verdict; the guard let
 	assert.equal(stopOf("eng-kit:reviewer", "Still fine.", true).output, undefined, "only once");
 	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a3" }), {});
 	assert.equal(decision(pr()), "deny", "a parallel run that never gave a verdict makes this commit Inconclusive for the prompt");
+	const typo = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed HEAD: deadbeef0", prompt_id: "p1", agent_id: "a4", stop_hook_active: true });
+	assert.equal(typo.output, undefined);
 	assert.deepEqual(stopOf("eng-kit:reviewer", verdict), {}, "the failed run itself, resumed, may still report");
+	assert.equal(decision(pr()), "deny", "a failed run naming a SHA that isn't a commit falls back to HEAD");
+	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a4" }), {});
 	assert.equal(decision(pr()), undefined, "its verdict replaces its own failure");
 
 

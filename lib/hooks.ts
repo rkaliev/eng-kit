@@ -250,7 +250,11 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	// Sent back once already: the run failed. It counts as Inconclusive for the commit it reviewed, so a
 	// parallel reviewer's Yes on that commit can't stand alone; a review of a later commit is unaffected.
 	if (input.stop_hook_active) {
-		recordVerdict(env.projectDir, reviewedHead(input.last_assistant_message ?? "") ?? "HEAD", "Inconclusive", ids, env.reviewsRoot);
+		const named = reviewedHead(input.last_assistant_message ?? "");
+		// A SHA that isn't a commit here (a typo) falls back to HEAD, so the failure is never lost.
+		if (named === undefined || typeof recordVerdict(env.projectDir, named, "Inconclusive", ids, env.reviewsRoot) === "string") {
+			recordVerdict(env.projectDir, "HEAD", "Inconclusive", ids, env.reviewsRoot);
+		}
 		return { warning };
 	}
 	return {
