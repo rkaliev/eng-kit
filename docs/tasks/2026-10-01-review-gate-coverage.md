@@ -171,19 +171,19 @@ After the update, old records lack `base`, so the first landing on each branch n
 - `rememberPr(projectDir, command, cwd, root?): void` — records the branch of a successful `gh pr create`/`glab mr create`: the `--head`/`-s` value or the current branch where the command ran, following `cd` the way `checkReview` does;
 - `openPrBranches(projectDir, where, base, remote, root?): string[]` — drops entries older than 30 days or whose branch tip is an ancestor of the anchor, and writes back.
 
-- [ ] Write failing tests:
+- [x] Write failing tests:
   - `after a PR is opened, pushing a new unreviewed commit to its branch is refused`: `rememberPr(… "gh pr create" …)`, commit, `check("git push")` → block;
   - `once the new commit is reviewed, the push passes`;
   - `a merged PR branch is forgotten`;
   - `PostToolUseFailure of gh pr create registers nothing` (hooks);
   - `shell writes to prs.json are blocked` (`checkGateFiles`, same folder as the records).
-- [ ] Run `node --test tests/reviews.test.ts tests/hooks.test.ts` → expect FAIL: `git push` on the feature branch returns `undefined` instead of a block.
-- [ ] Implement:
+- [x] Run `node --test tests/reviews.test.ts tests/hooks.test.ts` → expect FAIL: `git push` on the feature branch returns `undefined` instead of a block.
+- [x] Implement:
   - `<reviewsDir>/prs.json` = `{ "<branch>": <ms> }`, written atomically with the existing `writeAtomic`;
   - in `targets()`, for a push, add `pushedToBase(l, branch, currentBranch(where) === branch)` for each open PR branch;
   - `postToolUse` calls `rememberPr` for a successful shell call before its verify bookkeeping.
-- [ ] Run → expect PASS, then `npm test`.
-- [ ] Commit `feat(review-gate): a push to the branch of a PR the agent opened needs a review`.
+- [x] Run → expect PASS, then `npm test`.
+- [x] Commit `feat(review-gate): a push to the branch of a PR the agent opened needs a review`.
 
 ### Task 4: the reviewer can only read
 
@@ -273,3 +273,7 @@ After the update, old records lack `base`, so the first landing on each branch n
 - Task 1: complete (090eaac..21f1a6c, `npm test` → 288 pass, `npm run typecheck` → clean)
 - Ruling: `review-log.ts` reads the records root from `ENG_KIT_REVIEWS_ROOT` when set (tests only; the hooks never read it) — the script only reads, so the variable can't loosen the gate — cost if wrong: none for the gate.
 - Task 2: complete (21f1a6c..a636165, `npm test` → 290 pass, `npm run typecheck` → clean)
+- Ruling: `openPrBranches` also takes the push remote. A PR counts as merged when its head as the remote last showed it (`<remote>/<branch>`, else the local branch) is on the anchor: the local tip moves on after a merge, so the plan's local-tip check would never forget a merged PR — cost if wrong: a branch whose remote ref was deleted and pruned stays gated (over-blocking, the safe side).
+- Ruling: in the hooks test, a push without a PR expects the guard's usual `ask`; the test checks that the PR turns it into `deny` — cost if wrong: none.
+- Ruling: `shell writes to the open-PR list are blocked` passed before the change, because prs.json sits in the records folder the guard already protects; it pins that placement — cost if wrong: none.
+- Task 3: complete (a636165..ce6d1d8, `npm test` → 294 pass, `npm run typecheck` → clean)
