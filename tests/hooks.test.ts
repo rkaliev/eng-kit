@@ -336,7 +336,7 @@ test("review gate: SubagentStop stamps the kit reviewer's verdict; the guard let
 	const pr = () => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
 	const stopOf = (agent_type: string, last_assistant_message: string, stop_hook_active = false) =>
 		call({ hook_event_name: "SubagentStop", agent_type, last_assistant_message, prompt_id: "p1", agent_id: "a1", stop_hook_active });
-	const verdict = `Reviewed HEAD: ${head.slice(0, 8)}\nReady to merge: Yes`;
+	const verdict = `Reviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head.slice(0, 8)}\nReady to merge: Yes`;
 
 	assert.equal(decision(pr()), "deny");
 	assert.deepEqual(stopOf("Explore", verdict), {}, "other agents never stamp");
@@ -386,7 +386,7 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 	const pr = () => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } }));
-	const verdict = `Reviewed HEAD: ${head}\nReady to merge: Yes`;
+	const verdict = `Reviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: Yes`;
 
 	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "a.ts") } });
 	const stamped = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a1" });
@@ -406,6 +406,6 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	const bareEnv: HookEnv = { ...env, projectDir: bare, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) };
 	const bareCall = (input: HookInput) => handle({ session_id: "s", cwd: bare, ...input }, bareEnv);
 	bareCall({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(bare, "b.ts") } });
-	assert.deepEqual(bareCall({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed HEAD: ${bareHead}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1" }), {});
+	assert.deepEqual(bareCall({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${spawnSync("git", ["rev-parse", "main"], { cwd: bare, encoding: "utf8" }).stdout.trim()}\nReviewed HEAD: ${bareHead}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1" }), {});
 	assert.equal(decision(bareCall({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } })), undefined, "no verification commands: nothing to be green, the review counts");
 });

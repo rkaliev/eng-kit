@@ -3,6 +3,10 @@
  * a reviewer passed exactly the commit being landed. Verdicts are recorded from the reviewer's own
  * report (never by the main agent), one file per reviewer run. Any change after the review (a new
  * commit, an amend, a rebase, a docs edit) is a different commit and needs a new review.
+ *
+ * A verdict covers the range its reviewer names (`Reviewed BASE:`..`Reviewed HEAD:`). A commit is covered
+ * when that range reaches back to the remote base, directly or through earlier rounds whose own ranges do:
+ * a repeat round reviews only the new commits, and the chain keeps the whole branch reviewed.
  */
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -17,10 +21,23 @@ export type Verdict = "Yes" | "With fixes" | "No" | "Inconclusive";
 /** One reviewer run's verdict on one commit. A run that failed counts as Inconclusive for the commit it reviewed. */
 export interface ReviewRecord {
 	sha: string;
+	/** Where the reviewed range starts. Missing for a failed run and for records from before ranges were recorded. */
+	base?: string;
 	verdict: Verdict;
 	/** Reviews from one user prompt combine (parallel reviewers); a later prompt replaces them. */
 	promptId: string;
 	at: number;
+	/** The reviewer's report, so a repeat round reads the open findings from the store, not from the author. */
+	report?: string;
+}
+
+/** The latest round of reviews of one commit: its reviewers' verdicts combined, and the ranges they covered. */
+export interface ReviewRound {
+	sha: string;
+	verdict: Verdict;
+	promptId: string;
+	at: number;
+	bases: string[];
 }
 
 export interface ReviewGateOptions {
@@ -36,19 +53,24 @@ const RANK: Record<Verdict, number> = { Yes: 0, "With fixes": 1, Inconclusive: 2
 // A verdict word followed by `/` or `|` is the unfilled template line, not a verdict.
 const VERDICT = /Ready to merge[*_]*:[*_\s]*(Yes|No|With fixes|Inconclusive)\b(?![*_\s]*[/|])/gi;
 const HEAD = /Reviewed HEAD[*_]*:[*_\s`]*([0-9a-f]{7,40})\b/gi;
+const BASE = /Reviewed BASE[*_]*:[*_\s`]*([0-9a-f]{7,40})\b/gi;
 /** Segments that may run before a landing in one command: they neither commit nor move a ref. */
 const SAFE_COMMANDS = new Set(["cd", "pushd", "echo", "printf", "true", "sleep", "pwd"]);
 const SAFE_GIT = new Set(["status", "diff", "log", "show", "rev-parse", "add", "fetch", "remote", "branch"]);
 const READ_ONLY = new Set(["cat", "less", "head", "tail", "grep", "rg", "ls", "wc", "diff", "stat", "file", "jq"]);
 const READ_ONLY_GIT = new Set(["diff", "show", "log", "status", "blame"]);
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_REPORT = 200_000;
+/** Rounds a chain may pass through back to the remote base. */
+const MAX_CHAIN = 20;
 
-/** The verdict and SHA in a reviewer's report. Several reports (parallel reviewers) give the worst verdict. */
-export function parseReview(text: string): { sha: string; verdict: Verdict } | undefined {
+/** The range and verdict in a reviewer's report. Several reports (parallel reviewers) give the worst verdict. */
+export function parseReview(text: string): { base: string; sha: string; verdict: Verdict } | undefined {
 	const verdicts = [...text.matchAll(VERDICT)].map((m) => normalize(m[1]!));
 	const shas = new Set([...text.matchAll(HEAD)].map((m) => m[1]!.toLowerCase()));
-	if (verdicts.length === 0 || shas.size !== 1) return undefined;
-	return { sha: [...shas][0]!, verdict: worst(verdicts) };
+	const bases = new Set([...text.matchAll(BASE)].map((m) => m[1]!.toLowerCase()));
+	if (verdicts.length === 0 || shas.size !== 1 || bases.size !== 1) return undefined;
+	return { base: [...bases][0]!, sha: [...shas][0]!, verdict: worst(verdicts) };
 }
 
 /** The SHA a report names, even when its verdict line is missing: a failed run is charged to that commit. */
@@ -63,15 +85,17 @@ export function reviewedHead(text: string): string | undefined {
  */
 export function recordReview(projectDir: string, text: string, ids: { promptId: string; run: string }, root?: string): ReviewRecord | string {
 	const parsed = parseReview(text);
-	if (!parsed) return "the report has no single `Reviewed HEAD: <sha>` line with one `Ready to merge:` verdict";
-	return recordVerdict(projectDir, parsed.sha, parsed.verdict, ids, root);
+	if (!parsed) return "the report needs one `Reviewed BASE: <sha>` line, one `Reviewed HEAD: <sha>` line and one `Ready to merge:` verdict";
+	return recordVerdict(projectDir, parsed.sha, parsed.verdict, ids, root, { base: parsed.base, report: text });
 }
 
 /** Record a verdict for a commit directly: a reviewer run that failed counts as Inconclusive for the commit it reviewed. */
-export function recordVerdict(projectDir: string, rev: string, verdict: Verdict, ids: { promptId: string; run: string }, root?: string): ReviewRecord | string {
+export function recordVerdict(projectDir: string, rev: string, verdict: Verdict, ids: { promptId: string; run: string }, root?: string, extra: { base?: string; report?: string } = {}): ReviewRecord | string {
 	const sha = git(projectDir, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`]);
 	if (!sha) return `Reviewed HEAD ${rev} is not a commit in this repository`;
-	const record: ReviewRecord = { sha, verdict, promptId: ids.promptId, at: Date.now() };
+	const base = extra.base === undefined ? undefined : git(projectDir, ["rev-parse", "--verify", "--quiet", `${extra.base}^{commit}`]);
+	if (extra.base !== undefined && !base) return `Reviewed BASE ${extra.base} is not a commit in this repository`;
+	const record: ReviewRecord = { sha, base, verdict, promptId: ids.promptId, at: Date.now(), report: extra.report?.slice(0, MAX_REPORT) };
 	const dir = reviewsDir(projectDir, root);
 	try {
 		mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -84,8 +108,8 @@ export function recordVerdict(projectDir: string, rev: string, verdict: Verdict,
 	return record;
 }
 
-/** Recorded verdicts per reviewed SHA, newest first: the latest prompt's reviews combined to the worst verdict. */
-export function readReviews(projectDir: string, root?: string): ReviewRecord[] {
+/** Recorded rounds per reviewed SHA, newest first: the latest prompt's reviews combined to the worst verdict. */
+export function readReviews(projectDir: string, root?: string): ReviewRound[] {
 	const dir = reviewsDir(projectDir, root);
 	let names: string[];
 	try {
@@ -99,11 +123,12 @@ export function readReviews(projectDir: string, root?: string): ReviewRecord[] {
 		const record = readRecord(join(dir, name));
 		if (record) bySha.set(record.sha, [...(bySha.get(record.sha) ?? []), record]);
 	}
-	const combined: ReviewRecord[] = [];
+	const combined: ReviewRound[] = [];
 	for (const records of bySha.values()) {
 		const latest = records.reduce((a, b) => (b.at > a.at ? b : a));
-		const prompt = records.filter((r) => r.promptId === latest.promptId).map((r) => r.verdict);
-		combined.push({ ...latest, verdict: worst(prompt) });
+		const prompt = records.filter((r) => r.promptId === latest.promptId);
+		const bases = [...new Set(prompt.flatMap((r) => (r.base ? [r.base] : [])))];
+		combined.push({ sha: latest.sha, verdict: worst(prompt.map((r) => r.verdict)), promptId: latest.promptId, at: latest.at, bases });
 	}
 	return combined.sort((a, b) => b.at - a.at);
 }
@@ -303,7 +328,7 @@ function uncovered(where: string, projectDir: string, base: string, ref: string,
 	// Already on the remote's base branch: nothing new lands. Only a remote-tracking ref proves that; the
 	// local base branch never does, since unreviewed commits may sit on it.
 	const tracking = `refs/remotes/${remote}/${base}`;
-	const landed = git(where, ["rev-parse", "--verify", "--quiet", tracking]) !== undefined && spawnSync("git", ["merge-base", "--is-ancestor", sha, tracking], { cwd: where, timeout: 5000 }).status === 0;
+	const landed = git(where, ["rev-parse", "--verify", "--quiet", tracking]) !== undefined && isAncestor(where, sha, tracking);
 	if (landed) return undefined;
 
 	// A verdict covers exactly the commit the reviewer reviewed: anything else is a change it didn't see.
@@ -311,14 +336,31 @@ function uncovered(where: string, projectDir: string, base: string, ref: string,
 	const match = reviews.find((r) => r.sha === sha);
 	if (!match) {
 		// Name an earlier review only when it was of this branch (an ancestor): then the branch changed after it.
-		const earlier = reviews.find((r) => spawnSync("git", ["merge-base", "--is-ancestor", r.sha, sha], { cwd: where, timeout: 5000 }).status === 0);
+		const earlier = reviews.find((r) => isAncestor(where, r.sha, sha));
 		return earlier
 			? `no reviewer verdict recorded for ${short(sha)}; the last review of this branch covers ${short(earlier.sha)}, and the branch changed after it (a new commit, an amend or a rebase), so it needs a new review.`
 			: `no reviewer verdict recorded for ${short(sha)}.`;
 	}
 	// "With fixes" passes only after the fixes and a re-review of them, which gives a new verdict.
 	if (match.verdict !== "Yes") return `the review of ${short(match.sha)} returned "${match.verdict}".`;
-	return undefined;
+	// The reviewed range must reach the remote base, directly or through earlier rounds. Without a tracking
+	// ref (no remote) the local base branch is all there is.
+	const anchor = git(where, ["rev-parse", "--verify", "--quiet", tracking]) ? tracking : `refs/heads/${base}`;
+	if (match.bases.some((b) => chainOk(where, b, sha, reviews, anchor, 1))) return undefined;
+	const range = match.bases.length > 0 ? `${short(match.bases[0]!)}..${short(sha)}` : "no recorded range (a review from before ranges were recorded)";
+	return `the review of ${short(sha)} does not cover the whole branch: it covers ${range}, and nothing reviewed connects it to ${anchor.replace(/^refs\/(remotes|heads)\//, "")}. Review the whole branch from its merge-base, or the commits before ${short(match.bases[0] ?? sha)}.`;
+}
+
+/** Whether `base..sha` is a real range that reaches `anchor`, directly or through recorded rounds (any verdict: a repeat round re-checks them). */
+function chainOk(where: string, base: string, sha: string, rounds: ReviewRound[], anchor: string, links: number): boolean {
+	if (links > MAX_CHAIN || base === sha || !isAncestor(where, base, sha)) return false;
+	if (isAncestor(where, base, anchor)) return true;
+	const round = rounds.find((r) => r.sha === base);
+	return round !== undefined && round.bases.some((b) => chainOk(where, b, base, rounds, anchor, links + 1));
+}
+
+function isAncestor(where: string, ancestor: string, rev: string): boolean {
+	return spawnSync("git", ["merge-base", "--is-ancestor", ancestor, rev], { cwd: where, timeout: 5000 }).status === 0;
 }
 
 /** Where a project's review records live. Needs no environment, so every hook process agrees. */
@@ -334,7 +376,9 @@ function readRecord(path: string): ReviewRecord | undefined {
 	try {
 		const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<ReviewRecord>;
 		if (typeof raw.sha !== "string" || typeof raw.at !== "number" || typeof raw.promptId !== "string" || !(String(raw.verdict) in RANK)) return undefined;
-		return { sha: raw.sha, verdict: raw.verdict as Verdict, promptId: raw.promptId, at: raw.at };
+		const base = typeof raw.base === "string" ? raw.base : undefined;
+		const report = typeof raw.report === "string" ? raw.report : undefined;
+		return { sha: raw.sha, base, verdict: raw.verdict as Verdict, promptId: raw.promptId, at: raw.at, report };
 	} catch {
 		return undefined;
 	}
