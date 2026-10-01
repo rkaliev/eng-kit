@@ -148,21 +148,21 @@ After the update, old records lack `base`, so the first landing on each branch n
 **Files:** Modify `lib/hooks.ts`, `lib/reviews.ts`, `lib/install.ts` · Create `scripts/review-log.ts` · Test `tests/hooks.test.ts`, `tests/install.test.ts`
 **Interfaces:** Consumes Task 1's `parseReview`/`recordReview` · Produces `readReports(projectDir, sha, root?): Array<{ run: string; verdict: Verdict; report: string }>` (the latest round only), and the CLI `node scripts/review-log.ts <rev>`.
 
-- [ ] Write failing tests:
+- [x] Write failing tests:
   - `SubagentStop: a report without Reviewed BASE is sent back once, then counts as Inconclusive` — `decision: "block"` with reason `/Reviewed BASE/`, then an Inconclusive record;
   - `the stored report is printed by review-log for that commit` — spawn the script with `CLAUDE_PROJECT_DIR` and a test records root (env `ENG_KIT_REVIEWS_ROOT`), expect exit 0 and stdout containing the report's first finding line;
   - `review-log with no record exits 1` — stderr `no recorded review for <short sha>`;
   - in `install.test.ts`: `.claude/eng-kit/scripts/review-log.ts` is installed.
-- [ ] Run `node --test tests/hooks.test.ts tests/install.test.ts` → expect FAIL: the send-back reason lacks `Reviewed BASE`, and the script file doesn't exist.
+- [x] Run `node --test tests/hooks.test.ts tests/install.test.ts` → expect FAIL: the send-back reason lacks `Reviewed BASE`, and the script file doesn't exist.
 
   Add an empty `scripts/review-log.ts` stub first, so the failure is an assertion.
-- [ ] Implement:
+- [x] Implement:
   - the send-back reason in `subagentStop` names all three lines;
   - `review-log.ts` resolves `<rev>` in its cwd and reads `readReports(process.env.CLAUDE_PROJECT_DIR || cwd, sha, process.env.ENG_KIT_REVIEWS_ROOT)`;
   - it prints `## Reviewer run <run> — <verdict>` and then the report;
   - `install.ts` adds `review-log` to the scripts filter.
-- [ ] Run → expect PASS, then `npm test`.
-- [ ] Commit `feat(review-gate): reviewers report BASE; review-log prints a commit's stored findings`.
+- [x] Run → expect PASS, then `npm test`.
+- [x] Commit `feat(review-gate): reviewers report BASE; review-log prints a commit's stored findings`.
 
 ### Task 3: pushing to an open PR's branch is a landing
 
@@ -271,3 +271,5 @@ After the update, old records lack `base`, so the first landing on each branch n
 - Ruling: the test helper `report()` and three hooks-test verdict strings gained a `Reviewed BASE:` line; no assertion changed — the report format is the contract this task changes — cost if wrong: none, the assertions are untouched.
 - Ruling: `a repeat round chains to a covered earlier round at any verdict` passed before the change, because the 0.13.0 gate let every Yes through; it guards against the chain over-blocking and was checked against the implementation — cost if wrong: a positive-path regression would be caught only by the other chain tests.
 - Task 1: complete (090eaac..21f1a6c, `npm test` → 288 pass, `npm run typecheck` → clean)
+- Ruling: `review-log.ts` reads the records root from `ENG_KIT_REVIEWS_ROOT` when set (tests only; the hooks never read it) — the script only reads, so the variable can't loosen the gate — cost if wrong: none for the gate.
+- Task 2: complete (21f1a6c..a636165, `npm test` → 290 pass, `npm run typecheck` → clean)
