@@ -102,7 +102,8 @@ After the update, old records lack `base`, so the first landing on each branch n
 5. A hook crash in an event other than PreToolUse keeps exit 1 and does not print an `ask`.
 
 ### Post-implementation
-- `docs/ARCHITECTURE.md` and `.ru.md` (both editions), review gate section: the chain rule, the open-PR rule, the reviewer allowlist (Claude only), fail-closed PreToolUse, the limit that PRs opened outside the agent are not seen.
+- `README.md` (both editions), the review-gate paragraph: the three lines, the open-PR rule.
+- `docs/ARCHITECTURE.md` and `.ru.md` (both editions), review gate section and the reviewer row: the chain rule, the open-PR rule, the reviewer allowlist (Claude only), fail-closed PreToolUse, the limit that PRs opened outside the agent are not seen.
 - `skills/requesting-code-review/references/review-gate.md` (both editions): the same rules for the agent.
 - `CHANGELOG.md` 0.14.0 (both): the behavior changes, and the note that old records need one new review.
 - Private workspace `docs/FRAMEWORK-SOURCES.ru.md`: §11.15 drops the 0.12.0 exempt-list wording; new §11.17 explains what was taken from fortune-os (commit anchor, rules on base, findings from the store) and why.
@@ -224,19 +225,19 @@ After the update, old records lack `base`, so the first landing on each branch n
 
 **Files:** Modify `agents/reviewer.md`, `skills/requesting-code-review/SKILL.md`, `reviewer-prompt.md`, `references/review-gate.md` · Test `tests/lint-skills.test.ts` (existing, must stay green)
 
-- [ ] `reviewer-prompt.md`:
+- [x] `reviewer-prompt.md`:
   - the Verdict block becomes `Reviewed BASE: {BASE}` / `Reviewed HEAD: {HEAD}` / `Ready to merge: …`;
   - Rules: the manifest, path rules and decision records are read at `{BASE}` (`git show {BASE}:<path>`); the branch's own rule edits are judged against them;
   - the repeat round reviews `{PREVIOUS_REVIEW_HEAD}..{HEAD}` with `BASE = {PREVIOUS_REVIEW_HEAD}`, and first runs `node {KIT_ROOT}/scripts/review-log.ts {PREVIOUS_REVIEW_HEAD}` and re-checks every finding it prints. The author no longer pastes findings.
-- [ ] `SKILL.md`:
+- [x] `SKILL.md`:
   - step 1 says the range starts at the merge-base with the remote base, or at the previous round's HEAD;
   - `{KIT_ROOT}` is the "Kit root" from the session context (project install: `.claude/eng-kit`);
   - step 3 makes a parallel security-focused reviewer **required** for the risk-floor categories (money, auth, permissions, secrets, schema, CI and release config) and keeps it optional elsewhere;
   - the gate paragraph adds the open-PR rule and the read-only shell.
-- [ ] `agents/reviewer.md`: the three lines, rules at BASE, the allowlist named as enforced.
-- [ ] `review-gate.md`: the chain rule, the open-PR rule and its limit, the allowlist, fail-closed PreToolUse, and old records needing one new review.
-- [ ] Run `npm test` → expect PASS (lint-skills).
-- [ ] Commit `docs(review): the reviewer reports BASE, reads rules at BASE and its findings from the store`.
+- [x] `agents/reviewer.md`: the three lines, rules at BASE, the allowlist named as enforced.
+- [x] `review-gate.md`: the chain rule, the open-PR rule and its limit, the allowlist, fail-closed PreToolUse, and old records needing one new review.
+- [x] Run `npm test` → expect PASS (lint-skills).
+- [x] Commit `docs(review): the reviewer reports BASE, reads rules at BASE and its findings from the store`.
 
 ### Task 7: pi edition parity
 
@@ -282,3 +283,5 @@ After the update, old records lack `base`, so the first landing on each branch n
 - Task 4: complete (ce6d1d8..af44882, `npm test` → 296 pass, `npm run typecheck` → clean)
 - Ruling: `respond` takes `makeEnv(input)` instead of a ready `env`, because the project dir falls back to the input's cwd — cost if wrong: none.
 - Task 5: complete (af44882..HEAD, `npm test` → 297 pass, `npm run typecheck` → clean, `hooks/hook.ts` with a PreToolUse input → exit 0)
+- Ruling: Post-implementation also covers README.md (both editions): its review-gate paragraph names the two old verdict lines — cost if wrong: none.
+- Task 6: complete (8b71bae..bfad053, `npm test` → 297 pass)
