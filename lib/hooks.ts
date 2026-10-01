@@ -17,7 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, recordReview } from "./reviews.ts";
+import { checkGateFiles, checkReview, recordReview, recordVerdict } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
@@ -115,7 +115,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		decision = checkCommand(command, env.projectDir, config);
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
-		if (decision.action !== "block") decision = checkGateFiles(command, ".claude/guard.json") ?? decision;
+		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, ".claude/guard.json") ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {
 			const options = { workDocs, missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json' };
 			decision = checkReview(command, cwd, env.projectDir, options, env.reviewsRoot) ?? decision;
@@ -247,7 +247,11 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	const result = recordReview(env.projectDir, input.last_assistant_message ?? "", ids, env.reviewsRoot);
 	if (typeof result !== "string") return {};
 	const warning = `eng-kit review gate: no verdict recorded: ${result}.`;
-	if (input.stop_hook_active) return { warning };
+	// Sent back once already: count the run as failed, so a parallel reviewer's Yes can't stand alone.
+	if (input.stop_hook_active) {
+		recordVerdict(env.projectDir, undefined, "Inconclusive", ids, env.reviewsRoot);
+		return { warning };
+	}
 	return {
 		warning,
 		output: {

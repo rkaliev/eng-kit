@@ -347,7 +347,9 @@ test("review gate: SubagentStop stamps the kit reviewer's verdict; the guard let
 	assert.match(String(missing.output?.reason), /Reviewed HEAD: <the SHA you reviewed>/);
 	assert.equal(stopOf("eng-kit:reviewer", "Still fine.", true).output, undefined, "only once");
 	assert.deepEqual(stopOf("eng-kit:reviewer", verdict), {});
-	assert.equal(decision(pr()), undefined);
+	assert.equal(decision(pr()), "deny", "a run that never gave a verdict makes its prompt Inconclusive");
+	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p2", agent_id: "a2" }), {});
+	assert.equal(decision(pr()), undefined, "a clean review in the next prompt");
 
 	const off = { ...env, projectDir: gitRepo({ ".claude/guard.json": JSON.stringify({ reviewGate: false }) }) };
 	spawnSync("git", ["switch", "-qc", "feat/b"], { cwd: off.projectDir });
