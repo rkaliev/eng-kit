@@ -120,7 +120,7 @@ The agent classifies the work. A new project is "Architectural", so next it asks
 /eng-kit:kit-init
 ```
 
-The agent shows a plan and, on your "yes", creates `.claude/verify.json` (the test commands found in the project), `.claude/guard.json` and deny rules for secrets. If there is no CLAUDE.md, it suggests `/eng-kit:onboarding-existing-codebase` to build CLAUDE.md from the code.
+The agent shows a plan and, on your "yes", creates `.claude/verify.json` (the test commands found in the project), `.claude/guard.json` and deny rules for secrets. It also offers the optional test-hygiene check for CI (`.ci/test-hygiene.mts`) and adds it, or replaces an older copy, only if you agree. If there is no CLAUDE.md, it suggests `/eng-kit:onboarding-existing-codebase` to build CLAUDE.md from the code.
 
 **Step 5. Then the working loop:**
 
@@ -128,7 +128,7 @@ The agent shows a plan and, on your "yes", creates `.claude/verify.json` (the te
 /eng-kit:writing-plans docs/tasks/…-cart-api.md     fills its Plan: small TDD tasks
 /eng-kit:implement docs/tasks/…-cart-api.md         execution with tests and a report; at the end
                                                     what lasts moves to docs/, the task file is deleted
-/eng-kit:requesting-code-review                     review by the reviewer agent
+/eng-kit:requesting-code-review                     a review on demand (implement and finish review the final commit)
 /eng-kit:finish                                     merge / PR / keep / discard, your choice
 ```
 

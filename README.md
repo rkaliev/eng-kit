@@ -24,7 +24,8 @@ It contains:
   - **guard** (PreToolUse) denies irreversible or secret-leaking tool calls and PRs or merges that would carry task files to the base branch, and asks you before outward-facing ones.
   - **verify gate** (PostToolUse + Stop) won't let Claude finish with unverified edits.
   - **approval gate** and **working-docs gate** (Stop) won't let Claude finish while an approved task file is uncommitted, or while an implemented one is still in the tree.
-  - **review gate** (SubagentStop + PreToolUse) denies opening or merging a PR, or landing on the base branch, unless the reviewer's last verdict for that commit is `Yes`.
+  - **review gate** (SubagentStop + PreToolUse) denies opening or merging a PR, or landing on the base branch, unless the reviewer's last verdict for that commit is `Yes`. A review that ran on unverified edits counts as `Inconclusive`.
+- **A test-hygiene script** for the project's CI on any stack (`scripts/test-hygiene.ts`, Node only, no dependencies): focused tests, skips without a linked issue, fixed sleeps, retries in runner configs and test code, JUnit test counts. In an existing project it checks only the lines a change adds, so old debt doesn't block.
 
 Docs: [what plugins are and how to install this one, step by step](docs/GETTING-STARTED.md), [a new project from scratch](docs/WALKTHROUGH.md), and [how the kit works and why](docs/ARCHITECTURE.md). In Russian: [GETTING-STARTED.ru.md](docs/GETTING-STARTED.ru.md), [WALKTHROUGH.ru.md](docs/WALKTHROUGH.ru.md), [ARCHITECTURE.ru.md](docs/ARCHITECTURE.ru.md).
 
@@ -70,7 +71,7 @@ Re-running updates only the files the kit wrote before (tracked in `.claude/eng-
 
 ## Set up a project
 
-1. Run `/eng-kit:kit-init` (`/kit-init` in folder mode). It shows a dry run first, then creates the missing files: `.claude/verify.json` (commands detected from CLAUDE.md or AGENTS.md, package scripts or build tools), `.claude/guard.json`, and deny rules in `.claude/settings.json`. If only AGENTS.md exists, it creates a `CLAUDE.md` that imports it (`@AGENTS.md`). It never overwrites files.
+1. Run `/eng-kit:kit-init` (`/kit-init` in folder mode). It shows a dry run first, then creates the missing files: `.claude/verify.json` (commands detected from CLAUDE.md or AGENTS.md, package scripts or build tools), `.claude/guard.json`, and deny rules in `.claude/settings.json`. If only AGENTS.md exists, it creates a `CLAUDE.md` that imports it (`@AGENTS.md`). It never overwrites files other than an older copy of the kit's test-hygiene script. It also offers the test-hygiene script and copies it into `.ci/test-hygiene.mts` (an ES module whatever `package.json` says) only if you agree (`--test-hygiene`, which also replaces an older copy); it reports an older copy and a CI that doesn't run it.
 2. Run `/onboarding-existing-codebase` when CLAUDE.md is missing or stale. It maps the repo, proves the commands, and proposes CLAUDE.md from [templates/CLAUDE.md](templates/CLAUDE.md).
 3. Each piece of work gets one task file from [templates/task.md](templates/task.md): description, numbered testable criteria, plan and progress in `docs/tasks/` (`/new-task` writes the description).
 
@@ -122,8 +123,7 @@ For people and other tools, the ci-quality-gates templates add a `working-docs` 
 
 When the kit's `reviewer` agent finishes (`reviewer` or `eng-kit:reviewer`; other plugins' reviewers don't count), the SubagentStop hook reads its `Reviewed HEAD: <sha>` and `Ready to merge: <one of Yes, No, With fixes, Inconclusive>` lines and records the verdict for that commit. A report without them sends the reviewer back once to add them. The guard then denies `gh pr create/merge`, `glab mr create/merge`, merging into or pushing to the base branch unless the last verdict for the commit being landed is `Yes`:
 - `With fixes`, `No` and `Inconclusive` don't pass: fix and review the new range;
-- a review covers the branch's own change to reviewable files compared with `origin/<base>`: deleting task files, changing docs or rebasing onto a newer base keeps it valid; any other change needs a new review;
-- exempt are task files, prose and pictures in `docs/` and other markdown, except markdown that steers the agent (CLAUDE.md, AGENTS.md, SKILL.md, anything under `.claude/`, `rules/`, `skills/`, `agents/`, `prompts/`). The list is fixed;
+- a verdict covers exactly the commit the reviewer reviewed: any change after it (a new commit, an amend, a rebase onto a newer base, a docs edit, deleting the task file) needs a new review, and a branch that changes only documentation is reviewed the same way, so the final review comes last, after docs, the task-file removal and any rebase. Commits already on the remote base land nothing new;
 - `cd <dir>` and `git -C <dir>` are followed, so a worktree's branch is checked. Land in a command of its own: a landing chained after anything but read-only steps and the project's verification commands is denied; `gh pr merge <number>` asks, because the PR head isn't known locally;
 - only you turn it off, with `"reviewGate": false` in `.claude/guard.json`.
 
@@ -136,7 +136,7 @@ When the kit's `reviewer` agent finishes (`reviewer` or `eng-kit:reviewer`; othe
 
 ```bash
 npm install
-npm test                  # hook handlers, hook e2e over stdin, init, install, skill/agent linter
+npm test                  # hook handlers, hook e2e over stdin, init, install, test-hygiene, skill/agent linter
 npm run typecheck
 claude plugin validate .
 ```

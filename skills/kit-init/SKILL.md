@@ -11,4 +11,5 @@ Set up this project for the kit.
 3. Check `.claude/verify.json`: if its commands are empty or guessed, propose the real ones from CI and the build files.
 4. If CLAUDE.md is missing, offer the onboarding-existing-codebase skill, which writes it from the code and proven commands.
 5. If the CI line says CI is missing or doesn't run every verification command, offer the ci-quality-gates skill.
-6. If the project is shared and the kit is a plugin, tell me how to pin it for the team: `claude plugin marketplace add <source> --scope project` and `claude plugin install eng-kit@eng-kit --scope project`, then commit `.claude/settings.json`.
+6. The `.ci/test-hygiene.mts` line is optional: explain what it checks (ci-quality-gates, "Test hygiene") and, only if I agree, re-run with `--test-hygiene --yes` (this also replaces an older copy) and add its CI job.
+7. If the project is shared and the kit is a plugin, tell me how to pin it for the team: `claude plugin marketplace add <source> --scope project` and `claude plugin install eng-kit@eng-kit --scope project`, then commit `.claude/settings.json`.

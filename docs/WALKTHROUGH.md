@@ -157,7 +157,7 @@ The agent asks questions one at a time, and you choose the stack from the propos
 ```
 /eng-kit:writing-plans docs/tasks/…-shop-v2.md
 ```
-Each task is one feature moved over whole: "catalog", then "cart", then "discounts". For each feature **golden tests** are written: inputs and expected results are taken from the legacy (the `changing-legacy-code` skill handles this). This proves the new code is no worse than the old, and intentional differences are recorded in the task file's Decisions.
+Each task is one feature moved over whole: "catalog", then "cart", then "discounts". For each feature **golden tests** are written: inputs and expected results are taken from the legacy system and act as acceptance tests of the new code, failing first like any test (test-standard, "Porting"). This proves the new code is no worse than the old, and intentional differences are recorded in the task file's Decisions.
 
 **6. Move and verify**
 ```
@@ -207,7 +207,7 @@ When a task finishes, the agent shows you its Follow-ups and offers to start the
 /clear
 /eng-kit:brainstorming Catalog, from the Foundation follow-ups. We port the behavior from legacy-shop
 ```
-From there everything runs by itself: the task file with its description → plan → implementation with golden tests on legacy data → review → the file's lasting content moved into `docs/` and the file deleted → `finish`. The Follow-ups that are still open move into the new task file, so the chain continues. Git keeps each deleted task file, and the PR links it.
+From there everything runs by itself: the task file with its description → plan → implementation with golden tests on legacy data → the file's lasting content moved into `docs/` and the file deleted → review of that last commit → `finish`. The Follow-ups that are still open move into the new task file, so the chain continues. Git keeps each deleted task file, and the PR links it.
 
 **Final task: migration and cutover.** `payments-and-money` and `security-review` come in, and the guard asks before migrations and deploys.
 

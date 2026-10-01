@@ -120,7 +120,7 @@ claude
 /eng-kit:kit-init
 ```
 
-Агент покажет план и по твоему «да» создаст `.claude/verify.json` (команды тестов, найденные в проекте), `.claude/guard.json` и deny-правила на секреты. Если нет CLAUDE.md, он предложит `/eng-kit:onboarding-existing-codebase`, чтобы собрать CLAUDE.md из кода.
+Агент покажет план и по твоему «да» создаст `.claude/verify.json` (команды тестов, найденные в проекте), `.claude/guard.json` и deny-правила на секреты. Ещё он предложит необязательную проверку гигиены тестов для CI (`.ci/test-hygiene.mts`) и добавит её или заменит старую копию только с твоего согласия. Если нет CLAUDE.md, он предложит `/eng-kit:onboarding-existing-codebase`, чтобы собрать CLAUDE.md из кода.
 
 **Шаг 5. Дальше рабочий цикл:**
 
@@ -128,7 +128,7 @@ claude
 /eng-kit:writing-plans docs/tasks/…-cart-api.md     заполняет его Plan: маленькие TDD-задачи
 /eng-kit:implement docs/tasks/…-cart-api.md         исполнение с тестами и отчётом; в конце
                                                     долгоживущее уходит в docs/, файл задачи удаляется
-/eng-kit:requesting-code-review                     ревью агентом reviewer
+/eng-kit:requesting-code-review                     ревью по запросу (implement и finish ревьюят последний коммит сами)
 /eng-kit:finish                                     merge / PR / keep / discard — на твой выбор
 ```
 

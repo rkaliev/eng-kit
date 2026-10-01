@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { DEFAULT_IGNORE } from "../lib/commands.ts";
-import { detectVerifyCommands, mergeAdditive, planInit, SECRET_DENY } from "../lib/init.ts";
+import { detectVerifyCommands, HYGIENE_TARGET, mergeAdditive, planInit, SECRET_DENY } from "../lib/init.ts";
 
 const root = resolve(import.meta.dirname, "..");
 
@@ -114,4 +114,38 @@ test("kit-init reports whether CI runs every verification command", async () => 
 
 	const optedOut = project({ ".claude/verify.json": verify, ".claude/guard.json": JSON.stringify({ workDocs: [] }), ".gitlab-ci.yml": "test:\n  script:\n    - npm run typecheck\n    - npm test\n" });
 	assert.equal(ciOf(optedOut).status, "exists", "workDocs: [] turns the check off");
+});
+
+test("test-hygiene: offered without the flag, copied with it, and an older copy is reported", () => {
+	const script = 'export const VERSION = "2";\n// checker\n';
+	const item = (dir: string, copy = false) => planInit(dir, { hygieneScript: script, copyHygiene: copy }).find((i) => i.target === HYGIENE_TARGET)!;
+	const fresh = project({ "package.json": "{}" });
+	assert.equal(item(fresh).status, "missing", "never written without the user's agreement");
+	assert.match(item(fresh).why, /--test-hygiene/);
+	assert.deepEqual([item(fresh, true).status, item(fresh, true).content], ["create", script]);
+	assert.equal(item(project({ [HYGIENE_TARGET]: script })).status, "exists");
+	const olderDir = project({ [HYGIENE_TARGET]: 'export const VERSION = "1";\n' });
+	const old = item(olderDir);
+	assert.equal(old.status, "missing");
+	assert.match(old.why, /v1 is older than the kit's v2/);
+	assert.deepEqual([item(olderDir, true).status, item(olderDir, true).content], ["merge", script], "--test-hygiene replaces an older copy");
+	assert.equal(item(project({ [HYGIENE_TARGET]: 'export const VERSION = "10";\n' })).status, "exists", "a newer copy is not called older");
+	assert.equal(planInit(fresh).some((i) => i.target === HYGIENE_TARGET), false, "no script, no item");
+
+	const ci = (files: Record<string, string>) => planInit(project(files), { hygieneScript: script }).find((i) => i.target === "CI")!;
+	const workflow = "jobs:\n  t:\n    steps:\n      - run: npm test\n  working-docs:\n";
+	const pkg = JSON.stringify({ scripts: { test: "vitest run" } });
+	assert.match(ci({ "package.json": pkg, [HYGIENE_TARGET]: script, ".github/workflows/ci.yml": workflow }).why, /doesn't run \.ci\/test-hygiene\.mts/);
+	assert.equal(ci({ "package.json": pkg, [HYGIENE_TARGET]: script, ".github/workflows/ci.yml": `${workflow}      - run: node .ci/test-hygiene.mts\n` }).status, "exists");
+	const sameRun = planInit(project({ "package.json": pkg, ".github/workflows/ci.yml": workflow }), { hygieneScript: script, copyHygiene: true }).find((i) => i.target === "CI")!;
+	assert.match(sameRun.why, /doesn't run \.ci\/test-hygiene\.mts/, "the run that adds the script reports the CI gap");
+});
+
+test("init.ts --test-hygiene copies the kit's own script", () => {
+	const dir = project({ "package.json": "{}" });
+	const run = (...args: string[]) => spawnSync(process.execPath, [join(root, "scripts", "init.ts"), "--project", dir, ...args], { encoding: "utf8" });
+	run("--yes");
+	assert.equal(existsSync(join(dir, HYGIENE_TARGET)), false);
+	run("--yes", "--test-hygiene");
+	assert.equal(readFileSync(join(dir, HYGIENE_TARGET), "utf8"), readFileSync(join(root, "scripts", "test-hygiene.ts"), "utf8"));
 });
