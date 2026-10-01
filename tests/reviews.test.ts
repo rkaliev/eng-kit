@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { checkGateFiles, checkReview, parseReview, readReviews, recordReview, recordVerdict, rememberPr, reviewsDir, stripRedirects, type ReviewGateOptions } from "../lib/reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, readReviews, recordReview, recordVerdict, rememberPr, reviewsDir, stripRedirects, type ReviewGateOptions } from "../lib/reviews.ts";
 
 const OPTIONS: ReviewGateOptions = { missing: "block", waiver: "reviewGate: false", verify: ["npm test", "npm run lint"] };
 
@@ -427,4 +427,18 @@ test("shell writes to the open-PR list are blocked like the verdict records", ()
 	const project = mkdtempSync(join(tmpdir(), "gate-files-"));
 	const records = join(tmpdir(), "eng-kit", "reviews");
 	assert.equal(checkGateFiles(`echo '{}' > ${records}/h/prs.json`, project, project, ".claude/guard.json")?.action, "block");
+});
+
+test("the reviewer's shell runs only inspection, temp worktrees, the verify commands and review-log", () => {
+	// A checkout outside the temp folder, so `../w` leaves it.
+	const project = resolve(import.meta.dirname, "..");
+	const check = (command: string) => checkReviewerCommand(command, project, ["npm test", "npm run lint"])?.action ?? "allow";
+	const tmp = join(tmpdir(), "r");
+	for (const ok of ["git diff a..b", "git diff --stat a..b -- src", "git -C /x log --oneline", "git show a:CLAUDE.md", "git merge-base origin/main HEAD", `git worktree add ${tmp} abc`, "git worktree add $TMPDIR/r abc", `git worktree add --detach ${tmp} abc`, `git worktree remove --force ${tmp}`, "git worktree list", "cat f | grep x", "rg -n foo src 2>/dev/null", "npm test", "npm test 2>&1 | tail -20", "cd sub && git status", "node /kit/scripts/review-log.ts abc"]) {
+		assert.equal(check(ok), "allow", ok);
+	}
+	for (const bad of ["git commit -m x", "git checkout main", "git switch -c x", "git stash", "git add -A", "git worktree add ../w abc", `git worktree add -b x ${tmp} abc`, "git diff --output=x a..b", "git -c core.pager=sh log", "rm f", "echo x > f", "cat a >> b", "grep x f | tee out", "git diff; rm f", "cat $(echo f)", "cat `echo f`", "sed -i s/a/b/ f", "npm run build", "node -e 'require(\"fs\").writeFileSync(\"x\", \"\")'"]) {
+		assert.equal(check(bad), "block", bad);
+	}
+	assert.match(String(checkReviewerCommand("rm f", project, [])?.reason), /reviewer is read-only/);
 });

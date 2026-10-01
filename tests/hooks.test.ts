@@ -469,3 +469,15 @@ test("review gate: a successful gh pr create registers its branch for the push g
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
 	assert.equal(push(), "deny", "the branch now has an open PR");
 });
+
+test("guard: inside the kit reviewer a writing command is denied; the main agent's isn't touched by that rule", () => {
+	const { call } = setup();
+	const pre = (agent_type: string | undefined) => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git commit -qm x" }, ...(agent_type ? { agent_type, agent_id: "a1" } : {}) });
+	for (const agent of ["eng-kit:reviewer", "reviewer"]) {
+		const out = pre(agent).output?.hookSpecificOutput as Record<string, unknown> | undefined;
+		assert.equal(out?.permissionDecision, "deny", agent);
+		assert.match(String(out?.permissionDecisionReason), /reviewer is read-only/);
+	}
+	assert.doesNotMatch(JSON.stringify(pre(undefined)), /reviewer is read-only/);
+	assert.doesNotMatch(JSON.stringify(pre("Explore")), /reviewer is read-only/);
+});

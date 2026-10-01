@@ -282,12 +282,72 @@ export function checkReview(command: string, cwd: string, projectDir: string, op
 }
 
 /**
+ * The reviewer's shell (Claude Code tells the hook which subagent runs the call): inspection only, a worktree in the
+ * temp folder for another revision, the project's verification commands and review-log. A substitution, a
+ * writing redirection or anything else is refused, so the reviewer can't change the code it judges.
+ */
+export function checkReviewerCommand(command: string, cwd: string, verify: string[]): GuardDecision | undefined {
+	const refuse = (what: string): GuardDecision => ({
+		action: "block",
+		reason: `The reviewer is read-only: ${what} is not an inspection command. Use git diff/log/show, \`git worktree add <temp dir> <sha>\` for another revision, read-only commands, the project's verification commands and review-log.`,
+	});
+	if (/\$\(|`|<\(/.test(command)) return refuse("a command substitution");
+	if (writes(command)) return refuse("a writing redirection or tee");
+	let dir = cwd;
+	for (const raw of splitSegments(tokenize(stripRedirects(command)))) {
+		const tokens = raw.map((t) => t.replace(/^\(+|\)+$/g, "")).filter(Boolean);
+		if (tokens.length === 0) continue;
+		if (isCd(tokens)) {
+			dir = follow(dir, tokens[1]) ?? dir;
+			continue;
+		}
+		if (!reviewerMay(tokens, dir, verify)) return refuse(`\`${tokens.join(" ")}\``);
+	}
+	return undefined;
+}
+
+const REVIEWER_COMMANDS = new Set([...READ_ONLY, "sort", "uniq", "cut", "tr", "pwd", "echo", "printf", "true", "popd"]);
+const REVIEWER_GIT = new Set([...READ_ONLY_GIT, "rev-parse", "merge-base", "ls-files", "ls-tree", "cat-file", "grep", "shortlog", "describe"]);
+
+function reviewerMay(tokens: string[], dir: string, verify: string[]): boolean {
+	const [cmd = ""] = tokens;
+	if (REVIEWER_COMMANDS.has(cmd)) return true;
+	if (verify.some((v) => splitSegments(tokenize(v)).some((seg) => seg.length === tokens.length && seg.every((t, i) => t === tokens[i])))) return true;
+	if (cmd === "node") return tokens.length <= 3 && /(^|[\\/])scripts[\\/]review-log\.ts$/.test(tokens[1] ?? "");
+	if (cmd !== "git") return false;
+	// `-c` could set a pager or a diff driver; `--output` and the pager options write or run something.
+	if (tokens.some((t) => t === "-c" || /^(--output|--ext-diff|-O|--open-files-in-pager)/.test(t))) return false;
+	let i = 1;
+	while (tokens[i] === "-C") i += 2;
+	const sub = tokens[i] ?? "";
+	if (REVIEWER_GIT.has(sub)) return true;
+	if (sub !== "worktree") return false;
+	const [action, ...rest] = tokens.slice(i + 1);
+	if (action === "list") return true;
+	const options = rest.filter((t) => t.startsWith("-"));
+	const allowed = action === "add" ? ["--detach", "-q", "--quiet"] : action === "remove" ? ["--force", "-f"] : [];
+	const path = rest.find((t) => !t.startsWith("-"));
+	return (action === "add" || action === "remove") && options.every((o) => allowed.includes(o)) && path !== undefined && inTemp(path, dir);
+}
+
+/** Whether a path is in the temp folder (`$TMPDIR/…` as written, or resolved). */
+function inTemp(path: string, dir: string): boolean {
+	if (/^\$\{?TMPDIR\}?\/+[^.]/.test(path) && !path.includes("..")) return true;
+	const target = resolve(dir, path.replace(/^~(?=\/|$)/, homedir())).replaceAll("\\", "/");
+	return [tmpdir(), safeRealpath(tmpdir()), "/tmp", "/private/tmp"].some((t) => target.startsWith(`${t.replaceAll("\\", "/")}/`));
+}
+
+/** Writing redirections and `tee` make any command a writer; `2>/dev/null` and `2>&1` don't. */
+function writes(command: string): boolean {
+	return [...command.matchAll(/\d*>>?\s*(&\d+|[^\s;&|]+)/g)].some((m) => m[1] !== "/dev/null" && !m[1]!.startsWith("&")) || /\btee\b/.test(command);
+}
+
+/**
  * Commands that write the review gate's own state: a verdict record (block) or the guard config (ask).
  * The path rules cover Edit/Write; this covers the shell, following `cd`. An interpreter one-liner can still hide a path.
  */
 export function checkGateFiles(command: string, cwd: string, projectDir: string, guardConfig: string): GuardDecision | undefined {
-	// Writing redirections and `tee` make any command a writer; `2>/dev/null` and `2>&1` don't.
-	const redirects = [...command.matchAll(/\d*>>?\s*(&\d+|[^\s;&|]+)/g)].some((m) => m[1] !== "/dev/null" && !m[1]!.startsWith("&")) || /\btee\b/.test(command);
+	const redirects = writes(command);
 	const config = resolve(projectDir, guardConfig).replaceAll("\\", "/");
 	const records = [join(tmpdir(), "eng-kit", "reviews"), safeRealpath(tmpdir()) + "/eng-kit/reviews"].map((p) => p.replaceAll("\\", "/"));
 	let dir = cwd;

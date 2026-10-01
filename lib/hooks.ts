@@ -17,7 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, parseReview, recordReview, recordVerdict, rememberPr, reviewedHead } from "./reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, recordVerdict, rememberPr, reviewedHead } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
@@ -56,6 +56,8 @@ export interface HookResult {
 
 export const BOOTSTRAP_MARKER = "eng-kit:using-skills bootstrap";
 const SHELL_TOOLS = new Set(["Bash", "PowerShell"]);
+/** The kit reviewer: `eng-kit:reviewer` as a plugin, `reviewer` in a project install. */
+const REVIEWER = /^(eng-kit:)?reviewer$/;
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
 export function verifyScriptCommand(root: string): string {
@@ -112,7 +114,9 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 
 	if (SHELL_TOOLS.has(tool)) {
 		const command = String(args.command ?? "");
-		decision = checkCommand(command, env.projectDir, config);
+		// Inside the kit reviewer the shell is for inspection only (Claude Code names the subagent in the input).
+		const reviewer = REVIEWER.test(input.agent_type ?? "") ? checkReviewerCommand(command, cwd, resolveVerifyCommands(env.projectDir).commands) : undefined;
+		decision = reviewer ?? checkCommand(command, env.projectDir, config);
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
 		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, ".claude/guard.json") ?? decision;
@@ -244,7 +248,7 @@ export function runsVerifyScript(shell: string): boolean {
  * A report without the verdict lines sends the reviewer back once to add them.
  */
 function subagentStop(input: HookInput, env: HookEnv): HookResult {
-	if (!/^(eng-kit:)?reviewer$/.test(input.agent_type ?? "")) return {};
+	if (!REVIEWER.test(input.agent_type ?? "")) return {};
 	const ids = { promptId: input.prompt_id || input.session_id || "none", run: input.agent_id || "none" };
 	const report = input.last_assistant_message ?? "";
 	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive.
