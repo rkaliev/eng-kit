@@ -269,7 +269,7 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 		warning,
 		output: {
 			decision: "block",
-			reason: `Review gate: ${result}. End your report with exactly two lines: \`Reviewed HEAD: <the SHA you reviewed>\` and \`Ready to merge: <one of Yes, No, With fixes, Inconclusive>\`.`,
+			reason: `Review gate: ${result}. End your report with exactly three lines: \`Reviewed BASE: <the commit your range starts at>\`, \`Reviewed HEAD: <the SHA you reviewed>\` and \`Ready to merge: <one of Yes, No, With fixes, Inconclusive>\`.`,
 		},
 	};
 }

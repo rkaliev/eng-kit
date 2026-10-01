@@ -133,6 +133,27 @@ export function readReviews(projectDir: string, root?: string): ReviewRound[] {
 	return combined.sort((a, b) => b.at - a.at);
 }
 
+/** The reports of the latest round of reviews of `sha`, for a repeat round to re-check (see scripts/review-log.ts). */
+export function readReports(projectDir: string, sha: string, root?: string): Array<{ run: string; verdict: Verdict; report: string }> {
+	const dir = reviewsDir(projectDir, root);
+	let names: string[];
+	try {
+		if (!ownDir(dir)) return [];
+		names = readdirSync(dir).filter((n) => n.startsWith(`${sha}.`) && n.endsWith(".json"));
+	} catch {
+		return [];
+	}
+	const records = names.flatMap((name) => {
+		const record = readRecord(join(dir, name));
+		return record ? [{ run: name.split(".")[2] ?? "none", record }] : [];
+	});
+	const latest = records.reduce<(typeof records)[number] | undefined>((a, b) => (!a || b.record.at > a.record.at ? b : a), undefined);
+	if (!latest) return [];
+	return records
+		.filter((r) => r.record.promptId === latest.record.promptId)
+		.map((r) => ({ run: r.run, verdict: r.record.verdict, report: r.record.report ?? "(no report stored for this run)" }));
+}
+
 /**
  * Block (or ask before) landing code on the base branch that no passing review covers. `cwd` is where the
  * command starts; `cd <dir>` and `git -C <dir>` in it are followed, so a worktree's branch is checked there.

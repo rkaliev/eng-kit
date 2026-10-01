@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { BOOTSTRAP_MARKER, handle, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
+import { readReviews } from "../lib/reviews.ts";
 import { readRun, writeRun } from "../lib/state.ts";
 
 const root = resolve(import.meta.dirname, "..");
@@ -408,4 +409,43 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	bareCall({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(bare, "b.ts") } });
 	assert.deepEqual(bareCall({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${spawnSync("git", ["rev-parse", "main"], { cwd: bare, encoding: "utf8" }).stdout.trim()}\nReviewed HEAD: ${bareHead}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1" }), {});
 	assert.equal(decision(bareCall({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } })), undefined, "no verification commands: nothing to be green, the review counts");
+});
+
+test("review gate: a report without Reviewed BASE is sent back once, naming all three lines, then counts as Inconclusive", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const head = git("rev-parse", "HEAD");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const stop = (stop_hook_active: boolean) =>
+		handle({ session_id: "s", cwd: projectDir, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed HEAD: ${head}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1", stop_hook_active }, env);
+	const first = stop(false);
+	assert.equal(first.output?.decision, "block");
+	assert.match(String(first.output?.reason), /exactly three lines: `Reviewed BASE: <the commit your range starts at>`, `Reviewed HEAD: <the SHA you reviewed>` and `Ready to merge:/);
+	assert.equal(stop(true).output, undefined, "sent back only once");
+	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.verdict, "Inconclusive");
+});
+
+test("review-log prints the stored reports of a commit's latest round; with none it exits 1", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const head = git("rev-parse", "HEAD");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const log = () => spawnSync(process.execPath, [join(root, "scripts", "review-log.ts"), "HEAD"], { cwd: projectDir, encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir, ENG_KIT_REVIEWS_ROOT: env.reviewsRoot } });
+	const none = log();
+	assert.equal(none.status, 1);
+	assert.match(none.stderr, new RegExp(`no recorded review for ${head.slice(0, 7)}`));
+	const finding = "#### Critical\n`a.ts:1` · any input · wrong total · seen in code · fix the sum";
+	handle({ session_id: "s", cwd: projectDir, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `${finding}\n### Verdict\nReviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: No`, prompt_id: "p1", agent_id: "a1" }, env);
+	const printed = log();
+	assert.equal(printed.status, 0, printed.stderr);
+	assert.match(printed.stdout, /## Reviewer run a1 — No/);
+	assert.match(printed.stdout, /`a\.ts:1` · any input · wrong total/);
 });
