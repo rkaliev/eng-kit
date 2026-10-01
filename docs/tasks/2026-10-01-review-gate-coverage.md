@@ -1,7 +1,7 @@
 # Review gate covers the whole branch, open PRs and a read-only reviewer
 
-Status: design approved (2026-10-01)
-Base: 65250510d38f19de66fc9d051c777cede8cad4e5 (pi edition: 5294f9a92ba1250d8345b2ef97da7064119c89fc)
+Status: plan approved (2026-10-01)
+Base: 5cc613d50b87443036b8c18fb567204f27b93c7a (pi edition: 5294f9a92ba1250d8345b2ef97da7064119c89fc)
 Links: comparison with fortune-os (private FRAMEWORK-SOURCES §11.15, to be extended as §11.17)
 
 <details><summary>Original request</summary>
@@ -53,7 +53,7 @@ The gate (0.13.0, `lib/reviews.ts`) checks only that the landed SHA has a `Yes`.
 4. The security reviewer is required in text only: path heuristics never converged in 0.13.0's review rounds.
 5. On a crash PreToolUse asks rather than denies, so a guard bug stops the agent without locking the user out.
 6. CI AI review is a separate task (user, 2026-10-01): it needs a secret, costs per push and needs its own injection defence.
-7. **assumed:** PreToolUse inside a subagent carries `agent_type`. If the live probe disproves it, criterion 6 becomes a documented limit and the user is told before the plan continues.
+7. PreToolUse inside a subagent carries `agent_type` and `agent_id` (verified live on claude 2.1.286: `"agent_type":"reviewer"` in the subagent, `null` in the main agent).
 
 ## Design
 
@@ -77,7 +77,6 @@ After the update, old records lack `base`, so the first landing on each branch n
 
 ## Risks and open questions
 
-- `agent_type` missing in subagent PreToolUse → the live probe comes first in the plan, see Decision 7.
 - `gh pr create` succeeding is read from PostToolUse (success only, failures go to PostToolUseFailure, verified in 0.2.x) → covered by a hooks test.
 - A longer prompt for the reviewer → the Bounded path still uses the same template; the size is checked in review.
 
@@ -88,7 +87,182 @@ After the update, old records lack `base`, so the first landing on each branch n
 
 ## Plan
 
-None yet
+> Execute with the executing-plans skill. Only this section uses `- [ ]` checkboxes.
+
+**Goal:** the review gate admits a landing (PR create, push to an open PR's branch, merge into or push to the base) only when a chain of reviewer rounds covers everything from the remote base to the landed commit, and the reviewer can only read.
+**Architecture:** `lib/reviews.ts` (byte-identical in both editions) gains a `base` and a `report` per record, the chain check, the open-PR list and the reviewer's command allowlist. The Claude hooks (`lib/hooks.ts`, `hooks/hook.ts`) and pi's `extensions/guard.ts` only wire them. A small `scripts/review-log.ts` prints a commit's stored reports.
+**Stack / constraints:** Node ≥22.18 running `.ts` directly, no new dependencies, `node:test`. `reviews.ts` and `workdocs.ts` stay byte-identical between `src_claude/lib/` and `src/extensions/lib/`. Version 0.14.0 in `package.json`, `.claude-plugin/plugin.json` and `CHANGELOG.md` (pi: `package.json`, `CHANGELOG.md`). Limits: report 200 000 chars, chain depth 20, PR entries 30 days.
+**Verification:** `npm test && npm run typecheck && node .github/release.ts check` in `src_claude/`; `npm test && npm run typecheck` in `src/`; `node tools/compare-editions.mts` in the workspace.
+
+### Review focus
+1. A reviewer passing its own range `BASE=HEAD` (empty range) must not cover anything.
+2. A repo with no remote, or a remote without a tracking ref for the base: the chain falls back to the local base branch. This must not admit local unreviewed commits when a tracking ref exists.
+3. A `gh pr create` that fails (PostToolUseFailure) must not register the branch.
+4. A reviewer chaining shell tricks (`git diff; rm -rf x`, `$(…)`, a redirect `> file`) must not pass the allowlist.
+5. A hook crash in an event other than PreToolUse keeps exit 1 and does not print an `ask`.
+
+### Post-implementation
+- `docs/ARCHITECTURE.md` and `.ru.md` (both editions), review gate section: the chain rule, the open-PR rule, the reviewer allowlist (Claude only), fail-closed PreToolUse, the limit that PRs opened outside the agent are not seen.
+- `skills/requesting-code-review/references/review-gate.md` (both editions): the same rules for the agent.
+- `CHANGELOG.md` 0.14.0 (both): the behavior changes, and the note that old records need one new review.
+- Private workspace `docs/FRAMEWORK-SOURCES.ru.md`: §11.15 drops the 0.12.0 exempt-list wording; new §11.17 explains what was taken from fortune-os (commit anchor, rules on base, findings from the store) and why.
+- No decision record: the kit keeps its decisions in the FRAMEWORK-SOURCES document.
+
+### Files
+- `lib/reviews.ts`: records with `base`/`report`; `parseReview`, `readReviews` (rounds with `bases`), `readReports`, the chain check in `uncovered`, `rememberPr`/`openPrBranches`, `checkReviewerCommand`.
+- `lib/workdocs.ts`: unchanged unless `pushedToBase` needs a rename (it is reused for PR branches as is).
+- `lib/hooks.ts`: subagentStop (BASE send-back, report stored), postToolUse (`rememberPr` on success), preToolUse (reviewer allowlist), new `respond()` wrapper used by `hooks/hook.ts`.
+- `hooks/hook.ts`: calls `respond()`.
+- `scripts/review-log.ts` (new); `lib/install.ts` copies it.
+- `agents/reviewer.md`, `skills/requesting-code-review/{SKILL.md,reviewer-prompt.md,references/review-gate.md}`.
+- Tests: `tests/reviews.test.ts`, `tests/hooks.test.ts`, `tests/install.test.ts`.
+- pi `src/`: `extensions/lib/reviews.ts` (copy), `scripts/review-log.ts`, `extensions/guard.ts`, the same skill files, `tests/extensions.test.ts`.
+
+### Task 1: the chain covers the branch
+
+**Files:** Modify `lib/reviews.ts` · Test `tests/reviews.test.ts`
+**Interfaces:** Produces `parseReview(text): { base, sha, verdict } | undefined`, `ReviewRecord { sha; base?: string; verdict; promptId; at; report?: string }`, `readReviews(projectDir, root?): ReviewRound[]` where `ReviewRound { sha; verdict; promptId; at; bases: string[] }`, and `recordVerdict(projectDir, rev, verdict, ids, root?, extra?: { base?: string; report?: string })`.
+
+- [ ] Change the test helper `report(sha, verdict, base = mergeBase)` to also write `Reviewed BASE:`. Write failing tests:
+  - `a Yes whose BASE is not on the remote base and has no covered record does not cover HEAD`: a review of `head~1..head` on a branch of 2 commits gives `check("gh pr create")` → `block` with `/does not cover/`;
+  - `a repeat round chains to a covered earlier round at any verdict`: a full round `No` on c1, then a round `c1..c2` `Yes` → c2 allowed;
+  - `a rebase breaks the chain`: c1 reviewed, branch rebased, the c1-based round on the new head → blocked;
+  - `an empty range covers nothing`: `BASE = HEAD` → blocked;
+  - `records without base cover nothing`: write a 0.13.0-style JSON record directly → blocked;
+  - `a chain longer than 20 links is refused`;
+  - `without a tracking ref the local base anchors the chain; with one, the local base does not`.
+- [ ] Run `node --test tests/reviews.test.ts` → expect FAIL: the narrow-BASE test returns `undefined` (allowed) instead of a block.
+- [ ] Implement:
+  - `parseReview` requires exactly one `Reviewed BASE:` line: `/Reviewed BASE[*_]*:[*_\s`]*([0-9a-f]{7,40})\b/gi`;
+  - `recordReview` resolves `base` with `rev-parse` (an unknown base returns an error string) and stores `report` cut to 200 000 chars;
+  - `readReviews` returns rounds with the `bases` of the latest prompt's records;
+  - in `uncovered`, after the `landed` check: the round for `sha` is `Yes`, and some `b` in `round.bases` passes `chainOk(where, b, sha, rounds, anchor, 0)`;
+  - `chainOk(where, base, sha, rounds, anchor, depth)`: false if `base === sha` or `base` is not an ancestor of `sha`; true if `anchor` exists and `base` is an ancestor of it; otherwise recurse through the round for `base` (`depth + 1`, at most 20);
+  - `anchor` is `refs/remotes/<remote>/<base>` if it resolves, else `refs/heads/<base>`;
+  - the reason names the first link that fails: `the review of <sha> covers <base>..<sha>, and <base> has no covered review`.
+- [ ] Run `node --test tests/reviews.test.ts` → expect PASS, then `npm test`.
+- [ ] Commit `feat(review-gate): a verdict covers its whole range back to the remote base`.
+
+### Task 2: the reviewer reports BASE, and its findings are kept
+
+**Files:** Modify `lib/hooks.ts`, `lib/reviews.ts`, `lib/install.ts` · Create `scripts/review-log.ts` · Test `tests/hooks.test.ts`, `tests/install.test.ts`
+**Interfaces:** Consumes Task 1's `parseReview`/`recordReview` · Produces `readReports(projectDir, sha, root?): Array<{ run: string; verdict: Verdict; report: string }>` (the latest round only), and the CLI `node scripts/review-log.ts <rev>`.
+
+- [ ] Write failing tests:
+  - `SubagentStop: a report without Reviewed BASE is sent back once, then counts as Inconclusive` — `decision: "block"` with reason `/Reviewed BASE/`, then an Inconclusive record;
+  - `the stored report is printed by review-log for that commit` — spawn the script with `CLAUDE_PROJECT_DIR` and a test records root (env `ENG_KIT_REVIEWS_ROOT`), expect exit 0 and stdout containing the report's first finding line;
+  - `review-log with no record exits 1` — stderr `no recorded review for <short sha>`;
+  - in `install.test.ts`: `.claude/eng-kit/scripts/review-log.ts` is installed.
+- [ ] Run `node --test tests/hooks.test.ts tests/install.test.ts` → expect FAIL: the send-back reason lacks `Reviewed BASE`, and the script file doesn't exist.
+
+  Add an empty `scripts/review-log.ts` stub first, so the failure is an assertion.
+- [ ] Implement:
+  - the send-back reason in `subagentStop` names all three lines;
+  - `review-log.ts` resolves `<rev>` in its cwd and reads `readReports(process.env.CLAUDE_PROJECT_DIR || cwd, sha, process.env.ENG_KIT_REVIEWS_ROOT)`;
+  - it prints `## Reviewer run <run> — <verdict>` and then the report;
+  - `install.ts` adds `review-log` to the scripts filter.
+- [ ] Run → expect PASS, then `npm test`.
+- [ ] Commit `feat(review-gate): reviewers report BASE; review-log prints a commit's stored findings`.
+
+### Task 3: pushing to an open PR's branch is a landing
+
+**Files:** Modify `lib/reviews.ts`, `lib/hooks.ts` · Test `tests/reviews.test.ts`, `tests/hooks.test.ts`
+**Interfaces:** Produces:
+- `rememberPr(projectDir, command, cwd, root?): void` — records the branch of a successful `gh pr create`/`glab mr create`: the `--head`/`-s` value or the current branch where the command ran, following `cd` the way `checkReview` does;
+- `openPrBranches(projectDir, where, base, remote, root?): string[]` — drops entries older than 30 days or whose branch tip is an ancestor of the anchor, and writes back.
+
+- [ ] Write failing tests:
+  - `after a PR is opened, pushing a new unreviewed commit to its branch is refused`: `rememberPr(… "gh pr create" …)`, commit, `check("git push")` → block;
+  - `once the new commit is reviewed, the push passes`;
+  - `a merged PR branch is forgotten`;
+  - `PostToolUseFailure of gh pr create registers nothing` (hooks);
+  - `shell writes to prs.json are blocked` (`checkGateFiles`, same folder as the records).
+- [ ] Run `node --test tests/reviews.test.ts tests/hooks.test.ts` → expect FAIL: `git push` on the feature branch returns `undefined` instead of a block.
+- [ ] Implement:
+  - `<reviewsDir>/prs.json` = `{ "<branch>": <ms> }`, written atomically with the existing `writeAtomic`;
+  - in `targets()`, for a push, add `pushedToBase(l, branch, currentBranch(where) === branch)` for each open PR branch;
+  - `postToolUse` calls `rememberPr` for a successful shell call before its verify bookkeeping.
+- [ ] Run → expect PASS, then `npm test`.
+- [ ] Commit `feat(review-gate): a push to the branch of a PR the agent opened needs a review`.
+
+### Task 4: the reviewer can only read
+
+**Files:** Modify `lib/reviews.ts`, `lib/hooks.ts` · Test `tests/reviews.test.ts`, `tests/hooks.test.ts`
+**Interfaces:** Produces `checkReviewerCommand(command, cwd, verify: string[]): GuardDecision | undefined` (`undefined` = allowed).
+
+- [ ] Write failing table test `the reviewer's shell runs only inspection, temp worktrees, the verify commands and review-log`:
+  - allowed: `git diff a..b`, `git -C /x log`, `git show a:CLAUDE.md`, `git worktree add $TMPDIR/r abc`, `git worktree remove <tmp>/r`, `cat f | grep x`, `npm test`, `node /kit/scripts/review-log.ts abc`;
+  - blocked with `/reviewer is read-only/`: `git commit -m x`, `git checkout main`, `git worktree add ../w abc`, `rm f`, `echo x > f`, `git diff; rm f`, `cat $(echo f)`, `sed -i s/a/b/ f`;
+  - hooks: a PreToolUse with `agent_type: "eng-kit:reviewer"` and `git commit` → `permissionDecision: "deny"`; the same command from the main agent → no reviewer denial.
+- [ ] Run → expect FAIL: `git commit` from the reviewer gets no deny.
+- [ ] Implement:
+  - per segment: the read-only commands; git subcommands `diff show log status blame rev-parse merge-base ls-files ls-tree cat-file grep`, and `worktree list|add|remove` with a path under `tmpdir()` or its realpath;
+  - `cd/pushd/popd/pwd/echo/printf/true`, the verify commands (the matching in `isSafe`), and `node …/scripts/review-log.ts`;
+  - no writing redirection or `tee`: extract the test already in `checkGateFiles` into `writes(command): boolean`;
+  - no `$(`, backtick or `<(`;
+  - `preToolUse` runs it first for shell tools when `agent_type` matches `^(eng-kit:)?reviewer$`.
+- [ ] Run → expect PASS, then `npm test`.
+- [ ] Commit `feat(review-gate): the reviewer's shell is limited to inspection`.
+
+### Task 5: a crashing guard asks instead of letting the call through
+
+**Files:** Modify `lib/hooks.ts`, `hooks/hook.ts` · Test `tests/hooks.test.ts`
+**Interfaces:** Produces `respond(raw: string, env: HookEnv, handler = handle): { stdout: string; stderr: string; code: 0 | 1 }`.
+
+- [ ] Write failing tests with a throwing `handler`:
+  - for `{"hook_event_name":"PreToolUse"}` → code 0, stdout `permissionDecision: "ask"`, reason `/eng-kit guard failed: boom/`;
+  - for `Stop` → code 1 and empty stdout;
+  - for unparsable input → code 1.
+
+  Add a `respond` stub that returns `{ stdout: "", stderr: "", code: 1 }`.
+- [ ] Run → expect FAIL: the PreToolUse case gets code 1.
+- [ ] Implement `respond` and make `hooks/hook.ts` print its stdout/stderr and exit with its code. Update the file header comment.
+- [ ] Run → expect PASS, then `npm test` and a process test through `hooks/hook.ts` with valid input (existing).
+- [ ] Commit `fix(guard): a crash in PreToolUse asks instead of failing open`.
+
+### Task 6: the reviewer's instructions match the gate
+
+**Files:** Modify `agents/reviewer.md`, `skills/requesting-code-review/SKILL.md`, `reviewer-prompt.md`, `references/review-gate.md` · Test `tests/lint-skills.test.ts` (existing, must stay green)
+
+- [ ] `reviewer-prompt.md`:
+  - the Verdict block becomes `Reviewed BASE: {BASE}` / `Reviewed HEAD: {HEAD}` / `Ready to merge: …`;
+  - Rules: the manifest, path rules and decision records are read at `{BASE}` (`git show {BASE}:<path>`); the branch's own rule edits are judged against them;
+  - the repeat round reviews `{PREVIOUS_REVIEW_HEAD}..{HEAD}` with `BASE = {PREVIOUS_REVIEW_HEAD}`, and first runs `node {KIT_ROOT}/scripts/review-log.ts {PREVIOUS_REVIEW_HEAD}` and re-checks every finding it prints. The author no longer pastes findings.
+- [ ] `SKILL.md`:
+  - step 1 says the range starts at the merge-base with the remote base, or at the previous round's HEAD;
+  - `{KIT_ROOT}` is the "Kit root" from the session context (project install: `.claude/eng-kit`);
+  - step 3 makes a parallel security-focused reviewer **required** for the risk-floor categories (money, auth, permissions, secrets, schema, CI and release config) and keeps it optional elsewhere;
+  - the gate paragraph adds the open-PR rule and the read-only shell.
+- [ ] `agents/reviewer.md`: the three lines, rules at BASE, the allowlist named as enforced.
+- [ ] `review-gate.md`: the chain rule, the open-PR rule and its limit, the allowlist, fail-closed PreToolUse, and old records needing one new review.
+- [ ] Run `npm test` → expect PASS (lint-skills).
+- [ ] Commit `docs(review): the reviewer reports BASE, reads rules at BASE and its findings from the store`.
+
+### Task 7: pi edition parity
+
+**Files:** Modify `src/extensions/lib/reviews.ts` (copy), `src/extensions/guard.ts`, `src/skills/requesting-code-review/*` · Create `src/scripts/review-log.ts` · Test `src/tests/extensions.test.ts`
+
+- [ ] Copy `lib/reviews.ts` byte for byte. Write failing tests in `extensions.test.ts`:
+  - `a reviewer's report without Reviewed BASE records Inconclusive`;
+  - `after a successful gh pr create bash call, a push of a new commit to that branch asks`;
+  - `a throwing check asks instead of passing` (fake `ctx.isProjectTrusted` throws) → `ui.confirm` called with `/guard failed/`.
+- [ ] Run `npm test` in `src/` → expect FAIL: the push isn't asked about, and the throw rejects the handler.
+- [ ] Implement:
+  - in `guard.ts`, `tool_result` for `bash`/`powershell` with `!event.isError` calls `rememberPr(ctx.cwd, command, ctx.cwd, options.reviewsRoot)`;
+  - the `tool_call` body is wrapped in try/catch, which gives `{ action: "confirm", reason: "eng-kit guard failed: <message>" }` and then the existing confirm path;
+  - `scripts/review-log.ts` is the same script reading `ctx`-free: cwd, `ENG_KIT_REVIEWS_ROOT`;
+  - port Task 6's skill text with pi wording: `{SKILL_DIR}/../../scripts/review-log.ts`, no reviewer allowlist (not enforced in pi, said so in review-gate.md).
+- [ ] Run `npm test && npm run typecheck` in `src/` → expect PASS. Run `node tools/compare-editions.mts` → no new drift outside the adapted list. Run `cmp src_claude/lib/reviews.ts src/extensions/lib/reviews.ts` → identical.
+- [ ] Commit in `src/`: `feat(review-gate): whole-branch coverage, open-PR pushes and a fail-closed guard`.
+
+### Task 8: docs, changelog, version
+
+**Files:** Modify both editions' `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE.ru.md`, `CHANGELOG.md`, `package.json`, `src_claude/.claude-plugin/plugin.json` · Workspace `docs/FRAMEWORK-SOURCES.ru.md`
+
+- [ ] Write the Post-implementation items above. Set the version to 0.14.0.
+- [ ] Run `node .github/release.ts check` in `src_claude/` → prints `0.14.0`. Run the full Verification in both editions → PASS.
+- [ ] Commit in each repo `docs: review gate 0.14.0`.
+- [ ] Finish order (git-workflow): delete this task file in its own commit, rebase if needed, run Verification, then the final review of each branch last. The PR goes only on the user's say.
 
 ## Progress
 
