@@ -1,5 +1,5 @@
 {
-  "description": "eng-kit: skill bootstrap, guard and verify gate",
+  "description": "eng-kit: skill bootstrap, guard, verify gate and review gate",
   "hooks": {
     "SessionStart": [
       {
@@ -26,6 +26,11 @@
       }
     ],
     "UserPromptSubmit": [
+      {
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/hook.ts\"", "timeout": 10 }]
+      }
+    ],
+    "SubagentStop": [
       {
         "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/hook.ts\"", "timeout": 10 }]
       }

@@ -62,6 +62,7 @@ claude ─▶ SessionStart hook ─▶ into context: using-skills rules + paths 
    │        git push --force   ─▶ "denied"
    │        Read .env          ─▶ "denied"
    │        gh pr create       ─▶ "denied" while a task file is in git
+   │                              or without a reviewer "Yes" for HEAD
    │        npm test           ─▶ no opinion (normal permissions decide)
    │
    ├─ Edit / Write ─▶ PostToolUse hook: "workspace unverified"
@@ -242,7 +243,7 @@ claude
 - `git push --force`: denied, with a hint about `--force-with-lease`;
 - `git push`: a question;
 - `git commit --no-verify`: denied;
-- `gh pr create` while `docs/tasks/` has tracked files: denied.
+- `gh pr create` while `docs/tasks/` has tracked files, or without a reviewer `Yes` for HEAD: denied.
 
 `/hooks` shows the registered hooks, `claude plugin details eng-kit` shows everything the plugin loaded.
 
@@ -260,6 +261,7 @@ claude
 - **Hooks don't fire.** Check `node --version` (≥ 22.18 required) and `/hooks`. Project hooks need folder trust. Debugging: `claude --debug`.
 - **The verify gate says there are no commands.** Fill in `.claude/verify.json` or the `## Commands` section in CLAUDE.md.
 - **I need push without a question.** A narrow rule in `.claude/guard.json`: `"allow": ["^git push origin (feat|fix)/"]`. This rule doesn't lift blocks (`--force`, `--no-verify`).
+- **The guard denies `gh pr create` or a merge: "Review gate: …".** The branch's code has no reviewer `Yes`. Run `/eng-kit:requesting-code-review`, fix its findings and review the new range. Land in a command of its own, not chained after `git commit` or `git switch`. Docs and task files don't need a review; CLAUDE.md, skills and `.claude/` do. Only you turn it off: `"reviewGate": false` in `.claude/guard.json`.
 - **My project keeps task files elsewhere, or in the repo for good.** The `workDocs` key in `.claude/guard.json` lists the task-file folders (default `["docs/tasks"]`); `[]` turns that rule off.
 - **I want to disable the plugin temporarily.** `claude plugin disable eng-kit@eng-kit`; to turn it back on, `enable`.
 - **Uninstall.** `claude plugin uninstall eng-kit@eng-kit`, then `claude plugin marketplace remove eng-kit`.

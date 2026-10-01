@@ -62,6 +62,7 @@ claude ─▶ SessionStart-хук ─▶ в контекст: правила usi
    │        git push --force   ─▶ «запрещено»
    │        Read .env          ─▶ «запрещено»
    │        gh pr create       ─▶ «запрещено», пока файл задачи в git
+   │                              или без «Yes» ревьюера для HEAD
    │        npm test           ─▶ без мнения (решают обычные разрешения)
    │
    ├─ Edit / Write ─▶ PostToolUse-хук: «рабочая копия не проверена»
@@ -242,7 +243,7 @@ claude
 - `git push --force` — отказ с подсказкой про `--force-with-lease`;
 - `git push` — вопрос;
 - `git commit --no-verify` — отказ;
-- `gh pr create`, пока в `docs/tasks/` есть файлы в git, — отказ.
+- `gh pr create`, пока в `docs/tasks/` есть файлы в git или нет вердикта `Yes` ревьюера для HEAD, — отказ.
 
 `/hooks` показывает зарегистрированные хуки, `claude plugin details eng-kit` — всё, что загрузил плагин.
 
@@ -260,6 +261,7 @@ claude
 - **Хуки не срабатывают.** Проверь `node --version` (нужен ≥ 22.18) и `/hooks`. Хукам проекта нужно доверие к папке. Отладка: `claude --debug`.
 - **Verify-гейт пишет, что команд нет.** Заполни `.claude/verify.json` или секцию `## Commands` в CLAUDE.md.
 - **Нужен push без вопроса.** Узкое правило в `.claude/guard.json`: `"allow": ["^git push origin (feat|fix)/"]`. Блоки (`--force`, `--no-verify`) это правило не снимает.
+- **Guard отказывает в `gh pr create` или merge: «Review gate: …».** У кода ветки нет `Yes` ревьюера. Запусти `/eng-kit:requesting-code-review`, исправь находки и отревьюй новый диапазон. Приземляй отдельной командой, а не в цепочке после `git commit` или `git switch`. Документации и файлам задач ревью не нужно, а CLAUDE.md, скиллам и `.claude/` нужно. Отключаешь только ты: `"reviewGate": false` в `.claude/guard.json`.
 - **В моём проекте файлы задач лежат в другом месте или хранятся в репозитории постоянно.** Ключ `workDocs` в `.claude/guard.json` перечисляет папки файлов задач (по умолчанию `["docs/tasks"]`); `[]` отключает это правило.
 - **Хочу временно выключить плагин.** `claude plugin disable eng-kit@eng-kit`, обратно — `enable`.
 - **Удалить.** `claude plugin uninstall eng-kit@eng-kit`, затем `claude plugin marketplace remove eng-kit`.

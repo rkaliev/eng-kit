@@ -303,7 +303,10 @@ test("task files: guard blocks a PR while they exist; Stop reminds once to delet
 	spawnSync("git", ["add", "-A"], { cwd: off });
 	spawnSync("git", ["commit", "-qm", "x"], { cwd: off });
 	const offEnv: HookEnv = { ...env, projectDir: off, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) };
-	assert.equal(decision(handle({ session_id: "s", cwd: off, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } }, offEnv)), undefined, "workDocs: [] opts out");
+	const offPr = handle({ session_id: "s", cwd: off, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } }, offEnv);
+	const offReason = String((offPr.output?.hookSpecificOutput as Record<string, string> | undefined)?.permissionDecisionReason);
+	assert.doesNotMatch(offReason, /Task files/, "workDocs: [] opts out");
+	assert.match(offReason, /Review gate: no reviewer verdict/, "the branch changes .claude/guard.json, which needs a review");
 	assert.equal(handle({ session_id: "s", cwd: off, hook_event_name: "Stop" }, offEnv).output, undefined);
 });
 
@@ -318,4 +321,54 @@ test("approval gate and verify gate combine into one reminder; no git repo means
 
 	const { call: plain } = setup({ "docs/tasks/x.md": "Status: design approved\n" });
 	assert.equal(plain({ hook_event_name: "Stop" }).output, undefined);
+});
+
+test("review gate: SubagentStop stamps the kit reviewer's verdict; the guard lets the PR through", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const head = git("rev-parse", "HEAD");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
+	const pr = () => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
+	const stopOf = (agent_type: string, last_assistant_message: string, stop_hook_active = false) =>
+		call({ hook_event_name: "SubagentStop", agent_type, last_assistant_message, prompt_id: "p1", agent_id: "a1", stop_hook_active });
+	const verdict = `Reviewed HEAD: ${head.slice(0, 8)}\nReady to merge: Yes`;
+
+	assert.equal(decision(pr()), "deny");
+	assert.deepEqual(stopOf("Explore", verdict), {}, "other agents never stamp");
+	assert.deepEqual(stopOf("other-plugin:reviewer", verdict), {}, "only the kit's reviewer");
+	assert.equal(decision(pr()), "deny");
+	const missing = stopOf("eng-kit:reviewer", "Looks fine.");
+	assert.equal(missing.output?.decision, "block", "a report without the verdict lines sends the reviewer back");
+	assert.match(String(missing.output?.reason), /Reviewed HEAD: <the SHA you reviewed>/);
+	assert.equal(stopOf("eng-kit:reviewer", "Still fine.", true).output, undefined, "only once");
+	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a3" }), {});
+	assert.equal(decision(pr()), "deny", "a parallel run that never gave a verdict makes this commit Inconclusive for the prompt");
+	const typo = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed HEAD: deadbeef0", prompt_id: "p1", agent_id: "a4", stop_hook_active: true });
+	assert.equal(typo.output, undefined);
+	assert.deepEqual(stopOf("eng-kit:reviewer", verdict), {}, "the failed run itself, resumed, may still report");
+	assert.equal(decision(pr()), "deny", "a failed run naming a SHA that isn't a commit falls back to HEAD");
+	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a4" }), {});
+	assert.equal(decision(pr()), undefined, "its verdict replaces its own failure");
+
+
+	const off = { ...env, projectDir: gitRepo({ ".claude/guard.json": JSON.stringify({ reviewGate: false }) }) };
+	spawnSync("git", ["switch", "-qc", "feat/b"], { cwd: off.projectDir });
+	spawnSync("git", ["add", "-A"], { cwd: off.projectDir });
+	spawnSync("git", ["commit", "-qm", "x"], { cwd: off.projectDir });
+	assert.equal(decision(handle({ session_id: "s", cwd: off.projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } }, off)), undefined, "reviewGate: false opts out");
+});
+
+test("review gate: the agent can't loosen the guard or write a stamp itself", () => {
+	const { call, projectDir } = setup();
+	const pre = (tool_name: string, file_path: string) => call({ hook_event_name: "PreToolUse", tool_name, tool_input: { file_path, content: "{}" } });
+	assert.equal(decision(pre("Edit", join(projectDir, ".claude", "guard.json"))), "ask");
+	assert.equal(decision(pre("Write", join(tmpdir(), "eng-kit", "reviews", "x.json"))), "deny");
+	const bash = (command: string) => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } }));
+	assert.equal(bash(`echo '{"reviewGate":false}' > .claude/guard.json`), "ask");
+	assert.equal(bash(`echo x > ${join(tmpdir(), "eng-kit", "reviews", "x.json")}`), "deny");
 });

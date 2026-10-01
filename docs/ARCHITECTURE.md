@@ -35,6 +35,7 @@ This document describes how the plugin works and why it works that way. What plu
 │   SessionStart      bootstrap: using-skills rules into context        │
 │   PreToolUse        guard: deny / ask / no opinion                    │
 │   PostToolUse(+Failure)  tracker: edit → "unverified"                 │
+│   SubagentStop      review verdict from the reviewer report           │
 │   Stop              verify, approval, working-docs gates              │
 │   UserPromptSubmit  re-arms the gates                                 │
 │ skills/   34 skills: 28 methodology + 6 entry points                  │
@@ -83,6 +84,7 @@ One file, `hooks/hook.ts`, handles all events. It reads JSON from stdin, and the
 | `SessionStart` (`startup\|resume\|clear\|compact`) | Puts the body of the `using-skills` skill and the paths to the kit scripts ("Kit root", "Kit verify script") into the context | Without this, skills are inert: the model sees only their descriptions. The `compact` matcher brings the rules back after compaction. Skills use the paths from the context to find the scripts in both install modes |
 | `PreToolUse` | Guard: `permissionDecision: "deny"` or `"ask"`. It has no opinion on other calls | `ask` shows the native permission dialog; in `-p` without a UI such a call is denied. The guard never grants "allow", so Claude Code's own permission rules keep applying |
 | `PostToolUse` / `PostToolUseFailure` | Tracker: after Edit/Write/MultiEdit/NotebookEdit the workspace is "unverified". An exact, unpiped run of a verify command marks it green; a non-zero exit code marks it red | Hooks are separate processes, so the state is kept in a file per `session_id` in `${CLAUDE_PLUGIN_DATA}` (in folder mode, in the temp directory) |
+| `SubagentStop` (review gate) | When the kit's reviewer finishes (`agent_type` `reviewer` or `eng-kit:reviewer`; other plugins' reviewers don't count), the hook takes the `Reviewed HEAD: <sha>` and `Ready to merge: …` lines from `last_assistant_message` and writes a verdict record, one file per reviewer run and commit, to `<tmpdir>/eng-kit/reviews/<sha1(project)>/`. Records older than 30 days are pruned; the folder is trusted only if it belongs to the current user. Reviewers of one prompt are merged into the worst verdict. A report without the two lines gets `{"decision":"block"}` once (never when `stop_hook_active`), so the reviewer adds them | The record is written by the hook from the reviewer's own report, not by the main agent. One file per run and commit: parallel reviewers don't overwrite each other, and reviewing another branch doesn't forget this one. The `agent_type` and `last_assistant_message` fields and the send-back are verified by a live run (claude 2.1.285) |
 | `Stop` | If the workspace is unverified: `{"decision":"block","reason":…}`, once per prompt, and never when `stop_hook_active` | The model doesn't decide by itself that the work is done. One reminder per prompt keeps the gate from looping |
 | `Stop` (approval gate) | If a task file in `docs/tasks` with `Status: design approved` or `plan approved` is uncommitted: `block` with the list of files, once per prompt. On the base branch it says to create a work branch first | An approval that isn't in git can get lost or change unnoticed. The skill asks for this, but the model can skip text, and a hook can't be skipped |
 | `Stop` (working-docs gate) | If a task file has every box in its Plan section ticked: `block` with the list of files, once per prompt, asking to move what lasts into `docs/` and `docs/decisions/`, show the Follow-ups and delete it | An implemented task file left in the tree becomes a stale second source of truth |
@@ -137,7 +139,7 @@ Entry points are thin wrappers. The other skills can also be called as `/name`, 
 
 | Agent | Model | Tools | Why |
 |---|---|---|---|
-| `reviewer` | opus, effort high | Read, Grep, Glob, Bash. Edits are forbidden through `disallowedTools` | The final review is the main quality decision, and it's worth spending on. A fresh context sees what the author's context hides. It reads the project's rules (CLAUDE.md or AGENTS.md, matching `.claude/rules/`, decision records the diff touches or cites) |
+| `reviewer` | opus, effort high | Read, Grep, Glob, Bash. Edits are forbidden through `disallowedTools` | The final review is the main quality decision, and it's worth spending on. A fresh context sees what the author's context hides. It reads the project's rules (CLAUDE.md or AGENTS.md, matching `.claude/rules/`, decision records the diff touches or cites). The report ends with the `Reviewed HEAD:` and `Ready to merge:` lines, which the review gate reads |
 | `implementer` | sonnet | all | One plan task with TDD. Status DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED. The report is checked, not taken on trust |
 
 Claude Code ignores the `hooks`, `mcpServers` and `permissionMode` fields for plugin agents, so they aren't used. The linter checks this. The model is overridden through `CLAUDE_CODE_SUBAGENT_MODEL` or at call time.
@@ -154,11 +156,12 @@ Claude Code ignores the `hooks`, `mcpServers` and `permissionMode` fields for pl
 | reading `.env*` (except `.example` and similar), keys, keystores, credentials (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`, `curl … \| sh` |
 | writing into `.git/` and `protectedPaths` | shell access to secret files, writing a secret file |
 | `gh pr create/merge`, `glab mr create/merge`, `git merge` into the base and `git push` to the base while a task file is tracked | editing CI and release pipelines (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile` and similar) |
-| `git commit` on the base branch with a staged task file | |
+| the same without a reviewer `Yes` verdict for the commit being landed, or chained after anything but read-only steps and the project's verification commands (review gate) | editing `.claude/guard.json` (Edit/Write, or a non-read-only shell command naming it) |
+| `git commit` on the base branch with a staged task file; writing into the review records (Edit/Write, or a shell command naming their path) | `gh pr merge <number\|URL>`: the PR head isn't known locally (review gate) |
 
 Pushing the work branch itself is allowed (it still asks, like any push).
 
-`.claude/guard.json`: `block`, `confirm`, `allow` (regex), `protectedPaths` and `workDocs` (the task-file folders, default `["docs/tasks"]`; `[]` turns the rule off). `allow` only removes a question and never removes a block. A separate trust check isn't needed: Claude Code applies project hooks and settings only after the user trusts the folder.
+`.claude/guard.json`: `block`, `confirm`, `allow` (regex), `protectedPaths`, `workDocs` (the task-file folders, default `["docs/tasks"]`; `[]` turns the rule off) and `reviewGate` (`false` turns the review gate off). `allow` only removes a question and never removes a block. A separate trust check isn't needed: Claude Code applies project hooks and settings only after the user trusts the folder.
 
 In addition, `kit-init` adds native deny rules `Read(**/.env)`, `Read(**/*.pem)` and so on to `.claude/settings.json`. This is defense in depth: they work even if hooks are disabled.
 
@@ -171,9 +174,18 @@ In addition, `kit-init` adds native deny rules `Read(**/.env)`, `Read(**/*.pem)`
 - **rules against persuasion:** "it's like this everywhere in the project" is debt, not permission; severity isn't lowered under pressure from arguments; what's judged is the changed lines and what they break;
 - **rule changes in the diff itself:** if a diff changes the rules (agent manifest, linter config, standards), it is judged by the base branch's rules;
 - **repeat round:** only what's new since the last review is checked, and every earlier finding is re-checked;
+- **project rules with a quote:** a finding against a rule names it (file with a heading, anchor or ID) and gives a short quote;
+- **don't duplicate CI:** what the verify commands and linters check (format, lint, types) the reviewer doesn't repeat, unless the check fails or is missing. Verbose text is at most one grouped Minor;
+- **repeat round by defect:** findings are matched by the substance of the defect, not by wording; the same defect in other words is not a new finding;
+- **several reviewers** (payments, auth, migrations) are merged by root cause; on one `file:line` the higher severity stays, the overall verdict is the worst;
+- **verdict** `Ready to merge: <exactly one of Yes, No, With fixes, Inconclusive>` and a `Reviewed HEAD: <sha>` line; an echoed template (`Yes / No / …`) is not a verdict. Inconclusive means the reviewer couldn't read the requirements, the range or the rules;
 - **no noise:** no praise and no made-up references.
 
-**Responding to review** (`receiving-code-review`): every comment is either fixed or answered; none is skipped silently. You can't write "resolved" while a blocker is open.
+**Review gate** (mechanics, not an instruction). The guard denies `gh pr create/merge`, `glab mr create/merge`, `git merge` into the base and `git push` to it unless the reviewer's last verdict for that commit is `Yes`. The verdict record is written by the `SubagentStop` hook. A review covers the branch's own change to reviewable files compared with the remote base (`origin/<base>`), matched by its diff with one line of context but without line numbers (binaries by content): deleting task files, changing docs or rebasing onto a newer base keeps it valid; any other change, whitespace and binaries included, needs a new review. Exempt are task files (`docs/tasks/`), prose and pictures in `docs/` and other `*.md`/`*.mdx`, except markdown that steers the agent: CLAUDE.md, AGENTS.md, SKILL.md and anything under `.claude/`, `rules/`, `skills/`, `agents/`, `prompts/`. The list is fixed; the project can't widen it. A branch with only exempt files needs no review. `cd <dir>` and `git -C <dir>` are followed from the session cwd, so a worktree's branch is checked where the command runs. A landing chained after anything but read-only steps and the project's verification commands (`git commit … && gh pr create`, `git switch main && git merge …`) is denied: the guard can't see what it lands. `gh pr merge <number|URL>` asks, because the PR head isn't known locally; `gh pr merge <branch>` and `gh pr create --head <branch>` check that branch. `With fixes`, `No` and `Inconclusive` don't pass: fix and review the new range. A finding the author declined without a code change is cleared by a repeat review in the next prompt, after the user has seen the arguments. Only the user turns the gate off: `"reviewGate": false` in `.claude/guard.json`; the guard asks before that file is changed (Edit/Write or shell) and denies writes to the review records. It protects against a forgotten or skipped review, not against an agent that deliberately feeds the reviewer a ready answer.
+
+**Responding to review** (`receiving-code-review`): every comment is either fixed or answered; none is skipped silently. You can't write "resolved" while a blocker is open or until a repeat review has closed the finding.
+
+**People in the chain** (`ci-quality-gates`, only with your "yes"): one required human approval (AI review complements it but doesn't replace it) and CODEOWNERS on the files that govern the rest: the agent manifest and its folder, path rules, CI, `docs/decisions/`, linter and type configs.
 
 **After push** (`git-workflow`):
 - CI is watched with the hosting tool, not a hand-written loop;
@@ -229,7 +241,7 @@ The plan names an acceptance test for each criterion. The reviewer checks these 
 ## 9. How it's verified
 
 - **`npm test`**:
-  - guard (block, ask, allow, config, paths, temp, working documents);
+  - guard (block, ask, allow, config, paths, temp, working documents, review gate: verdict record, verdict merging, parallel runs, code after review, deleting a task file, remote base, rebase, worktree and `cd`, chained landings, `gh pr merge` by number, shell writes);
   - the command parser and the evidence rule;
   - hook handlers (SessionStart, PreToolUse for Bash, PowerShell, Read, Grep, Edit, NotebookEdit; the tracker and the Stop gates);
   - `hook.ts` over stdin/stdout, including a crash;
@@ -244,9 +256,12 @@ The plan names an acceptance test for each criterion. The reviewer checks these 
   - ask and denial on `git push`;
   - the Stop gate after an Edit without tests sent the agent back to `npm test`;
   - folder mode: bootstrap and guard from `.claude/eng-kit`;
-  - install through `--scope project` from a local marketplace.
+  - install through `--scope project` from a local marketplace;
+  - review gate (claude 2.1.285, `--plugin-dir`, a copy of `examples/demo` with planted defects): a PR without review was denied; the `reviewer` agent found float rounding of money (Critical, with rule quotes from CLAUDE.md, the task and the checklist) and an uncovered criterion, verdict `No`, denied again; after the fixes the repeat round over the new range re-checked the old findings, `Yes`, and the guard let `gh pr create` through.
 
-**Not verified:** Windows (the PowerShell tool and running the hook through `cmd`), a live run of the `reviewer` and `implementer` agents.
+**Not verified:** Windows (the PowerShell tool and running the hook through `cmd`), a live run of the `implementer` agent.
+
+**Known limits of the review gate:** an interpreter one-liner can still hide a path from the shell checks; the gate protects against a forgotten review, not against an agent that deliberately feeds the reviewer a verdict; with no resolvable base branch (no `origin/HEAD`, no `main`/`master`) it does nothing.
 
 ---
 
