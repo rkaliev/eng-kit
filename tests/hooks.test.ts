@@ -478,6 +478,8 @@ test("guard: inside the kit reviewer a writing command is denied; the main agent
 		assert.equal(out?.permissionDecision, "deny", agent);
 		assert.match(String(out?.permissionDecisionReason), /reviewer is read-only/);
 	}
+	const ps = call({ hook_event_name: "PreToolUse", tool_name: "PowerShell", tool_input: { command: "Get-ChildItem" }, agent_type: "eng-kit:reviewer", agent_id: "a1" });
+	assert.equal((ps.output?.hookSpecificOutput as Record<string, unknown> | undefined)?.permissionDecision, "deny", "PowerShell in the reviewer");
 	assert.doesNotMatch(JSON.stringify(pre(undefined)), /reviewer is read-only/);
 	assert.doesNotMatch(JSON.stringify(pre("Explore")), /reviewer is read-only/);
 });

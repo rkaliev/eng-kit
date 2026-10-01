@@ -134,7 +134,12 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (SHELL_TOOLS.has(tool)) {
 		const command = String(args.command ?? "");
 		// Inside the kit reviewer the shell is for inspection only (Claude Code names the subagent in the input).
-		const reviewer = REVIEWER.test(input.agent_type ?? "") ? checkReviewerCommand(command, cwd, resolveVerifyCommands(env.projectDir).commands) : undefined;
+		// PowerShell isn't parsed for it at all: the allowlist is written for a POSIX shell.
+		const reviewer = !REVIEWER.test(input.agent_type ?? "")
+			? undefined
+			: tool === "PowerShell"
+				? { action: "block" as const, reason: "The reviewer is read-only: its PowerShell calls aren't checked, so they are refused. Use Bash for inspection commands." }
+				: checkReviewerCommand(command, cwd, resolveVerifyCommands(env.projectDir).commands, env.root);
 		decision = reviewer ?? checkCommand(command, env.projectDir, config);
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;

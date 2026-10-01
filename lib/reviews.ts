@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { splitSegments, tokenize, type GuardDecision } from "./patterns.ts";
 import { baseBranch, currentBranch, landing, pushedToBase, type Landing } from "./workdocs.ts";
 
@@ -282,58 +282,75 @@ export function checkReview(command: string, cwd: string, projectDir: string, op
 }
 
 /**
- * The reviewer's shell (Claude Code tells the hook which subagent runs the call): inspection only, a worktree in the
- * temp folder for another revision, the project's verification commands and review-log. A substitution, a
- * writing redirection or anything else is refused, so the reviewer can't change the code it judges.
+ * The reviewer's shell (Claude Code tells the hook which subagent runs the call). Fail closed: only a short list
+ * of inspection commands, git's read-only subcommands without their writing or program-running options, a
+ * worktree at an absolute temp path for another revision, the project's verification commands and the kit's own
+ * review-log. Anything the parser might misread (a backslash, `$`, backticks, parentheses, braces, `<`, `>` other
+ * than the stderr and null redirections, a background `&`) is refused, so the reviewer can't change what it judges.
  */
-export function checkReviewerCommand(command: string, cwd: string, verify: string[]): GuardDecision | undefined {
+export function checkReviewerCommand(command: string, cwd: string, verify: string[], kitRoot: string): GuardDecision | undefined {
 	const refuse = (what: string): GuardDecision => ({
 		action: "block",
-		reason: `The reviewer is read-only: ${what} is not an inspection command. Use git diff/log/show, \`git worktree add <temp dir> <sha>\` for another revision, read-only commands, the project's verification commands and review-log.`,
+		reason: `The reviewer is read-only: ${what} is not allowed in its shell. Use git diff/log/show/blame, \`git worktree add <absolute temp dir> <sha>\` for another revision, cat/head/tail/grep/wc/ls, the project's verification commands and review-log; read files with the Read and Grep tools.`,
 	});
-	if (/\$\(|`|<\(/.test(command)) return refuse("a command substitution");
-	if (writes(command)) return refuse("a writing redirection or tee");
+	if (/[\\$`(){}<]/.test(command)) return refuse("a backslash, `$`, a backtick, parentheses, braces or `<`");
+	const bare = command.replace(/(^|\s)(?:2>&1|2>\/dev\/null|&?>\/dev\/null)(?=\s|$)/g, " ");
+	if (bare.includes(">") || /\btee\b/.test(bare)) return refuse("a writing redirection or tee");
+	const all = tokenize(bare);
+	if (all.includes("&")) return refuse("a background `&`");
 	let dir = cwd;
-	for (const raw of splitSegments(tokenize(stripRedirects(command)))) {
-		const tokens = raw.map((t) => t.replace(/^\(+|\)+$/g, "")).filter(Boolean);
+	for (const tokens of splitSegments(all)) {
 		if (tokens.length === 0) continue;
-		if (isCd(tokens)) {
-			dir = follow(dir, tokens[1]) ?? dir;
+		if (tokens[0] === "cd") {
+			const next = tokens.length === 2 && tokens[1] !== "-" ? follow(dir, tokens[1]) : undefined;
+			if (next === undefined) return refuse(`\`${tokens.join(" ")}\` (a cd the guard can't follow)`);
+			dir = next;
 			continue;
 		}
-		if (!reviewerMay(tokens, dir, verify)) return refuse(`\`${tokens.join(" ")}\``);
+		if (!reviewerMay(tokens, dir, verify, kitRoot)) return refuse(`\`${tokens.join(" ")}\``);
 	}
 	return undefined;
 }
 
-const REVIEWER_COMMANDS = new Set([...READ_ONLY, "sort", "uniq", "cut", "tr", "pwd", "echo", "printf", "true", "popd"]);
-const REVIEWER_GIT = new Set([...READ_ONLY_GIT, "rev-parse", "merge-base", "ls-files", "ls-tree", "cat-file", "grep", "shortlog", "describe"]);
+/** Commands with no option that writes a file or runs a program. */
+const REVIEWER_COMMANDS = new Set(["cat", "head", "tail", "grep", "wc", "ls", "pwd", "echo", "true"]);
+const REVIEWER_GIT = new Set(["diff", "show", "log", "status", "blame", "rev-parse", "merge-base", "ls-files", "ls-tree", "cat-file", "shortlog", "describe"]);
+/** git options that write a file or run a program; git accepts any unambiguous abbreviation of a long option. */
+const GIT_WRITING_OPTIONS = ["--output", "--ext-diff"];
 
-function reviewerMay(tokens: string[], dir: string, verify: string[]): boolean {
+function reviewerMay(tokens: string[], dir: string, verify: string[], kitRoot: string): boolean {
 	const [cmd = ""] = tokens;
 	if (REVIEWER_COMMANDS.has(cmd)) return true;
 	if (verify.some((v) => splitSegments(tokenize(v)).some((seg) => seg.length === tokens.length && seg.every((t, i) => t === tokens[i])))) return true;
-	if (cmd === "node") return tokens.length <= 3 && /(^|[\\/])scripts[\\/]review-log\.ts$/.test(tokens[1] ?? "");
+	if (cmd === "node") return tokens.length === 3 && resolve(dir, tokens[1]!) === join(kitRoot, "scripts", "review-log.ts");
 	if (cmd !== "git") return false;
-	// `-c` could set a pager or a diff driver; `--output` and the pager options write or run something.
-	if (tokens.some((t) => t === "-c" || /^(--output|--ext-diff|-O|--open-files-in-pager)/.test(t))) return false;
 	let i = 1;
-	while (tokens[i] === "-C") i += 2;
+	// Of git's own options only `-C <dir>` and `--no-pager`: `-c`, `--git-dir`, `--exec-path` and the rest are refused.
+	while (tokens[i]?.startsWith("-")) {
+		if (tokens[i] === "-C" && tokens[i + 1] !== undefined) i += 2;
+		else if (tokens[i] === "--no-pager") i += 1;
+		else return false;
+	}
 	const sub = tokens[i] ?? "";
+	const args = tokens.slice(i + 1);
+	const end = args.indexOf("--");
+	const options = (end === -1 ? args : args.slice(0, end)).filter((t) => t.startsWith("--")).map((t) => t.split("=")[0]!);
+	if (options.some((o) => o.length >= 4 && GIT_WRITING_OPTIONS.some((w) => w.startsWith(o)))) return false;
 	if (REVIEWER_GIT.has(sub)) return true;
 	if (sub !== "worktree") return false;
-	const [action, ...rest] = tokens.slice(i + 1);
-	if (action === "list") return true;
-	const options = rest.filter((t) => t.startsWith("-"));
-	const allowed = action === "add" ? ["--detach", "-q", "--quiet"] : action === "remove" ? ["--force", "-f"] : [];
-	const path = rest.find((t) => !t.startsWith("-"));
-	return (action === "add" || action === "remove") && options.every((o) => allowed.includes(o)) && path !== undefined && inTemp(path, dir);
+	const [action, ...rest] = args;
+	if (action === "list") return rest.length === 0;
+	const flags = rest.filter((t) => t.startsWith("-"));
+	const positional = rest.filter((t) => !t.startsWith("-"));
+	if (action === "add") return flags.every((f) => ["--detach", "-q", "--quiet"].includes(f)) && positional.length === 2 && inTemp(positional[0]!);
+	if (action === "remove") return flags.every((f) => ["--force", "-f"].includes(f)) && positional.length === 1 && inTemp(positional[0]!);
+	return false;
 }
 
-/** Whether a path is in the temp folder (`$TMPDIR/…` as written, or resolved). */
-function inTemp(path: string, dir: string): boolean {
-	if (/^\$\{?TMPDIR\}?\/+[^.]/.test(path) && !path.includes("..")) return true;
-	const target = resolve(dir, path.replace(/^~(?=\/|$)/, homedir())).replaceAll("\\", "/");
+/** Whether an absolute path, written without `..`, is in the temp folder. */
+function inTemp(path: string): boolean {
+	if (!isAbsolute(path) || path.split(/[\\/]/).includes("..")) return false;
+	const target = path.replaceAll("\\", "/");
 	return [tmpdir(), safeRealpath(tmpdir()), "/tmp", "/private/tmp"].some((t) => target.startsWith(`${t.replaceAll("\\", "/")}/`));
 }
 
@@ -451,6 +468,8 @@ function follow(dir: string, arg: string | undefined): string | undefined {
 }
 
 function isSafe(tokens: string[], verify: string[]): boolean {
+	// `rg --pre <program>` runs that program on every file it searches.
+	if (tokens[0] === "rg" && tokens.some((t) => t.startsWith("--pre"))) return false;
 	if (READ_ONLY.has(tokens[0] ?? "")) return true;
 	if (verify.some((v) => splitSegments(tokenize(v)).some((seg) => seg.length === tokens.length && seg.every((t, i) => t === tokens[i])))) return true;
 	if (tokens[0] === "git") {

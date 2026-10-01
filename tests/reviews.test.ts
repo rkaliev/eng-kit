@@ -216,7 +216,7 @@ test("before a landing: read-only steps and the project's verify commands may ru
 	for (const ok of ["npm test && gh pr create --fill", "npm run lint && npm test && gh pr create", "git log --oneline | head -5 && gh pr create --fill", "(cd src && ls) && gh pr create --fill", `(cd ${tmpdir()} && ls) && gh pr create --fill`]) {
 		assert.equal(check(ok), undefined, ok);
 	}
-	for (const bad of ["npm run build && gh pr create", "npm version patch && gh pr create", "popd && gh pr create"]) assert.equal(action(check(bad)), "block", bad);
+	for (const bad of ["npm run build && gh pr create", "npm version patch && gh pr create", "popd && gh pr create", "rg --pre ./commit.sh x . && gh pr create", "rg --pre=sh x . && gh pr create"]) assert.equal(action(check(bad)), "block", bad);
 });
 
 test("gate files: reads with stderr redirects, jq and unrelated mentions pass; the records folder is matched exactly", () => {
@@ -432,15 +432,24 @@ test("shell writes to the open-PR list are blocked like the verdict records", ()
 test("the reviewer's shell runs only inspection, temp worktrees, the verify commands and review-log", () => {
 	// A checkout outside the temp folder, so `../w` leaves it.
 	const project = resolve(import.meta.dirname, "..");
-	const check = (command: string) => checkReviewerCommand(command, project, ["npm test", "npm run lint"])?.action ?? "allow";
+	const kit = "/kit";
+	const check = (command: string) => checkReviewerCommand(command, project, ["npm test", "npm run lint"], kit)?.action ?? "allow";
 	const tmp = join(tmpdir(), "r");
-	for (const ok of ["git diff a..b", "git diff --stat a..b -- src", "git -C /x log --oneline", "git show a:CLAUDE.md", "git merge-base origin/main HEAD", `git worktree add ${tmp} abc`, "git worktree add $TMPDIR/r abc", `git worktree add --detach ${tmp} abc`, `git worktree remove --force ${tmp}`, "git worktree list", "cat f | grep x", "rg -n foo src 2>/dev/null", "npm test", "npm test 2>&1 | tail -20", "cd sub && git status", "node /kit/scripts/review-log.ts abc"]) {
+	for (const ok of ["git diff a..b", "git diff --stat a..b -- src", "git log --oneline -5", "git -C /x log --oneline", "git show a:CLAUDE.md", "git merge-base origin/main HEAD", `git worktree add ${tmp} abc`, `git worktree add --detach ${tmp} abc`, `git worktree remove --force ${tmp}`, "git worktree list", "git diff a..b | head -50", "cat f | grep x", "grep -rn foo src 2>/dev/null", "npm test", "npm test 2>&1 | tail -20", "cd lib && git status", `node ${kit}/scripts/review-log.ts abc`]) {
 		assert.equal(check(ok), "allow", ok);
 	}
-	for (const bad of ["git commit -m x", "git checkout main", "git switch -c x", "git stash", "git add -A", "git worktree add ../w abc", `git worktree add -b x ${tmp} abc`, "git diff --output=x a..b", "git -c core.pager=sh log", "rm f", "echo x > f", "cat a >> b", "grep x f | tee out", "git diff; rm f", "cat $(echo f)", "cat `echo f`", "sed -i s/a/b/ f", "npm run build", "node -e 'require(\"fs\").writeFileSync(\"x\", \"\")'"]) {
-		assert.equal(check(bad), "block", bad);
-	}
-	assert.match(String(checkReviewerCommand("rm f", project, [])?.reason), /reviewer is read-only/);
+	const bad = [
+		"git commit -m x", "git checkout main", "git switch -c x", "git stash", "git add -A", "git grep x", "git -c core.pager=sh log",
+		"git diff --output=x a..b", "git log --ou=x", "git diff --ext-diff",
+		"git worktree add ../w abc", `git worktree add -b x ${tmp} abc`, `git worktree add ${tmp}`, "git worktree add $TMPDIR/r abc", "git worktree remove --force .worktrees/x",
+		"rm f", "echo x > f", "cat a >> b", "echo x >| cat", "echo hi >&ls", "grep x f | tee out", "git diff; rm f", "ls &",
+		"cat $(echo f)", "cat `echo f`", "echo \\' ; rm f ; echo \\'", "echo $'x'",
+		"rg --pre rm x .", "sort -o f x", "uniq a b", "file -C -m x", "sed -i s/a/b/ f", "npm run build",
+		"cd /tmp && cd - && ls", "cd no-such-dir-xyz && ls", "pushd /tmp", "( cd /tmp ) && ls", "cd",
+		"node examples/scripts/review-log.ts x", "node -e 'require(\"fs\").writeFileSync(\"x\", \"\")'",
+	];
+	for (const command of bad) assert.equal(check(command), "block", command);
+	assert.match(String(checkReviewerCommand("rm f", project, [], kit)?.reason), /reviewer is read-only/);
 });
 
 test("a project reached through a symlink keeps its review records", () => {
