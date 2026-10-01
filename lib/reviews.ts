@@ -317,15 +317,16 @@ export function checkReview(command: string, cwd: string, projectDir: string, op
  * The reviewer's shell (Claude Code tells the hook which subagent runs the call). Fail closed: only a short list
  * of inspection commands, git's read-only subcommands without their writing or program-running options, a
  * worktree at an absolute temp path for another revision, the project's verification commands and the kit's own
- * review-log. Anything the parser might misread (a backslash, `$`, backticks, parentheses, braces, `<`, `>` other
- * than the stderr and null redirections, a background `&`) is refused, so the reviewer can't change what it judges.
+ * review-log. Anything the parser might misread (a backslash, `$`, backticks, parentheses, braces, `<`, a glob, `>`
+ * other than the stderr and null redirections, a background `&`) is refused, so the reviewer can't change what it judges.
  */
 export function checkReviewerCommand(command: string, cwd: string, verify: string[], kitRoot: string): GuardDecision | undefined {
 	const refuse = (what: string): GuardDecision => ({
 		action: "block",
 		reason: `The reviewer is read-only: ${what} is not allowed in its shell. Use git diff/log/show/blame, \`git worktree add <absolute temp dir> <sha>\` for another revision, cat/head/tail/grep/wc/ls, the project's verification commands and review-log; read files with the Read and Grep tools.`,
 	});
-	if (/[\\$`(){}<]/.test(command)) return refuse("a backslash, `$`, a backtick, parentheses, braces or `<`");
+	// A glob (`*`, `?`, `[`) could expand into a planted file name such as `--output=a.txt`.
+	if (/[\\$`(){}<*?[]/.test(command)) return refuse("a backslash, `$`, a backtick, parentheses, braces, `<` or a glob");
 	const bare = command.replace(/(^|\s)(?:2>&1|2>\/dev\/null|&?>\/dev\/null)(?=\s|$)/g, " ");
 	if (bare.includes(">") || /\btee\b/.test(bare)) return refuse("a writing redirection or tee");
 	const all = tokenize(bare);
