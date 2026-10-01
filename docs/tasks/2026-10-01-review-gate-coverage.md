@@ -243,18 +243,18 @@ After the update, old records lack `base`, so the first landing on each branch n
 
 **Files:** Modify `src/extensions/lib/reviews.ts` (copy), `src/extensions/guard.ts`, `src/skills/requesting-code-review/*` · Create `src/scripts/review-log.ts` · Test `src/tests/extensions.test.ts`
 
-- [ ] Copy `lib/reviews.ts` byte for byte. Write failing tests in `extensions.test.ts`:
+- [x] Copy `lib/reviews.ts` byte for byte. Write failing tests in `extensions.test.ts`:
   - `a reviewer's report without Reviewed BASE records Inconclusive`;
   - `after a successful gh pr create bash call, a push of a new commit to that branch asks`;
   - `a throwing check asks instead of passing` (fake `ctx.isProjectTrusted` throws) → `ui.confirm` called with `/guard failed/`.
-- [ ] Run `npm test` in `src/` → expect FAIL: the push isn't asked about, and the throw rejects the handler.
-- [ ] Implement:
+- [x] Run `npm test` in `src/` → expect FAIL: the push isn't asked about, and the throw rejects the handler.
+- [x] Implement:
   - in `guard.ts`, `tool_result` for `bash`/`powershell` with `!event.isError` calls `rememberPr(ctx.cwd, command, ctx.cwd, options.reviewsRoot)`;
   - the `tool_call` body is wrapped in try/catch, which gives `{ action: "confirm", reason: "eng-kit guard failed: <message>" }` and then the existing confirm path;
   - `scripts/review-log.ts` is the same script reading `ctx`-free: cwd, `ENG_KIT_REVIEWS_ROOT`;
   - port Task 6's skill text with pi wording: `{SKILL_DIR}/../../scripts/review-log.ts`, no reviewer allowlist (not enforced in pi, said so in review-gate.md).
-- [ ] Run `npm test && npm run typecheck` in `src/` → expect PASS. Run `node tools/compare-editions.mts` → no new drift outside the adapted list. Run `cmp src_claude/lib/reviews.ts src/extensions/lib/reviews.ts` → identical.
-- [ ] Commit in `src/`: `feat(review-gate): whole-branch coverage, open-PR pushes and a fail-closed guard`.
+- [x] Run `npm test && npm run typecheck` in `src/` → expect PASS. Run `node tools/compare-editions.mts` → no new drift outside the adapted list. Run `cmp src_claude/lib/reviews.ts src/extensions/lib/reviews.ts` → identical.
+- [x] Commit in `src/`: `feat(review-gate): whole-branch coverage, open-PR pushes and a fail-closed guard`.
 
 ### Task 8: docs, changelog, version
 
@@ -285,3 +285,7 @@ After the update, old records lack `base`, so the first landing on each branch n
 - Task 5: complete (af44882..HEAD, `npm test` → 297 pass, `npm run typecheck` → clean, `hooks/hook.ts` with a PreToolUse input → exit 0)
 - Ruling: Post-implementation also covers README.md (both editions): its review-gate paragraph names the two old verdict lines — cost if wrong: none.
 - Task 6: complete (8b71bae..bfad053, `npm test` → 297 pass)
+- Ruling: found while porting. `reviewsDir` now hashes the project's real path. pi's `ctx.cwd` and a script's `process.cwd()` differ through macOS's `/var` → `/private/var` symlink, so review-log saw no records. Fixed in the shared file with its own test (`a project reached through a symlink keeps its review records`, RED with the fix reverted), commit 3b16f5d — cost if wrong: none; 0.13.0 records are invalid anyway.
+- Ruling: pi's `a reviewer report without Reviewed BASE counts as Inconclusive` passed on first run, because the shared `reviews.ts` (seen failing in Claude's Task 1/2 tests) was copied before the test was written — cost if wrong: none, the same code is tested RED-first in the Claude edition.
+- Ruling: pi's `prompts/review.md` also names the verdict lines, so it gets the BASE line — cost if wrong: none.
+- Task 7: complete (pi 5294f9a..31ca57f, `npm test` → 299 pass, typecheck clean; `cmp` reviews.ts identical; compare-editions: requesting-code-review differs on purpose; the other diffs predate this branch)
