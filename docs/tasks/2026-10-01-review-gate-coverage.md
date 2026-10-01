@@ -1,6 +1,6 @@
 # Review gate covers the whole branch, open PRs and a read-only reviewer
 
-Status: plan approved (2026-10-01)
+Status: in progress
 Base: 5cc613d50b87443036b8c18fb567204f27b93c7a (pi edition: 5294f9a92ba1250d8345b2ef97da7064119c89fc)
 Links: comparison with fortune-os (private FRAMEWORK-SOURCES §11.15, to be extended as §11.17)
 
@@ -123,7 +123,7 @@ After the update, old records lack `base`, so the first landing on each branch n
 **Files:** Modify `lib/reviews.ts` · Test `tests/reviews.test.ts`
 **Interfaces:** Produces `parseReview(text): { base, sha, verdict } | undefined`, `ReviewRecord { sha; base?: string; verdict; promptId; at; report?: string }`, `readReviews(projectDir, root?): ReviewRound[]` where `ReviewRound { sha; verdict; promptId; at; bases: string[] }`, and `recordVerdict(projectDir, rev, verdict, ids, root?, extra?: { base?: string; report?: string })`.
 
-- [ ] Change the test helper `report(sha, verdict, base = mergeBase)` to also write `Reviewed BASE:`. Write failing tests:
+- [x] Change the test helper `report(sha, verdict, base = mergeBase)` to also write `Reviewed BASE:`. Write failing tests:
   - `a Yes whose BASE is not on the remote base and has no covered record does not cover HEAD`: a review of `head~1..head` on a branch of 2 commits gives `check("gh pr create")` → `block` with `/does not cover/`;
   - `a repeat round chains to a covered earlier round at any verdict`: a full round `No` on c1, then a round `c1..c2` `Yes` → c2 allowed;
   - `a rebase breaks the chain`: c1 reviewed, branch rebased, the c1-based round on the new head → blocked;
@@ -131,8 +131,8 @@ After the update, old records lack `base`, so the first landing on each branch n
   - `records without base cover nothing`: write a 0.13.0-style JSON record directly → blocked;
   - `a chain longer than 20 links is refused`;
   - `without a tracking ref the local base anchors the chain; with one, the local base does not`.
-- [ ] Run `node --test tests/reviews.test.ts` → expect FAIL: the narrow-BASE test returns `undefined` (allowed) instead of a block.
-- [ ] Implement:
+- [x] Run `node --test tests/reviews.test.ts` → expect FAIL: the narrow-BASE test returns `undefined` (allowed) instead of a block.
+- [x] Implement:
   - `parseReview` requires exactly one `Reviewed BASE:` line: `/Reviewed BASE[*_]*:[*_\s`]*([0-9a-f]{7,40})\b/gi`;
   - `recordReview` resolves `base` with `rev-parse` (an unknown base returns an error string) and stores `report` cut to 200 000 chars;
   - `readReviews` returns rounds with the `bases` of the latest prompt's records;
@@ -140,8 +140,8 @@ After the update, old records lack `base`, so the first landing on each branch n
   - `chainOk(where, base, sha, rounds, anchor, depth)`: false if `base === sha` or `base` is not an ancestor of `sha`; true if `anchor` exists and `base` is an ancestor of it; otherwise recurse through the round for `base` (`depth + 1`, at most 20);
   - `anchor` is `refs/remotes/<remote>/<base>` if it resolves, else `refs/heads/<base>`;
   - the reason names the first link that fails: `the review of <sha> covers <base>..<sha>, and <base> has no covered review`.
-- [ ] Run `node --test tests/reviews.test.ts` → expect PASS, then `npm test`.
-- [ ] Commit `feat(review-gate): a verdict covers its whole range back to the remote base`.
+- [x] Run `node --test tests/reviews.test.ts` → expect PASS, then `npm test`.
+- [x] Commit `feat(review-gate): a verdict covers its whole range back to the remote base`.
 
 ### Task 2: the reviewer reports BASE, and its findings are kept
 
@@ -266,4 +266,8 @@ After the update, old records lack `base`, so the first landing on each branch n
 
 ## Progress
 
-None yet
+- Baseline (2026-10-01): src_claude `npm test` 281/281 pass, typecheck clean; src (pi) `npm test` 283/283 pass, typecheck clean. Drift since Base: none.
+- Pre-flight: Interfaces consistent (Task 1 produces the record shape that Tasks 2–4 and 7 consume).
+- Ruling: the test helper `report()` and three hooks-test verdict strings gained a `Reviewed BASE:` line; no assertion changed — the report format is the contract this task changes — cost if wrong: none, the assertions are untouched.
+- Ruling: `a repeat round chains to a covered earlier round at any verdict` passed before the change, because the 0.13.0 gate let every Yes through; it guards against the chain over-blocking and was checked against the implementation — cost if wrong: a positive-path regression would be caught only by the other chain tests.
+- Task 1: complete (090eaac..21f1a6c, `npm test` → 288 pass, `npm run typecheck` → clean)
