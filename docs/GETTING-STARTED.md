@@ -128,7 +128,7 @@ The agent shows a plan and, on your "yes", creates `.claude/verify.json` (the te
 /eng-kit:writing-plans docs/tasks/…-cart-api.md     fills its Plan: small TDD tasks
 /eng-kit:implement docs/tasks/…-cart-api.md         execution with tests and a report; at the end
                                                     what lasts moves to docs/, the task file is deleted
-/eng-kit:requesting-code-review                     review by the reviewer agent
+/eng-kit:requesting-code-review                     a review on demand (implement and finish review the final commit)
 /eng-kit:finish                                     merge / PR / keep / discard, your choice
 ```
 

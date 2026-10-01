@@ -207,7 +207,7 @@ When a task finishes, the agent shows you its Follow-ups and offers to start the
 /clear
 /eng-kit:brainstorming Catalog, from the Foundation follow-ups. We port the behavior from legacy-shop
 ```
-From there everything runs by itself: the task file with its description → plan → implementation with golden tests on legacy data → review → the file's lasting content moved into `docs/` and the file deleted → `finish`. The Follow-ups that are still open move into the new task file, so the chain continues. Git keeps each deleted task file, and the PR links it.
+From there everything runs by itself: the task file with its description → plan → implementation with golden tests on legacy data → the file's lasting content moved into `docs/` and the file deleted → review of that last commit → `finish`. The Follow-ups that are still open move into the new task file, so the chain continues. Git keeps each deleted task file, and the PR links it.
 
 **Final task: migration and cutover.** `payments-and-money` and `security-review` come in, and the guard asks before migrations and deploys.
 

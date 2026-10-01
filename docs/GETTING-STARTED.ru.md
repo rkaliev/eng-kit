@@ -128,7 +128,7 @@ claude
 /eng-kit:writing-plans docs/tasks/…-cart-api.md     заполняет его Plan: маленькие TDD-задачи
 /eng-kit:implement docs/tasks/…-cart-api.md         исполнение с тестами и отчётом; в конце
                                                     долгоживущее уходит в docs/, файл задачи удаляется
-/eng-kit:requesting-code-review                     ревью агентом reviewer
+/eng-kit:requesting-code-review                     ревью по запросу (implement и finish ревьюят последний коммит сами)
 /eng-kit:finish                                     merge / PR / keep / discard — на твой выбор
 ```
 
