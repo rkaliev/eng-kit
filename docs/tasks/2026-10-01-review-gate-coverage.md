@@ -260,9 +260,9 @@ After the update, old records lack `base`, so the first landing on each branch n
 
 **Files:** Modify both editions' `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE.ru.md`, `CHANGELOG.md`, `package.json`, `src_claude/.claude-plugin/plugin.json` · Workspace `docs/FRAMEWORK-SOURCES.ru.md`
 
-- [ ] Write the Post-implementation items above. Set the version to 0.14.0.
-- [ ] Run `node .github/release.ts check` in `src_claude/` → prints `0.14.0`. Run the full Verification in both editions → PASS.
-- [ ] Commit in each repo `docs: review gate 0.14.0`.
+- [x] Write the Post-implementation items above. Set the version to 0.14.0.
+- [x] Run `node .github/release.ts check` in `src_claude/` → prints `0.14.0`. Run the full Verification in both editions → PASS.
+- [x] Commit in each repo `docs: review gate 0.14.0`.
 - [ ] Finish order (git-workflow): delete this task file in its own commit, rebase if needed, run Verification, then the final review of each branch last. The PR goes only on the user's say.
 
 ## Progress
@@ -289,3 +289,5 @@ After the update, old records lack `base`, so the first landing on each branch n
 - Ruling: pi's `a reviewer report without Reviewed BASE counts as Inconclusive` passed on first run, because the shared `reviews.ts` (seen failing in Claude's Task 1/2 tests) was copied before the test was written — cost if wrong: none, the same code is tested RED-first in the Claude edition.
 - Ruling: pi's `prompts/review.md` also names the verdict lines, so it gets the BASE line — cost if wrong: none.
 - Task 7: complete (pi 5294f9a..31ca57f, `npm test` → 299 pass, typecheck clean; `cmp` reviews.ts identical; compare-editions: requesting-code-review differs on purpose; the other diffs predate this branch)
+- Ruling: GETTING-STARTED (both editions, EN and RU) still said docs and task files need no review, which has been stale since 0.13.0's exact-commit rule. It describes the same gate, so it is fixed in this branch (e2a84b8, pi 5ac14b4) — cost if wrong: none.
+- Task 8: complete (src_claude 3f11cd2, e2a84b8; pi 5ac14b4; `node .github/release.ts check` → 0.14.0; both suites green: 298 and 299 pass; FRAMEWORK-SOURCES §11.15 updated, §11.17 added)
