@@ -481,3 +481,30 @@ test("a push to a remote with no tracking ref still anchors the chain on the rem
 	assert.equal(action(check("git push origin main")), "block");
 	assert.match(String(check("git push fork main")?.reason), /does not cover/, "fork has no fork/main: origin/main is still the remote base");
 });
+
+test("a repeat round can't skip a newer reviewed commit and its findings", () => {
+	const { commit, head, base, check, review } = repo();
+	review(report(head, "Yes", base));
+	const c2 = commit({ "src/a.ts": "export const a = 2;\n" });
+	review(report(c2, "No", head));
+	const c3 = commit({ "src/a.ts": "export const a = 3;\n" });
+	review(report(c3, "Yes", head));
+	assert.match(String(check("gh pr create --fill")?.reason), /does not cover/, "c2's round is skipped");
+	review(report(c3, "Yes", c2));
+	assert.equal(check("gh pr create --fill"), undefined, "the round after c2");
+});
+
+test("many parallel bases per round are checked in bounded time", () => {
+	const { git, commit, check, review } = repo();
+	const orphan = git("rev-parse", "HEAD");
+	const shas = [orphan];
+	for (let i = 1; i <= 16; i++) shas.push(commit({ "src/chain.ts": `export const c = ${i};\n` }));
+	// Every round has two reviewers with different bases; the chain's root never reaches the remote base.
+	for (let i = 2; i < shas.length; i++) {
+		review(report(shas[i]!, "Yes", shas[i - 1]!), `p${i}`, "r1");
+		review(report(shas[i]!, "Yes", shas[i - 2]!), `p${i}`, "r2");
+	}
+	const started = Date.now();
+	assert.match(String(check("gh pr create --fill")?.reason), /does not cover/);
+	assert.ok(Date.now() - started < 5000, `took ${Date.now() - started} ms`);
+});

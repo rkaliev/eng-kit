@@ -65,6 +65,8 @@ const MAX_REPORT = 200_000;
 const PRS_FILE = "prs.json";
 /** Rounds a chain may pass through back to the remote base. */
 const MAX_CHAIN = 20;
+/** git calls one coverage check may spend, well inside the hook's 10 s timeout. */
+const MAX_CHAIN_CALLS = 300;
 
 /** The range and verdict in a reviewer's report. Several reports (parallel reviewers) give the worst verdict. */
 export function parseReview(text: string): { base: string; sha: string; verdict: Verdict } | undefined {
@@ -527,8 +529,10 @@ function uncovered(where: string, projectDir: string, base: string, ref: string,
 	if (match.verdict !== "Yes") return `the review of ${short(match.sha)} returned "${match.verdict}".`;
 	// The reviewed range must reach the remote base, directly or through earlier rounds. Without a tracking
 	// ref (no remote) the local base branch is all there is.
-	const anchor = anchorRef(where, remote, base);
-	if (match.bases.some((b) => chainOk(where, b, sha, reviews, anchor, 1))) return undefined;
+	const chain: Chain = { where, rounds: reviews, anchor: anchorRef(where, remote, base), memo: new Map(), ancestors: new Map(), calls: 0 };
+	const anchor = chain.anchor;
+	if (match.bases.some((b) => chainOk(chain, b, sha, 1))) return undefined;
+	if (chain.calls >= MAX_CHAIN_CALLS) return `the review of ${short(sha)} chains through more review rounds than the guard checks (${MAX_CHAIN_CALLS} git calls). Review the whole branch from its merge-base.`;
 	const range = match.bases.length > 0 ? `${short(match.bases[0]!)}..${short(sha)}` : "no recorded range (a review from before ranges were recorded)";
 	return `the review of ${short(sha)} does not cover the whole branch: it covers ${range}, and nothing reviewed connects it to ${anchor.replace(/^refs\/(remotes|heads)\//, "")}. Review the whole branch from its merge-base, or the commits before ${short(match.bases[0] ?? sha)}.`;
 }
@@ -549,12 +553,57 @@ function lines(text: string | undefined): string[] {
 	return (text ?? "").split("\n").filter(Boolean);
 }
 
-/** Whether `base..sha` is a real range that reaches `anchor`, directly or through recorded rounds (any verdict: a repeat round re-checks them). */
-function chainOk(where: string, base: string, sha: string, rounds: ReviewRound[], anchor: string, links: number): boolean {
-	if (links > MAX_CHAIN || base === sha || !isAncestor(where, base, sha)) return false;
-	if (isAncestor(where, base, anchor)) return true;
-	const round = rounds.find((r) => r.sha === base);
-	return round !== undefined && round.bases.some((b) => chainOk(where, b, base, rounds, anchor, links + 1));
+/** One coverage check: the rounds, the anchor, memoized answers and a budget of git calls. */
+interface Chain {
+	where: string;
+	rounds: ReviewRound[];
+	anchor: string;
+	memo: Map<string, boolean>;
+	ancestors: Map<string, boolean>;
+	calls: number;
+}
+
+/**
+ * Whether `base..sha` is a real range that reaches the anchor, directly or through recorded rounds (any verdict:
+ * a repeat round re-checks them). A repeat round must start at the newest reviewed commit below it, so no
+ * round's findings are skipped. Answers are memoized, and the git calls are budgeted: past the budget the
+ * range doesn't count, so a large history can't stall the hook into its timeout.
+ */
+function chainOk(chain: Chain, base: string, sha: string, links: number): boolean {
+	const key = `${base}..${sha}@${links}`;
+	const known = chain.memo.get(key);
+	if (known !== undefined) return known;
+	let ok = false;
+	if (links <= MAX_CHAIN && base !== sha && ancestor(chain, base, sha)) {
+		if (ancestor(chain, base, chain.anchor)) ok = true;
+		else {
+			const round = chain.rounds.find((r) => r.sha === base);
+			const inside = between(chain, base, sha);
+			const skipped = inside === undefined || chain.rounds.some((r) => r.sha !== sha && inside.has(r.sha));
+			ok = round !== undefined && !skipped && round.bases.some((b) => chainOk(chain, b, base, links + 1));
+		}
+	}
+	chain.memo.set(key, ok);
+	return ok;
+}
+
+/** The commits in `base..sha` (one git call), or undefined past the budget or on an error. */
+function between(chain: Chain, base: string, sha: string): Set<string> | undefined {
+	if (chain.calls >= MAX_CHAIN_CALLS) return undefined;
+	chain.calls++;
+	const out = git(chain.where, ["rev-list", `${base}..${sha}`]);
+	return out === undefined ? undefined : new Set(lines(out));
+}
+
+function ancestor(chain: Chain, a: string, b: string): boolean {
+	const key = `${a} ${b}`;
+	const known = chain.ancestors.get(key);
+	if (known !== undefined) return known;
+	if (chain.calls >= MAX_CHAIN_CALLS) return false;
+	chain.calls++;
+	const result = isAncestor(chain.where, a, b);
+	chain.ancestors.set(key, result);
+	return result;
 }
 
 function isAncestor(where: string, ancestor: string, rev: string): boolean {
