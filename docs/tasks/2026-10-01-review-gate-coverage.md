@@ -190,19 +190,19 @@ After the update, old records lack `base`, so the first landing on each branch n
 **Files:** Modify `lib/reviews.ts`, `lib/hooks.ts` · Test `tests/reviews.test.ts`, `tests/hooks.test.ts`
 **Interfaces:** Produces `checkReviewerCommand(command, cwd, verify: string[]): GuardDecision | undefined` (`undefined` = allowed).
 
-- [ ] Write failing table test `the reviewer's shell runs only inspection, temp worktrees, the verify commands and review-log`:
+- [x] Write failing table test `the reviewer's shell runs only inspection, temp worktrees, the verify commands and review-log`:
   - allowed: `git diff a..b`, `git -C /x log`, `git show a:CLAUDE.md`, `git worktree add $TMPDIR/r abc`, `git worktree remove <tmp>/r`, `cat f | grep x`, `npm test`, `node /kit/scripts/review-log.ts abc`;
   - blocked with `/reviewer is read-only/`: `git commit -m x`, `git checkout main`, `git worktree add ../w abc`, `rm f`, `echo x > f`, `git diff; rm f`, `cat $(echo f)`, `sed -i s/a/b/ f`;
   - hooks: a PreToolUse with `agent_type: "eng-kit:reviewer"` and `git commit` → `permissionDecision: "deny"`; the same command from the main agent → no reviewer denial.
-- [ ] Run → expect FAIL: `git commit` from the reviewer gets no deny.
-- [ ] Implement:
+- [x] Run → expect FAIL: `git commit` from the reviewer gets no deny.
+- [x] Implement:
   - per segment: the read-only commands; git subcommands `diff show log status blame rev-parse merge-base ls-files ls-tree cat-file grep`, and `worktree list|add|remove` with a path under `tmpdir()` or its realpath;
   - `cd/pushd/popd/pwd/echo/printf/true`, the verify commands (the matching in `isSafe`), and `node …/scripts/review-log.ts`;
   - no writing redirection or `tee`: extract the test already in `checkGateFiles` into `writes(command): boolean`;
   - no `$(`, backtick or `<(`;
   - `preToolUse` runs it first for shell tools when `agent_type` matches `^(eng-kit:)?reviewer$`.
-- [ ] Run → expect PASS, then `npm test`.
-- [ ] Commit `feat(review-gate): the reviewer's shell is limited to inspection`.
+- [x] Run → expect PASS, then `npm test`.
+- [x] Commit `feat(review-gate): the reviewer's shell is limited to inspection`.
 
 ### Task 5: a crashing guard asks instead of letting the call through
 
@@ -277,3 +277,6 @@ After the update, old records lack `base`, so the first landing on each branch n
 - Ruling: in the hooks test, a push without a PR expects the guard's usual `ask`; the test checks that the PR turns it into `deny` — cost if wrong: none.
 - Ruling: `shell writes to the open-PR list are blocked` passed before the change, because prs.json sits in the records folder the guard already protects; it pins that placement — cost if wrong: none.
 - Task 3: complete (a636165..ce6d1d8, `npm test` → 294 pass, `npm run typecheck` → clean)
+- Ruling: the reviewer allowlist also denies git's `-c`, `--output`, `--ext-diff` and pager options, and `worktree add -b`; it adds the pure filters `sort uniq cut tr`. The plan's list would have let `git diff --output=f` write and `git -c core.pager=…` run a command — cost if wrong: a reviewer asks for a command it needs, which the deny reason makes visible.
+- Ruling: the allowlist test runs from the kit checkout, not a temp folder, because `../w` from a temp folder really is in the temp folder — cost if wrong: none.
+- Task 4: complete (ce6d1d8..af44882, `npm test` → 296 pass, `npm run typecheck` → clean)
