@@ -17,7 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, recordVerdict, rememberPr, reviewedHead } from "./reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
@@ -31,6 +31,7 @@ export interface HookInput {
 	stop_hook_active?: boolean;
 	agent_id?: string;
 	agent_type?: string;
+	tool_use_id?: string;
 	last_assistant_message?: string;
 	prompt_id?: string;
 }
@@ -133,6 +134,8 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 
 	if (SHELL_TOOLS.has(tool)) {
 		const command = String(args.command ?? "");
+		// Where the command starts decides a PR's branch; the result only confirms it (see postToolUse).
+		if (input.tool_use_id) notePr(env.projectDir, input.tool_use_id, command, cwd, env.reviewsRoot);
 		// Inside the kit reviewer the shell is for inspection only (Claude Code names the subagent in the input).
 		// PowerShell isn't parsed for it at all: the allowlist is written for a POSIX shell.
 		const reviewer = !REVIEWER.test(input.agent_type ?? "")
@@ -223,7 +226,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	}
 	if (!SHELL_TOOLS.has(tool)) return {};
 	// A PR/MR the agent opened makes later pushes to its branch landings (review gate).
-	if (!failed) rememberPr(env.projectDir, String(args.command ?? ""), input.cwd || env.projectDir, env.reviewsRoot);
+	if (input.tool_use_id) settlePr(env.projectDir, input.tool_use_id, !failed, env.reviewsRoot);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 

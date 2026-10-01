@@ -472,9 +472,13 @@ test("review gate: a successful gh pr create registers its branch for the push g
 	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 	const push = () => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push" } }));
-	call({ hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
+	const create = (id: string) => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_use_id: id, tool_input: { command: "gh pr create --fill" } });
+	create("t1");
+	call({ hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_use_id: "t1", tool_input: { command: "gh pr create --fill" } });
 	assert.equal(push(), "ask", "a failed PR creation opened nothing: only the guard's usual question before a push");
-	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
+	create("t2");
+	// The shell's cwd may have moved by the time the result arrives: the branch comes from where the command started.
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_use_id: "t2", cwd: tmpdir(), tool_input: { command: "gh pr create --fill" } });
 	assert.equal(push(), "deny", "the branch now has an open PR");
 });
 

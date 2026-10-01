@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, readReviews, recordReview, recordVerdict, rememberPr, reviewsDir, stripRedirects, type ReviewGateOptions } from "../lib/reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, readReviews, recordReview, notePr, openPrBranches, recordVerdict, reviewsDir, settlePr, stripRedirects, type ReviewGateOptions } from "../lib/reviews.ts";
 
 const OPTIONS: ReviewGateOptions = { missing: "block", waiver: "reviewGate: false", verify: ["npm test", "npm run lint"] };
 
@@ -397,19 +397,21 @@ test("after the agent opens a PR, pushing a new unreviewed commit to its branch 
 	const { dir, root, commit, head, base, check, review } = repo();
 	review(report(head, "Yes", base));
 	assert.equal(check("git push -u origin feat/a"), undefined, "no PR yet: a work-branch push");
-	rememberPr(dir, "gh pr create --fill", dir, root);
+	notePr(dir, "t1", "gh pr create --fill", dir, root);
+	settlePr(dir, "t1", true, root);
 	const next = commit({ "src/a.ts": "export const a = 2;\n" });
 	for (const push of ["git push", "git push -u origin feat/a", "git push origin HEAD"]) assert.match(String(check(push)?.reason), /no reviewer verdict recorded/, push);
 	review(report(next, "Yes", head));
 	assert.equal(check("git push"), undefined, "the new commit, reviewed");
 });
 
-test("a PR branch named with --head is remembered; a merged PR branch is forgotten", () => {
+test("a PR branch named with --head (fork syntax too) is remembered; a merged PR branch is forgotten", () => {
 	const { dir, root, git, commit, head, base, check, review } = repo();
 	review(report(head, "Yes", base));
 	git("push", "-q", "origin", "feat/a");
 	git("switch", "-q", "main");
-	rememberPr(dir, "gh pr create --head feat/a --fill", dir, root);
+	notePr(dir, "t1", "gh pr create --head octo:feat/a --fill", dir, root);
+	settlePr(dir, "t1", true, root);
 	git("switch", "-q", "feat/a");
 	const second = commit({ "src/a.ts": "export const a = 2;\n" });
 	assert.equal(action(check("git push origin feat/a")), "block");
@@ -507,4 +509,26 @@ test("many parallel bases per round are checked in bounded time", () => {
 	const started = Date.now();
 	assert.match(String(check("gh pr create --fill")?.reason), /does not cover/);
 	assert.ok(Date.now() - started < 5000, `took ${Date.now() - started} ms`);
+});
+
+test("a PR opened but not confirmed by the tool result isn't registered; an old entry expires after 30 days", () => {
+	const { dir, root } = repo();
+	notePr(dir, "t1", "gh pr create --fill", dir, root);
+	assert.deepEqual(openPrBranches(dir, dir, "origin", "refs/remotes/origin/main", root), [], "pending only");
+	settlePr(dir, "t1", false, root);
+	settlePr(dir, "t1", true, root);
+	assert.deepEqual(openPrBranches(dir, dir, "origin", "refs/remotes/origin/main", root), [], "a failed call is forgotten");
+	notePr(dir, "t2", "gh pr create --fill", dir, root);
+	settlePr(dir, "t2", true, root);
+	assert.deepEqual(openPrBranches(dir, dir, "origin", "refs/remotes/origin/main", root), ["feat/a"]);
+	assert.deepEqual(openPrBranches(dir, dir, "origin", "refs/remotes/origin/main", root, Date.now() + 31 * 24 * 60 * 60 * 1000), []);
+});
+
+test("gate files: >| and >&file are writes too", () => {
+	const project = mkdtempSync(join(tmpdir(), "gate-files-"));
+	const records = join(tmpdir(), "eng-kit", "reviews");
+	for (const write of [`echo x >| ${records}/h/a.json`, `echo x >&${records}/h/a.json`]) {
+		assert.equal(checkGateFiles(write, project, project, ".claude/guard.json")?.action, "block", write);
+	}
+	assert.equal(checkGateFiles("cat .claude/guard.json >&2", project, project, ".claude/guard.json"), undefined, ">&2 is not a file");
 });

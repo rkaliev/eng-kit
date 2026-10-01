@@ -63,6 +63,9 @@ const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_REPORT = 200_000;
 /** The PRs/MRs the agent opened: `{ "<branch>": <ms> }`, next to the verdict records. */
 const PRS_FILE = "prs.json";
+/** PR/MR creations seen before their call finished: `{ "<tool call id>": { branch, at } }`. */
+const PENDING_FILE = "prs-pending.json";
+const PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** Rounds a chain may pass through back to the remote base. */
 const MAX_CHAIN = 20;
 /** git calls one coverage check may spend, well inside the hook's 10 s timeout. */
@@ -138,10 +141,11 @@ export function readReviews(projectDir: string, root?: string): ReviewRound[] {
 }
 
 /**
- * Remember the branch of a PR/MR the agent opened (call after the command succeeded): a later push to it
- * updates the PR, so it is a landing too. `cd` in the command is followed like in checkReview.
+ * Before a shell call runs: note the branch of a PR/MR it would open (`--head`/`-s`, else the current branch where
+ * the command starts, following `cd` like checkReview). settlePr registers it once the call has succeeded; a later
+ * push to that branch updates the PR, so it is a landing too.
  */
-export function rememberPr(projectDir: string, command: string, cwd: string, root?: string): void {
+export function notePr(projectDir: string, callId: string, command: string, cwd: string, root?: string): void {
 	let dir: string | undefined = cwd;
 	for (const raw of splitSegments(tokenize(stripRedirects(command)))) {
 		const tokens = raw.map((t) => t.replace(/^\(+|\)+$/g, "")).filter(Boolean);
@@ -151,12 +155,29 @@ export function rememberPr(projectDir: string, command: string, cwd: string, roo
 		}
 		const l = landing(tokens);
 		if (l?.kind !== "pr" || l.merge || l.repo || dir === undefined) continue;
-		const branch = l.target ?? currentBranch(dir);
+		// `gh pr create --head owner:branch` (a fork) pushes to `branch`.
+		const branch = l.target?.replace(/^[^:]+:/, "") ?? currentBranch(dir);
 		if (!branch) continue;
-		const prs = readPrs(projectDir, root);
-		prs[branch] = Date.now();
-		writePrs(projectDir, prs, root);
+		const pending = readJson(projectDir, PENDING_FILE, root);
+		pending[callId] = { branch, at: Date.now() };
+		writeJson(projectDir, PENDING_FILE, pending, root);
 	}
+}
+
+/** After the call: register its noted PR branch if it succeeded, forget it if not. */
+export function settlePr(projectDir: string, callId: string, ok: boolean, root?: string): void {
+	const pending = readJson(projectDir, PENDING_FILE, root);
+	const noted = pending[callId] as { branch?: unknown } | undefined;
+	if (!noted) return;
+	delete pending[callId];
+	for (const [id, entry] of Object.entries(pending)) {
+		if (Date.now() - Number((entry as { at?: unknown }).at ?? 0) > PENDING_MAX_AGE_MS) delete pending[id];
+	}
+	writeJson(projectDir, PENDING_FILE, pending, root);
+	if (!ok || typeof noted.branch !== "string") return;
+	const prs = readPrs(projectDir, root);
+	prs[noted.branch] = Date.now();
+	writePrs(projectDir, prs, root);
 }
 
 /**
@@ -178,21 +199,30 @@ export function openPrBranches(projectDir: string, where: string, remote: string
 }
 
 function readPrs(projectDir: string, root?: string): Record<string, number> {
+	const raw = readJson(projectDir, PRS_FILE, root);
+	return Object.fromEntries(Object.entries(raw).filter((e): e is [string, number] => typeof e[1] === "number"));
+}
+
+function writePrs(projectDir: string, prs: Record<string, number>, root?: string): void {
+	writeJson(projectDir, PRS_FILE, prs, root);
+}
+
+function readJson(projectDir: string, file: string, root?: string): Record<string, unknown> {
 	try {
 		const dir = reviewsDir(projectDir, root);
 		if (!ownDir(dir)) return {};
-		const raw = JSON.parse(readFileSync(join(dir, PRS_FILE), "utf8")) as Record<string, unknown>;
-		return Object.fromEntries(Object.entries(raw).filter((e): e is [string, number] => typeof e[1] === "number"));
+		const raw = JSON.parse(readFileSync(join(dir, file), "utf8")) as unknown;
+		return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 	} catch {
 		return {};
 	}
 }
 
-function writePrs(projectDir: string, prs: Record<string, number>, root?: string): void {
+function writeJson(projectDir: string, file: string, value: Record<string, unknown>, root?: string): void {
 	const dir = reviewsDir(projectDir, root);
 	try {
 		mkdirSync(dir, { recursive: true, mode: 0o700 });
-		if (ownDir(dir)) writeAtomic(join(dir, PRS_FILE), JSON.stringify(prs));
+		if (ownDir(dir)) writeAtomic(join(dir, file), JSON.stringify(value));
 	} catch {
 		// best effort: a lost entry only means a later push to that PR is not gated
 	}
