@@ -209,16 +209,16 @@ After the update, old records lack `base`, so the first landing on each branch n
 **Files:** Modify `lib/hooks.ts`, `hooks/hook.ts` · Test `tests/hooks.test.ts`
 **Interfaces:** Produces `respond(raw: string, env: HookEnv, handler = handle): { stdout: string; stderr: string; code: 0 | 1 }`.
 
-- [ ] Write failing tests with a throwing `handler`:
+- [x] Write failing tests with a throwing `handler`:
   - for `{"hook_event_name":"PreToolUse"}` → code 0, stdout `permissionDecision: "ask"`, reason `/eng-kit guard failed: boom/`;
   - for `Stop` → code 1 and empty stdout;
   - for unparsable input → code 1.
 
   Add a `respond` stub that returns `{ stdout: "", stderr: "", code: 1 }`.
-- [ ] Run → expect FAIL: the PreToolUse case gets code 1.
-- [ ] Implement `respond` and make `hooks/hook.ts` print its stdout/stderr and exit with its code. Update the file header comment.
-- [ ] Run → expect PASS, then `npm test` and a process test through `hooks/hook.ts` with valid input (existing).
-- [ ] Commit `fix(guard): a crash in PreToolUse asks instead of failing open`.
+- [x] Run → expect FAIL: the PreToolUse case gets code 1.
+- [x] Implement `respond` and make `hooks/hook.ts` print its stdout/stderr and exit with its code. Update the file header comment.
+- [x] Run → expect PASS, then `npm test` and a process test through `hooks/hook.ts` with valid input (existing).
+- [x] Commit `fix(guard): a crash in PreToolUse asks instead of failing open`.
 
 ### Task 6: the reviewer's instructions match the gate
 
@@ -280,3 +280,5 @@ After the update, old records lack `base`, so the first landing on each branch n
 - Ruling: the reviewer allowlist also denies git's `-c`, `--output`, `--ext-diff` and pager options, and `worktree add -b`; it adds the pure filters `sort uniq cut tr`. The plan's list would have let `git diff --output=f` write and `git -c core.pager=…` run a command — cost if wrong: a reviewer asks for a command it needs, which the deny reason makes visible.
 - Ruling: the allowlist test runs from the kit checkout, not a temp folder, because `../w` from a temp folder really is in the temp folder — cost if wrong: none.
 - Task 4: complete (ce6d1d8..af44882, `npm test` → 296 pass, `npm run typecheck` → clean)
+- Ruling: `respond` takes `makeEnv(input)` instead of a ready `env`, because the project dir falls back to the input's cwd — cost if wrong: none.
+- Task 5: complete (af44882..HEAD, `npm test` → 297 pass, `npm run typecheck` → clean, `hooks/hook.ts` with a PreToolUse input → exit 0)
