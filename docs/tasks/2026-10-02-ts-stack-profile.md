@@ -163,41 +163,41 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 
 **Files:** Create `templates/ts-monorepo/**` (Design list) · Test `tests/template.test.ts` (both editions)
 
-- [ ] Write `tests/template.test.ts`:
+- [x] Write `tests/template.test.ts`:
   - `template package.json files hold no versions`: no `dependencies`, `devDependencies`, `peerDependencies` or `packageManager` key, and `engines` absent;
   - `scaffold.json names existing workspaces and bare packages`: each key is a folder with a `package.json`, and each name matches `^(@[a-z0-9-]+/)?[a-z0-9.-]+$`;
   - `workflow actions are pinned at scaffold`: every `uses:` line ends in `@<sha>`;
   - `the profile states no versions`: no `/\b\d+\.\d+(\.\d+)?\b/` in `ts-fullstack-profile.md`.
-- [ ] Run it → expect FAIL: `templates/ts-monorepo/scaffold.json` missing (assertion on `existsSync`, not a thrown error).
-- [ ] Write the template files per the Design (Claude: `CLAUDE.md`; pi: `AGENTS.md`).
-- [ ] Run the full suite → PASS; `npx tsc --noEmit` → PASS (the template is outside `include`).
-- [ ] Copy to pi with the manifest renamed; `diff -r` shows only the manifest name.
-- [ ] Commit `feat(templates): ts-monorepo skeleton`.
+- [x] Run it → expect FAIL: `templates/ts-monorepo/scaffold.json` missing (assertion on `existsSync`, not a thrown error).
+- [x] Write the template files per the Design (Claude: `CLAUDE.md`; pi: `AGENTS.md`).
+- [x] Run the full suite → PASS; `npx tsc --noEmit` → PASS (the template is outside `include`).
+- [x] Copy to pi with the manifest renamed; `diff -r` shows only the manifest name.
+- [x] Commit `feat(templates): ts-monorepo skeleton`.
 
 ### Task 4: Scaffold script, smoke workflow, real run (criteria 4 and 5)
 
 **Files:** Create `scripts/scaffold-template.ts`, `lib/scaffold.ts` (pi: `extensions/lib/scaffold.ts`), `.github/workflows/template-smoke.yml` · Test `tests/scaffold.test.ts` (both editions)
 **Interfaces:** Produces `planScaffold(template: string, dest: string, versions: { node: string; pnpm: string }): { copy: string[]; writes: Record<string,string>; installs: string[][] }` and `scaffold(template, dest, run = spawnSync)`.
 
-- [ ] Write tests:
+- [x] Write tests:
   - `refuses a non-empty destination`: `scaffold` throws `Destination is not empty: <dest>`;
   - `plans installs from scaffold.json`: `{ "apps/api": { "dependencies": ["express"], "devDependencies": ["vitest"] } }` gives `[["pnpm","--filter","./apps/api","add","-E","express"],["pnpm","--filter","./apps/api","add","-E","-D","vitest"]]`; empty lists are skipped;
   - `writes .nvmrc and packageManager`: `.nvmrc` = `24.1.0\n` and root `packageManager` = `pnpm@10.0.0` for those inputs;
   - stub `planScaffold` returns empty → FAIL on the assertions.
-- [ ] Implement `lib/scaffold.ts` and the CLI (`scripts/scaffold-template.ts <dest>`; versions from `process.versions.node` and `pnpm --version`; `pnpm install` after the root write, then the planned installs; a failing command exits non-zero with its output). Run the suite → PASS.
-- [ ] Write `template-smoke.yml`:
+- [x] Implement `lib/scaffold.ts` and the CLI (`scripts/scaffold-template.ts <dest>`; versions from `process.versions.node` and `pnpm --version`; `pnpm install` after the root write, then the planned installs; a failing command exits non-zero with its output). Run the suite → PASS.
+- [x] Write `template-smoke.yml`:
   - triggers: `schedule` weekly, `workflow_dispatch`, and `pull_request` paths `templates/ts-monorepo/**`, `scripts/scaffold-template.ts`, `lib/scaffold.ts`;
   - a `postgres` service;
   - setup-node `lts/*` and corepack pnpm;
   - steps: scaffold into `$RUNNER_TEMP/app`, `pnpm turbo run typecheck lint test`, `prisma migrate deploy` with `DATABASE_URL` pointing at the service;
   - actions pinned by SHA like `ci.yml`. It is not in `gate`.
-- [ ] Run the script by hand into the scratchpad.
-- [ ] `pnpm turbo run typecheck lint test` → all green.
-- [ ] `docker compose up -d postgres`, `pnpm --filter @repo/db exec prisma migrate deploy` → success; then `docker compose down`.
-- [ ] Add `import "@repo/db"` and `import "../../../api/src/app"` to `apps/web/src/client/main.tsx` → `lint` fails on both; revert.
-- [ ] Every fix found goes back into the template (both editions) and re-runs Task 3's test. Record the output and the installed versions in Progress.
-- [ ] Copy the script, lib, test and workflow to pi; run its suite → PASS.
-- [ ] Commit `feat(templates): scaffold script and weekly template smoke` (plus `fix(templates): …` if any).
+- [x] Run the script by hand into the scratchpad.
+- [x] `pnpm turbo run typecheck lint test` → all green.
+- [x] `docker compose up -d postgres`, `pnpm --filter @repo/db exec prisma migrate deploy` → success; then `docker compose down`.
+- [x] Add `import "@repo/db"` and `import "../../../api/src/app"` to `apps/web/src/client/main.tsx` → `lint` fails on both; revert.
+- [x] Every fix found goes back into the template (both editions) and re-runs Task 3's test. Record the output and the installed versions in Progress.
+- [x] Copy the script, lib, test and workflow to pi; run its suite → PASS.
+- [x] Commit `feat(templates): scaffold script and weekly template smoke` (plus `fix(templates): …` if any).
 
 ### Task 5: Practices in the skills
 
@@ -224,11 +224,11 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 
 **Files:** Modify `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE.ru.md`, `CHANGELOG.md`, `package.json`, plugin manifests (both editions) · workspace `docs/FRAMEWORK-SOURCES.ru.md`
 
-- [ ] Update the docs per Post-implementation and set the version to 0.15.0.
-- [ ] Run `node .github/release.ts check` in each repo → PASS.
-- [ ] Run the full verify in both editions → PASS.
-- [ ] Commit `docs: 0.15.0 typescript profile and template`.
-- [ ] Finish order (git-workflow): delete the task file, rebase, verify, reviewer last.
+- [x] Update the docs per Post-implementation and set the version to 0.15.0.
+- [x] Run `node .github/release.ts check` in each repo → PASS.
+- [x] Run the full verify in both editions → PASS.
+- [x] Commit `docs: 0.15.0 typescript profile and template`.
+- [x] Finish order (git-workflow): delete the task file, rebase, verify, reviewer last.
 
 ## Progress
 
@@ -262,3 +262,7 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 - N3 mutation RED (each caught, code restored): keep pre-releases → 4 tests; string compare → 2; no age check → 2; no exactMajor → 2; no maxMajor → 2; `latestMajor` accepts a pre-release → 1; `parseRegistryInfo` without the name → 1; `MIN_RELEASE_AGE_MINUTES` 1000 → 1; `@types/node` not pinned to the Node major → 1.
 - Ruling: web scripts get their own `tsconfig.scripts.json` (Node types) instead of joining the client tsconfig — Node types would leak into the client typecheck — cost if wrong: one more config file.
 - Real run round 2 (scratch path with a space and Cyrillic): scaffold exit 0; turbo 11/11 incl. scripts typecheck and bundle check; boundary block reported every case on its exact line (client 1–7, domain 1–2); API block `/readyz` 503 → 200 after migrate, SIGTERM clean; containers down.
+- Tasks 3–4 review rounds 3–4: N8 (Critical) malformed JSON bodies reached warn logs via the parser message → 4xx logs carry status and type only (69cf4d8); N9 errors after headers sent → logged as 500, then Express (be4bc9f). Round 4 Yes on be4bc9f. Accepted Minor N10: Express's final handler also prints that stack to stderr outside test.
+- Tasks 3–4: complete (cb03b46..be4bc9f; pi 1879d9d..dcd064d).
+- Task 6: complete (b0b1c5c / pi 4d883d5; `release.ts check` ok 0.15.0 in both; FRAMEWORK-SOURCES §11.18 written in the workspace).
+- Final verification on b0b1c5c (2026-10-03): `npm test` 334/334 Claude, 335/335 pi; `tsc --noEmit` clean; compare-editions: the same 12 deliberate differences as before the branch; templates differ only in the manifest; real scaffold → turbo 11/11 incl. bundle check, `/readyz` 503 before migrate and 200 after, malformed JSON → 400 with no body text in the log, SIGTERM exit; container removed.
