@@ -27,7 +27,7 @@ When a new TypeScript web product or SaaS is started, the agent can offer a stac
 | 3 | The template holds no versions: no `package.json` in it has `dependencies`/`devDependencies`/`packageManager`; `scaffold.json` lists bare package names only, for workspaces that exist; every `uses:` in its workflow ends in `@<sha>` | unit `tests/template.test.ts` |
 | 4 | `node scripts/scaffold-template.ts <dir>` copies the template, writes `.nvmrc` and `packageManager` from the running Node and pnpm, and installs `scaffold.json` with `pnpm add -E`; the result passes `pnpm turbo run typecheck lint test`, and `prisma migrate deploy` succeeds against Postgres. It refuses a non-empty `<dir>` | unit `tests/scaffold.test.ts` (copy, refusal, the install commands it plans, with installs stubbed); workflow `template-smoke` (weekly and on PRs touching the template or the script) runs it for real; one run by hand in this task, output in Progress |
 | 5 | In the template, an import from server code or `@repo/db` inside `apps/web/src/client` fails `lint` | manual, in the same scaffold run as #4 (add the import → `pnpm turbo run lint` fails → remove it) |
-| 6 | `detectVerifyCommands`: with `turbo.json` it returns one `<exec> turbo run <tasks>` built from the tasks it declares, in the order typecheck/type-check, lint, test. `<exec>` is `pnpm`, `yarn`, `bunx` or `npx` from the lockfile or `pnpm-workspace.yaml`. A manifest's Commands still win; without `turbo.json` the behaviour is unchanged | unit `tests/init.test.ts` in both editions |
+| 6 | `detectVerifyCommands`: with `turbo.json` it returns one `<exec> turbo run <tasks>` built from the tasks it declares, in the order typecheck/type-check, lint, test. `<exec>` is `pnpm`, `yarn`, `bunx` or `npx` from the lockfile or `pnpm-workspace.yaml`. `turbo.json` or `turbo.jsonc` may hold comments; a key `pkg#task` declares `task`. A manifest's Commands still win; without Turbo the only change is that `pnpm-workspace.yaml` alone selects pnpm | unit `tests/init.test.ts` in both editions |
 | 7 | The four practices are in the skills, stack-free: ci-quality-gates (affected-only, falls back to everything, cache written only from main, one gate); backend-services and database-changes (Postgres for queue, cache and locks until a measurement shows a separate service is needed); web-frontend (client/server boundary enforced by lint, build and a bundle check); updating-dependencies (every override and patch has a reason and a removal condition, release-age delay, no `@latest` in tool configs, one source of the runtime version) | review checklist; `tests/lint-skills.test.ts` stays green |
 | 8 | Both editions match: `tools/compare-editions.mts` reports no new drift; `diff -r` of the two templates differs only in the manifest name | commands run in Progress |
 
@@ -102,6 +102,7 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 ## Follow-ups
 
 - Two-way migrations (`down.sql`) and a migration-markers check in the template.
+- `ciCoverage` (`lib/ci.ts`) matches commands by exact text, so a Turbo CI that runs the same tasks in another order or form is reported as a gap.
 - Per-package CI matrix, `turbo query affected`, when one job gets slow.
 
 ## Plan
@@ -131,19 +132,19 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 
 **Files:** Modify `src_claude/lib/init.ts`, `src/extensions/lib/init.ts` · Test `src_claude/tests/init.test.ts`, `src/tests/init.test.ts`
 
-- [ ] Write test `then from turbo.json tasks, as one turbo run`:
+- [x] Write test `then from turbo.json tasks, as one turbo run`:
   - `{turbo.json: {"tasks":{"build":{},"lint":{},"test":{},"typecheck":{}}}, pnpm-workspace.yaml: "", package.json: scripts({test:"turbo run test"})}` → `["pnpm turbo run typecheck lint test"]`;
   - with `package-lock.json` → `["npx turbo run typecheck lint test"]`;
   - legacy `{"pipeline":{"test":{}}}` with `yarn.lock` → `["yarn turbo run test"]`;
   - `turbo.json` = `"{"` with scripts `{test:"vitest run"}` → `["npm test"]`;
   - `{"tasks":{"build":{}}}` with scripts `{test:"vitest run"}` → `["npm test"]`.
-- [ ] Run `node --test tests/init.test.ts` → expect FAIL: actual `["pnpm test"]`, expected `["pnpm turbo run typecheck lint test"]`.
-- [ ] Implement in `detectVerifyCommands`:
+- [x] Run `node --test tests/init.test.ts` → expect FAIL: actual `["pnpm test"]`, expected `["pnpm turbo run typecheck lint test"]`.
+- [x] Implement in `detectVerifyCommands`:
   - pm: pnpm when `pnpm-lock.yaml` or `pnpm-workspace.yaml` exists;
   - exec map: `{pnpm:"pnpm", yarn:"yarn", bun:"bunx", npm:"npx"}`;
   - a Turbo branch after the manifest check and before the package.json scripts, which reads `tasks ?? pipeline` and ignores a parse failure.
-- [ ] Run the full suite → PASS. Repeat the test and the code in pi (`src/`), run its suite → PASS.
-- [ ] Commit `feat(init): detect turbo monorepos` in each repo.
+- [x] Run the full suite → PASS. Repeat the test and the code in pi (`src/`), run its suite → PASS.
+- [x] Commit `feat(init): detect turbo monorepos` in each repo.
 
 ### Task 2: Profile and choosing-a-stack
 
@@ -231,3 +232,8 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 
 - Baseline (2026-10-02): src_claude `npm test` 307/307, `tsc --noEmit` ok; pi `npm test` 308/308, `tsc --noEmit` ok. No drift since Base (branch just created from origin/main).
 - Pre-flight: Task 4 consumes the template from Task 3 and `scaffold.json`'s shape from the Design; no conflicts.
+- Task 2 RED (2026-10-02, current skill text, B2B SaaS prompt): asked the user, no versions quoted (sources named), 3 candidates assembled from scratch (NestJS+Vite SPAs, Next.js, Fastify+React Router); proposed pnpm workspaces with "Turborepo only if needed", Drizzle-leaning ORM, scaffold "with each project's official generator". Gap: no production-proven integrated candidate, no one-store/boundary/schema-vs-query rules, no ready template.
+- Task 1 RED: new test failed with actual `["npm test"]` vs expected `["pnpm turbo run typecheck lint test"]` (the plan predicted `["pnpm test"]`; detection ignored `pnpm-workspace.yaml`). Edge-case round: the comment case failed with `[]` vs `["npx turbo run lint"]` before the fix.
+- Ruling: `pnpm-workspace.yaml` alone selects pnpm also without Turbo — npm cannot install a pnpm workspace — cost if wrong: a repo with a stray workspace file gets pnpm commands. Criterion 6 reworded.
+- Ruling (review Minor 3–4): JSONC (`turbo.json`/`turbo.jsonc` with comments) and `pkg#task` keys count; trailing commas still fall through to the scripts.
+- Task 1: complete (f45fc28..acf5cbd; pi b9046d8..b3f1618; `npm test` 309/309 Claude, 310/310 pi, `tsc --noEmit` clean; review round 2 Yes on acf5cbd).
