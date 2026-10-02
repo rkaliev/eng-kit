@@ -109,6 +109,8 @@ The hook code is the same in both modes. The kit root is the parent folder of `h
 
 **Starting point: new or existing code:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
+**TypeScript full-stack profile.** `choosing-a-stack/references/ts-fullstack-profile.md` is one candidate for a new TypeScript web product or SaaS with one team and Postgres, never a default. Per role it gives a choice, the reason, when not to take it and an alternative, and it names no versions. If you pick it, `node <kit>/scripts/scaffold-template.ts <dir>` copies `templates/ts-monorepo/` (pnpm workspaces, Turbo, a Vite web app, an Express API, Prisma with Kysely, CI). The template holds no versions: the script installs each package at its highest stable release that is at least a day old, capped at the major of a stable `latest` tag and pinned exactly, with `@types/node` at the Node major and workspace packages as `workspace:*`. Four practices of that stack live in skills with no stack attached: monorepo CI in ci-quality-gates (affected-only, falls back to everything, one gate), one store until measured in backend-services and database-changes (Postgres for queue, cache and locks until a measurement shows a separate service is needed), an enforced client/server boundary in web-frontend, and dependency discipline in updating-dependencies (every override and patch has a reason and a removal condition).
+
 **Platforms:** web-frontend, backend-services, mobile-development (Android and iOS in `references/`), desktop-development (Windows and Linux in `references/`), ui-motion (animation and gestures on every platform: whether to animate at all, then easing, budgets, interruptibility, reduced motion; values and per-platform APIs in `references/`). web-frontend keeps state and optimistic updates, and the design system with destructive-action copy, in `references/`; mobile and desktop point to them.
 
 **High-risk domains:** payments-and-money, pos-systems, security-review, observability, database-changes.
@@ -211,6 +213,7 @@ In addition, `kit-init` adds native deny rules `Read(**/.env)`, `Read(**/*.pem)`
   - `--junit <dir>` alone checks only the reports: missing or empty, or a declared count that differs from the cases that ran (a crashed shard).
 
   In an existing project it is a ratchet: only lines the change adds count (renames are followed), and pre-existing debt is counted in the summary, not blocking (`--all` checks every line). Without a merge base it stops with a message: CI needs `fetch-depth: 0` and, on GitLab, an explicit fetch of the target branch. `test-hygiene: allow <reason>` marks a line where the pattern is the behavior under test; an allow without a reason is itself reported, and one that hides a forbidden skip, retry or sleep needs your agreement. `.ci/test-hygiene.json` adds test files, ignores and patterns. Next to it go the stack's native linters (table in `ci-quality-gates/references/ci-templates.md`).
+- **Verify commands in a Turbo monorepo.** With a `turbo.json` (or `turbo.jsonc`, comments allowed) `kit-init` detects one `<exec> turbo run typecheck lint test` built from the tasks it declares; a `pkg#task` key declares `task`, and `<exec>` is `pnpm`, `yarn`, `bunx` or `npx` by lockfile. A manifest's Commands still win, and a `turbo.json` that can't be read or declares none of those tasks falls through to the `package.json` scripts. `pnpm-workspace.yaml` alone selects pnpm.
 - **Linking the layers:**
   - `kit-init` mechanically checks that CI runs every verify command, has the working-docs job and runs `.ci/test-hygiene.mts` when the project has it, and reports a copy older than the kit's;
   - review counts a command missing from CI and a broken project rule as Important, and a removed, skipped or retried check as Critical.
@@ -261,7 +264,9 @@ The plan names the test for each criterion, and the PR body says how each new te
   - `kit-init` (including the test-hygiene item: offered, copied with `--test-hygiene`, an older copy reported and replaced with the flag, a CI that doesn't run it reported in the same run);
   - `install-project` (install, update, conflicts, hooks without duplicates);
   - the skill and agent linter, manifest consistency.
+  - the `ts-monorepo` template (no versions, `scaffold.json` names real workspaces, pinned action SHAs) and the scaffold script (refuses a non-empty folder, the planned installs, `.nvmrc` and `packageManager`);
 - **`npm run typecheck`** and **`claude plugin validate .`**.
+- **`template-smoke`** (`.github/workflows/template-smoke.yml` in the kit's own CI, weekly and on PRs that touch the template or the scaffold script): scaffolds `ts-monorepo` into a clean folder, runs `pnpm turbo run typecheck lint test` and `prisma migrate deploy` against Postgres. It is outside `gate` and the release: red means the ecosystem moved and the template needs a fix.
 - **A live `claude -p` run** on a copy of `examples/demo`:
   - bootstrap;
   - deny on `git commit --no-verify`;
@@ -281,4 +286,5 @@ The plan names the test for each criterion, and the PR body says how each new te
 
 - A new skill is written with `writing-skills`: first a scenario without the skill (RED), then a minimal skill. Then `npm test`, `claude plugin validate .` and a line in this document.
 - A rule that can be checked mechanically lives in a hook, in `permissions` in settings.json or in CI, not in a skill's text.
+- A template holds no versions: they are installed from the registry at scaffold, and `template-smoke` shows when the ecosystem has moved.
 - Domain plugins for a specific company (a specific acquirer, fiscal data operator) are better made as a separate plugin and connected through `dependencies` in `plugin.json`.
