@@ -154,6 +154,19 @@ export function detectVerifyCommands(cwd: string): string[] {
 	if ((fromDocs.source === "CLAUDE.md" || fromDocs.source === "AGENTS.md") && fromDocs.commands.length > 0) return fromDocs.commands;
 
 	const has = (rel: string) => existsSync(join(cwd, rel));
+	const pm = has("pnpm-lock.yaml") || has("pnpm-workspace.yaml") ? "pnpm" : has("yarn.lock") ? "yarn" : has("bun.lockb") || has("bun.lock") ? "bun" : "npm";
+	const exec = { pnpm: "pnpm", yarn: "yarn", bun: "bunx", npm: "npx" }[pm];
+	if (has("turbo.json")) {
+		try {
+			const turbo = JSON.parse(readFileSync(join(cwd, "turbo.json"), "utf8"));
+			const declared = turbo.tasks ?? turbo.pipeline ?? {};
+			// One run over the workspace; `build` is left out on purpose (slow, covered by typecheck and test).
+			const tasks = ["typecheck", "type-check", "lint", "test"].filter((t) => t in declared);
+			if (tasks.length > 0) return [`${exec} turbo run ${tasks.join(" ")}`];
+		} catch {
+			// unreadable turbo.json: fall through to the package.json scripts
+		}
+	}
 	if (has("package.json")) {
 		let scripts: Record<string, string> = {};
 		try {
@@ -161,7 +174,6 @@ export function detectVerifyCommands(cwd: string): string[] {
 		} catch {
 			// unreadable package.json: fall through to other tools
 		}
-		const pm = has("pnpm-lock.yaml") ? "pnpm" : has("yarn.lock") ? "yarn" : has("bun.lockb") || has("bun.lock") ? "bun" : "npm";
 		const commands: string[] = [];
 		for (const name of ["typecheck", "type-check", "lint", "test", "build"]) {
 			const body = scripts[name];

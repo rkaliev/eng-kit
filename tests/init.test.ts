@@ -149,3 +149,13 @@ test("init.ts --test-hygiene copies the kit's own script", () => {
 	run("--yes", "--test-hygiene");
 	assert.equal(readFileSync(join(dir, HYGIENE_TARGET), "utf8"), readFileSync(join(root, "scripts", "test-hygiene.ts"), "utf8"));
 });
+
+test("then from turbo.json tasks, as one turbo run", () => {
+	const turbo = JSON.stringify({ tasks: { build: {}, lint: {}, test: {}, typecheck: {} } });
+	const s = scripts({ test: "turbo run test" });
+	assert.deepEqual(detectVerifyCommands(project({ "turbo.json": turbo, "pnpm-workspace.yaml": "", "package.json": s })), ["pnpm turbo run typecheck lint test"]);
+	assert.deepEqual(detectVerifyCommands(project({ "turbo.json": turbo, "package-lock.json": "{}", "package.json": s })), ["npx turbo run typecheck lint test"]);
+	assert.deepEqual(detectVerifyCommands(project({ "turbo.json": JSON.stringify({ pipeline: { test: {} } }), "yarn.lock": "", "package.json": s })), ["yarn turbo run test"]);
+	assert.deepEqual(detectVerifyCommands(project({ "turbo.json": "{", "package.json": scripts({ test: "vitest run" }) })), ["npm test"]);
+	assert.deepEqual(detectVerifyCommands(project({ "turbo.json": JSON.stringify({ tasks: { build: {} } }), "package.json": scripts({ test: "vitest run" }) })), ["npm test"]);
+});
