@@ -57,10 +57,11 @@ When a new TypeScript web product or SaaS is started, the agent can offer a stac
 4. **assumed:** the API uses Express 5, as the source's main application does. Hono is the alternative in the profile.
 5. **assumed:** template CI is a single job running `turbo run … --affected`, with everything run on main and a Turbo cache restored on PRs and saved only on main. The source's per-package matrix is the documented next step.
 6. **assumed:** the Kysely types come from the `prisma-kysely` generator, as in the source. The profile lists `kysely-codegen` as the alternative because of the single-maintainer risk. If the real scaffold fails on it, the plan stops and the user is asked.
-7. The source's weaknesses become "when not to take it" and warnings in the profile: version drift, beta versions in production, patches and overrides without an exit, `@latest`, heavy local infrastructure, vendor lock-in, 4-byte cents and coverage that does not block PRs. The kit's money rule stays stricter than the source.
+7. The source's weaknesses become "when not to take it" and warnings in the profile: version drift, beta versions in production, patches and overrides without an exit, `@latest`, heavy local infrastructure, vendor lock-in and 4-byte cents. Coverage stays on the kit rule (ci-quality-gates: reported per change, floor on a schedule, never blocks a merge); the source does the same, so it is not a warning (user, 2026-10-02). The kit's money rule stays stricter than the source.
 8. Detection: a manifest's Commands win, then `turbo.json`, then root `package.json` scripts. Root scripts in a Turbo repo only delegate, so one `turbo run` shares the task graph. `build` is left out of the verify command because CI builds; it stays in CI.
 9. One script, `scripts/scaffold-template.ts`, runs the scaffold for the agent and for CI, so the steps exist once. Choosing the Node LTS and pinning action SHAs stay with the agent: the script takes the running Node and pnpm as given (user chose kit CI weekly and on PRs, 2026-10-02).
 10. `template-smoke` does not block the kit's `gate` or release: red means the ecosystem moved and the template needs a fix.
+11. 0.x in a key role only as a named exception with its reason in the decision record; Kysely is that exception in the profile (user, 2026-10-02).
 
 ## Design
 
@@ -70,7 +71,7 @@ When a new TypeScript web product or SaaS is started, the agent can offer a stac
 - Selection filter: no beta and no 0.x for key roles, no vendor SaaS by default.
 - Warnings, taken from the source's weaknesses.
 - Scaffold steps:
-  1. check the current Node LTS at nodejs.org and that `node` runs it; `corepack use pnpm@latest`;
+  1. check the current Node LTS at nodejs.org and that `node` runs it; install the latest pnpm (pnpm.io/installation; Node 25+ no longer bundles corepack) and check `pnpm --version`;
   2. `node <kit>/scripts/scaffold-template.ts <dir>`;
   3. pin each `@<sha>` in the workflow to the action's latest release commit;
   4. `pnpm turbo run typecheck lint test`;
@@ -237,3 +238,6 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 - Ruling: `pnpm-workspace.yaml` alone selects pnpm also without Turbo — npm cannot install a pnpm workspace — cost if wrong: a repo with a stray workspace file gets pnpm commands. Criterion 6 reworded.
 - Ruling (review Minor 3–4): JSONC (`turbo.json`/`turbo.jsonc` with comments) and `pkg#task` keys count; trailing commas still fall through to the scripts.
 - Task 1: complete (f45fc28..acf5cbd; pi b9046d8..b3f1618; `npm test` 309/309 Claude, 310/310 pi, `tsc --noEmit` clean; review round 2 Yes on acf5cbd).
+- Task 2 GREEN (same prompt, new text): profile offered as candidate A of three (with Next.js and NestJS), user asked to choose, no versions (sources named), scaffold via the kit script. Gap: it called A "the reliable default for exactly this shape" → a sentence forbidding "default/recommended stack" wording added in the review fixes.
+- Task 2 review round 1 (With fixes): empty Not-when/Alternative cells, `Express 5`, 0.x filter vs Kysely, coverage warning vs ci-quality-gates, Migrations row vs database-changes, plus Minor. User ruled on 0.x (Decision 11) and coverage (Decision 7).
+- Ruling: `corepack use` replaced by installing pnpm per pnpm.io — Node 25+ ships without corepack, and `corepack use` writes into the nearest package.json — cost if wrong: one extra install step.
