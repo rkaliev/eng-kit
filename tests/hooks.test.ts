@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { BOOTSTRAP_MARKER, handle, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
+import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
+import { readReviews } from "../lib/reviews.ts";
 import { readRun, writeRun } from "../lib/state.ts";
 
 const root = resolve(import.meta.dirname, "..");
@@ -336,7 +337,7 @@ test("review gate: SubagentStop stamps the kit reviewer's verdict; the guard let
 	const pr = () => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
 	const stopOf = (agent_type: string, last_assistant_message: string, stop_hook_active = false) =>
 		call({ hook_event_name: "SubagentStop", agent_type, last_assistant_message, prompt_id: "p1", agent_id: "a1", stop_hook_active });
-	const verdict = `Reviewed HEAD: ${head.slice(0, 8)}\nReady to merge: Yes`;
+	const verdict = `Reviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head.slice(0, 8)}\nReady to merge: Yes`;
 
 	assert.equal(decision(pr()), "deny");
 	assert.deepEqual(stopOf("Explore", verdict), {}, "other agents never stamp");
@@ -386,11 +387,12 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 	const pr = () => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } }));
-	const verdict = `Reviewed HEAD: ${head}\nReady to merge: Yes`;
+	const verdict = `Reviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: Yes`;
 
 	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "a.ts") } });
 	const stamped = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a1" });
 	assert.match(String(stamped.warning), /unverified, so it counts as Inconclusive/);
+	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.bases.length, 1, "it keeps its range, so a later round can chain through it");
 	assert.equal(pr(), "deny");
 
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" } });
@@ -406,6 +408,110 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	const bareEnv: HookEnv = { ...env, projectDir: bare, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) };
 	const bareCall = (input: HookInput) => handle({ session_id: "s", cwd: bare, ...input }, bareEnv);
 	bareCall({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(bare, "b.ts") } });
-	assert.deepEqual(bareCall({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed HEAD: ${bareHead}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1" }), {});
+	assert.deepEqual(bareCall({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${spawnSync("git", ["rev-parse", "main"], { cwd: bare, encoding: "utf8" }).stdout.trim()}\nReviewed HEAD: ${bareHead}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1" }), {});
 	assert.equal(decision(bareCall({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } })), undefined, "no verification commands: nothing to be green, the review counts");
+});
+
+test("review gate: a report without Reviewed BASE is sent back once, naming all three lines, then counts as Inconclusive", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const head = git("rev-parse", "HEAD");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const stop = (stop_hook_active: boolean) =>
+		handle({ session_id: "s", cwd: projectDir, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed HEAD: ${head}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1", stop_hook_active }, env);
+	const first = stop(false);
+	assert.equal(first.output?.decision, "block");
+	assert.match(String(first.output?.reason), /exactly three lines: `Reviewed BASE: <the commit your range starts at>`, `Reviewed HEAD: <the SHA you reviewed>` and `Ready to merge:/);
+	assert.equal(stop(true).output, undefined, "sent back only once");
+	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.verdict, "Inconclusive");
+});
+
+test("review-log prints the stored reports of a commit's latest round; with none it exits 1", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const head = git("rev-parse", "HEAD");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	// The reviewer's shell has no CLAUDE_PROJECT_DIR, and may run from a subfolder or a temp worktree.
+	const { CLAUDE_PROJECT_DIR: _unset, ...shellEnv } = process.env;
+	const log = (cwd = projectDir) => spawnSync(process.execPath, [join(root, "scripts", "review-log.ts"), head], { cwd, encoding: "utf8", env: { ...shellEnv, ENG_KIT_REVIEWS_ROOT: env.reviewsRoot } });
+	const none = log();
+	assert.equal(none.status, 1);
+	assert.equal(none.stdout, "");
+	assert.match(none.stderr, new RegExp(`no recorded review for ${head.slice(0, 7)}`));
+	const finding = "#### Critical\n`a.ts:1` · any input · wrong total · seen in code · fix the sum";
+	handle({ session_id: "s", cwd: projectDir, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `${finding}\n### Verdict\nReviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: No`, prompt_id: "p1", agent_id: "a1" }, env);
+	mkdirSync(join(projectDir, "src"));
+	const worktree = join(mkdtempSync(join(tmpdir(), "hooks-wt-")), "r");
+	git("worktree", "add", "-q", "--detach", worktree, head);
+	for (const cwd of [projectDir, join(projectDir, "src"), worktree]) {
+		const printed = log(cwd);
+		assert.equal(printed.status, 0, `${cwd}: ${printed.stderr}`);
+		assert.match(printed.stdout, /## Reviewer run a1 — No/);
+		assert.match(printed.stdout, /`a\.ts:1` · any input · wrong total/);
+	}
+});
+
+test("review gate: a successful gh pr create registers its branch for the push gate; a failed one does not", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
+	git("remote", "add", "origin", remote);
+	git("push", "-q", "origin", "main");
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
+	const push = () => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push" } }));
+	const create = (id: string) => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_use_id: id, tool_input: { command: "gh pr create --fill" } });
+	create("t1");
+	call({ hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_use_id: "t1", tool_input: { command: "gh pr create --fill" } });
+	assert.equal(push(), "ask", "a failed PR creation opened nothing: only the guard's usual question before a push");
+	create("t2");
+	// The shell's cwd may have moved by the time the result arrives: the branch comes from where the command started.
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_use_id: "t2", cwd: tmpdir(), tool_input: { command: "gh pr create --fill" } });
+	assert.equal(push(), "deny", "the branch now has an open PR");
+});
+
+test("guard: inside the kit reviewer a writing command is denied; the main agent's isn't touched by that rule", () => {
+	const { call } = setup();
+	const pre = (agent_type: string | undefined) => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git commit -qm x" }, ...(agent_type ? { agent_type, agent_id: "a1" } : {}) });
+	for (const agent of ["eng-kit:reviewer", "reviewer"]) {
+		const out = pre(agent).output?.hookSpecificOutput as Record<string, unknown> | undefined;
+		assert.equal(out?.permissionDecision, "deny", agent);
+		assert.match(String(out?.permissionDecisionReason), /reviewer is read-only/);
+	}
+	const ps = call({ hook_event_name: "PreToolUse", tool_name: "PowerShell", tool_input: { command: "Get-ChildItem" }, agent_type: "eng-kit:reviewer", agent_id: "a1" });
+	assert.equal((ps.output?.hookSpecificOutput as Record<string, unknown> | undefined)?.permissionDecision, "deny", "PowerShell in the reviewer");
+	assert.doesNotMatch(JSON.stringify(pre(undefined)), /reviewer is read-only/);
+	assert.doesNotMatch(JSON.stringify(pre("Explore")), /reviewer is read-only/);
+});
+
+test("a crash while handling PreToolUse asks with the error instead of failing open; other events keep exit 1", () => {
+	const env = (input: HookInput): HookEnv => ({ root, projectDir: input.cwd ?? tmpdir(), stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) });
+	const boom = (): never => {
+		throw new Error("boom");
+	};
+	const pre = respond(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push" } }), env, boom);
+	assert.equal(pre.code, 0);
+	const out = JSON.parse(pre.stdout).hookSpecificOutput;
+	assert.equal(out.permissionDecision, "ask");
+	assert.match(out.permissionDecisionReason, /eng-kit guard failed: boom/);
+	for (const raw of [JSON.stringify({ hook_event_name: "Stop" }), "{not json"]) {
+		const other = respond(raw, env, boom);
+		assert.equal(other.code, 1, raw);
+		assert.equal(other.stdout, "", raw);
+	}
+	const ok = respond(JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "s" }), env);
+	assert.equal(ok.code, 0, "a normal call still works");
 });

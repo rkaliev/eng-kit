@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.14.0
+
+- **The review gate covers the whole branch.** The reviewer ends with three lines: `Reviewed BASE:`, `Reviewed HEAD:` and `Ready to merge:`. A `Yes` counts only when its range reaches the remote base (`origin/<base>`, or the local base without a remote), directly or through earlier rounds whose own ranges do, up to 20 rounds. A review of only the last commit, an empty range and a chain broken by a rebase cover nothing. **Records written by 0.13.0 have no range: after updating, review each branch once more.**
+- **Earlier findings come from the store.** The hook keeps each reviewer's report with its verdict, and `scripts/review-log.ts <rev>` prints a commit's latest round. A repeat round's reviewer runs it itself, so the author no longer passes the findings on.
+- **A PR the agent opened is a landing.** After a successful `gh pr create` or `glab mr create`, a push to that branch needs the same review. The branch is forgotten once the PR's head is on the base, or after 30 days. PRs opened elsewhere are not seen.
+- **The reviewer only reads.** In the reviewer subagent the guard allows only git's read-only subcommands (without `-c`, `--output`, `--ext-diff`), `cat`/`head`/`tail`/`grep`/`wc`/`ls`, `git worktree add/remove` at an absolute temp path, the project's verification commands and the kit's review-log. It fails closed on anything its parser might misread (`\`, `$`, backticks, parentheses, braces, `<`, other redirections, `&`, an unfollowable `cd`) and on PowerShell.
+- **A throwing guard asks.** An error while handling PreToolUse answers `ask` with the error instead of exiting 1, which let the call through. A hook that can't start or times out still lets the call through (documented).
+- The reviewer reads the project's rules at the merge-base with the remote base (`{RULES_BASE}`) in every round; it starts by running review-log on `{BASE}` and re-checks the reports in a repeat round. A parallel security-focused reviewer is required for money, auth, permissions, secrets, schema, CI and release or deploy config.
+- Review records are keyed by the repository's git common directory, so the hook, review-log in a subfolder or worktree, and a symlinked checkout all find them.
+- A repeat round can't skip a newer reviewed commit, and the chain check is memoized and budgeted (300 git calls), so it can't stall the hook.
+- A push to a remote that doesn't track the base still anchors the chain on the remote base (`origin`'s), not the local branch.
+- The guard's parser honours backslash escapes and `$'…'`: `echo \' ; <command> ; echo \'` no longer hides the command. A backslash line continuation joins the command. `rg --pre` is no longer a safe step before a landing. The reviewer's shell also refuses globs, which could expand into a planted `--output=…` file name.
+- A PR's branch is the one where `gh pr create` started (`--head owner:branch` gives `branch`), registered when the call succeeds, or fails after the PR step.
+
 ## 0.13.0
 
 - One source for the test rules. test-driven-development's `references/test-standard.md` now holds every test rule. TDD, BDD, writing-plans, the review checklist and the other skills link to it instead of restating it, and the wording that contradicted itself is gone:

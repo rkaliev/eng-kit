@@ -121,9 +121,11 @@ For people and other tools, the ci-quality-gates templates add a `working-docs` 
 
 ### review gate
 
-When the kit's `reviewer` agent finishes (`reviewer` or `eng-kit:reviewer`; other plugins' reviewers don't count), the SubagentStop hook reads its `Reviewed HEAD: <sha>` and `Ready to merge: <one of Yes, No, With fixes, Inconclusive>` lines and records the verdict for that commit. A report without them sends the reviewer back once to add them. The guard then denies `gh pr create/merge`, `glab mr create/merge`, merging into or pushing to the base branch unless the last verdict for the commit being landed is `Yes`:
+When the kit's `reviewer` agent finishes (`reviewer` or `eng-kit:reviewer`; other plugins' reviewers don't count), the SubagentStop hook reads its `Reviewed BASE: <sha>`, `Reviewed HEAD: <sha>` and `Ready to merge: <one of Yes, No, With fixes, Inconclusive>` lines and records the verdict and the report for that commit. A report without them sends the reviewer back once to add them. The guard then denies `gh pr create/merge`, `glab mr create/merge`, merging into or pushing to the base branch, and pushing to the branch of a PR Claude opened, unless the last verdict for the commit being landed is `Yes` and its range reaches the remote base:
 - `With fixes`, `No` and `Inconclusive` don't pass: fix and review the new range;
 - a verdict covers exactly the commit the reviewer reviewed: any change after it (a new commit, an amend, a rebase onto a newer base, a docs edit, deleting the task file) needs a new review, and a branch that changes only documentation is reviewed the same way, so the final review comes last, after docs, the task-file removal and any rebase. Commits already on the remote base land nothing new;
+- the range reaches the remote base directly, or through earlier rounds: a repeat round reviews only the new commits, and its reviewer reads the previous round's findings with `scripts/review-log.ts`;
+- inside the reviewer the shell runs only inspection commands, temp-folder worktrees, the verification commands and review-log; a guard check that throws asks instead of letting the call through;
 - `cd <dir>` and `git -C <dir>` are followed, so a worktree's branch is checked. Land in a command of its own: a landing chained after anything but read-only steps and the project's verification commands is denied; `gh pr merge <number>` asks, because the PR head isn't known locally;
 - only you turn it off, with `"reviewGate": false` in `.claude/guard.json`.
 

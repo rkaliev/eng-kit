@@ -17,7 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, parseReview, recordReview, recordVerdict, reviewedHead } from "./reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
@@ -31,6 +31,7 @@ export interface HookInput {
 	stop_hook_active?: boolean;
 	agent_id?: string;
 	agent_type?: string;
+	tool_use_id?: string;
 	last_assistant_message?: string;
 	prompt_id?: string;
 }
@@ -56,10 +57,31 @@ export interface HookResult {
 
 export const BOOTSTRAP_MARKER = "eng-kit:using-skills bootstrap";
 const SHELL_TOOLS = new Set(["Bash", "PowerShell"]);
+/** The kit reviewer: `eng-kit:reviewer` as a plugin, `reviewer` in a project install. */
+const REVIEWER = /^(eng-kit:)?reviewer$/;
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
 export function verifyScriptCommand(root: string): string {
 	return `node "${join(root, "scripts", "verify.ts")}"`;
+}
+
+/**
+ * One hook call from raw stdin to what `hooks/hook.ts` prints and its exit code. A crash while handling
+ * PreToolUse asks the user (with the error) rather than exiting 1, which Claude Code treats as a non-blocking
+ * error that lets the call through. Other events keep exit 1: they gate nothing at that moment.
+ */
+export function respond(raw: string, makeEnv: (input: HookInput) => HookEnv, handler: (input: HookInput, env: HookEnv) => HookResult = handle): { stdout: string; stderr: string; code: 0 | 1 } {
+	let input: HookInput | undefined;
+	try {
+		input = JSON.parse(raw || "{}") as HookInput;
+		const result = handler(input, makeEnv(input));
+		return { stdout: result.output ? JSON.stringify(result.output) : "", stderr: result.warning ? `${result.warning}\n` : "", code: 0 };
+	} catch (err) {
+		const stderr = `eng-kit hook failed: ${(err as Error).stack ?? err}\n`;
+		if (input?.hook_event_name !== "PreToolUse") return { stdout: "", stderr, code: 1 };
+		const permissionDecisionReason = `eng-kit guard failed: ${(err as Error).message ?? err}. It could not check this call, so it asks instead of letting it through.`;
+		return { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason } }), stderr, code: 0 };
+	}
 }
 
 export function handle(input: HookInput, env: HookEnv): HookResult {
@@ -112,7 +134,16 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 
 	if (SHELL_TOOLS.has(tool)) {
 		const command = String(args.command ?? "");
-		decision = checkCommand(command, env.projectDir, config);
+		// Where the command starts decides a PR's branch; the result only confirms it (see postToolUse).
+		if (input.tool_use_id) notePr(env.projectDir, input.tool_use_id, command, cwd, env.reviewsRoot);
+		// Inside the kit reviewer the shell is for inspection only (Claude Code names the subagent in the input).
+		// PowerShell isn't parsed for it at all: the allowlist is written for a POSIX shell.
+		const reviewer = !REVIEWER.test(input.agent_type ?? "")
+			? undefined
+			: tool === "PowerShell"
+				? { action: "block" as const, reason: "The reviewer is read-only: its PowerShell calls aren't checked, so they are refused. Use Bash for inspection commands." }
+				: checkReviewerCommand(command, cwd, resolveVerifyCommands(env.projectDir).commands, env.root);
+		decision = reviewer ?? checkCommand(command, env.projectDir, config);
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
 		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, ".claude/guard.json") ?? decision;
@@ -194,6 +225,8 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		return {};
 	}
 	if (!SHELL_TOOLS.has(tool)) return {};
+	// A PR/MR the agent opened makes later pushes to its branch landings (review gate).
+	if (input.tool_use_id) settlePr(env.projectDir, input.tool_use_id, !failed, env.reviewsRoot);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 
@@ -242,14 +275,14 @@ export function runsVerifyScript(shell: string): boolean {
  * A report without the verdict lines sends the reviewer back once to add them.
  */
 function subagentStop(input: HookInput, env: HookEnv): HookResult {
-	if (!/^(eng-kit:)?reviewer$/.test(input.agent_type ?? "")) return {};
+	if (!REVIEWER.test(input.agent_type ?? "")) return {};
 	const ids = { promptId: input.prompt_id || input.session_id || "none", run: input.agent_id || "none" };
 	const report = input.last_assistant_message ?? "";
 	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive.
 	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir).commands.length > 0;
 	const parsed = parseReview(report);
 	if (unverified && parsed) {
-		recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot);
+		recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report });
 		return { warning: "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again." };
 	}
 	const result = recordReview(env.projectDir, report, ids, env.reviewsRoot);
@@ -269,7 +302,7 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 		warning,
 		output: {
 			decision: "block",
-			reason: `Review gate: ${result}. End your report with exactly two lines: \`Reviewed HEAD: <the SHA you reviewed>\` and \`Ready to merge: <one of Yes, No, With fixes, Inconclusive>\`.`,
+			reason: `Review gate: ${result}. End your report with exactly three lines: \`Reviewed BASE: <the commit your range starts at>\`, \`Reviewed HEAD: <the SHA you reviewed>\` and \`Ready to merge: <one of Yes, No, With fixes, Inconclusive>\`.`,
 		},
 	};
 }
