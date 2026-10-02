@@ -40,8 +40,8 @@ This document describes how the plugin works and why it works that way. What plu
 │   UserPromptSubmit  re-arms the gates                                 │
 │ skills/   34 skills: 28 methodology + 6 entry points                  │
 │ agents/   reviewer (opus, read-only), implementer (sonnet)            │
-│ scripts/  verify.ts, init.ts, install-project.ts, test-hygiene.ts     │
-│ templates/ CLAUDE.md, task.md, verify.json, guard.json, …             │
+│ scripts/  verify.ts, init.ts, install-project.ts, test-hygiene.ts, …  │
+│ templates/ CLAUDE.md, task.md, verify.json, ts-monorepo/, …           │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -109,7 +109,7 @@ The hook code is the same in both modes. The kit root is the parent folder of `h
 
 **Starting point: new or existing code:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
-**TypeScript full-stack profile.** `choosing-a-stack/references/ts-fullstack-profile.md` is one candidate for a new TypeScript web product or SaaS with one team and Postgres, never a default. Per role it gives a choice, the reason, when not to take it and an alternative, and it names no versions. If you pick it, `node <kit>/scripts/scaffold-template.ts <dir>` copies `templates/ts-monorepo/` (pnpm workspaces, Turbo, a Vite web app, an Express API, Prisma with Kysely, CI). The template holds no versions: the script installs each package at its highest stable release that is at least a day old, capped at the major of a stable `latest` tag and pinned exactly, with `@types/node` at the Node major and workspace packages as `workspace:*`. Four practices of that stack live in skills with no stack attached: monorepo CI in ci-quality-gates (affected-only, falls back to everything, one gate), one store until measured in backend-services and database-changes (Postgres for queue, cache and locks until a measurement shows a separate service is needed), an enforced client/server boundary in web-frontend, and dependency discipline in updating-dependencies (every override and patch has a reason and a removal condition).
+**TypeScript full-stack profile.** `choosing-a-stack/references/ts-fullstack-profile.md` is one candidate for a new TypeScript web product or SaaS with one team and Postgres, never a default. Per role it gives a choice, the reason, when not to take it and an alternative, and it names no versions. If you pick it, `node <kit>/scripts/scaffold-template.ts <dir>`, run from the plugin root or a clone of the kit, copies `templates/ts-monorepo/` (pnpm workspaces, Turbo, a Vite web app, an Express API, Prisma with Kysely, CI). The template holds no versions: the script installs each package at its highest stable release that is at least a day old, capped at the major of a stable `latest` tag and pinned exactly, with `@types/node` at the Node major and workspace packages as `workspace:*`. Four practices of that stack live in skills with no stack attached: monorepo CI in ci-quality-gates (affected-only, falls back to everything, one gate), one store until measured in backend-services (the existing database carries the queue, cache and locks until a measurement shows a separate service is needed), an enforced client/server boundary in web-frontend, and dependency discipline in updating-dependencies (every override and patch has a reason and a removal condition).
 
 **Platforms:** web-frontend, backend-services, mobile-development (Android and iOS in `references/`), desktop-development (Windows and Linux in `references/`), ui-motion (animation and gestures on every platform: whether to animate at all, then easing, budgets, interruptibility, reduced motion; values and per-platform APIs in `references/`). web-frontend keeps state and optimistic updates, and the design system with destructive-action copy, in `references/`; mobile and desktop point to them.
 

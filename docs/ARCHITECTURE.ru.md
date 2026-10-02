@@ -41,8 +41,8 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 │ skills/   34 скилла: 28 методических + 6 точек входа            │
 │ agents/   reviewer (opus, read-only), implementer (sonnet)      │
 │ scripts/  verify.ts, init.ts, install-project.ts,               │
-│           test-hygiene.ts                                       │
-│ templates/ CLAUDE.md, task.md, verify.json, guard.json, …       │
+│           test-hygiene.ts, scaffold-template.ts, …              │
+│ templates/ CLAUDE.md, task.md, verify.json, ts-monorepo/, …     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -110,7 +110,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 **Старт: новый или существующий код:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
-**Профиль TypeScript full-stack.** `choosing-a-stack/references/ts-fullstack-profile.md` — один из кандидатов для нового TypeScript-продукта или SaaS с одной командой и Postgres, но не дефолт. По каждой роли там выбор, причина, когда не брать и альтернатива, а версий нет. Если ты выбрал профиль, `node <kit>/scripts/scaffold-template.ts <папка>` копирует `templates/ts-monorepo/` (pnpm workspaces, Turbo, веб-приложение на Vite, API на Express, Prisma с Kysely, CI). В шаблоне нет версий: скрипт ставит каждый пакет в старшем стабильном релизе не моложе суток, но не выше мажора стабильного тега `latest`, с точной фиксацией; `@types/node` ставится по мажору Node, а пакеты воркспейса — как `workspace:*`. Четыре практики этого стека лежат в скиллах без привязки к стеку: CI монорепы в ci-quality-gates (только затронутое, при сбое — всё, один gate), одно хранилище, пока нет замера, в backend-services и database-changes (Postgres для очереди, кеша и блокировок, пока замер не покажет, что нужен отдельный сервис), проверяемая граница клиент/сервер в web-frontend и дисциплина зависимостей в updating-dependencies (у каждого override и патча есть причина и условие снятия).
+**Профиль TypeScript full-stack.** `choosing-a-stack/references/ts-fullstack-profile.md` — один из кандидатов для нового TypeScript-продукта или SaaS с одной командой и Postgres, но не дефолт. По каждой роли там выбор, причина, когда не брать и альтернатива, а версий нет. Если ты выбрал профиль, `node <kit>/scripts/scaffold-template.ts <папка>` (из корня плагина или клона кита) копирует `templates/ts-monorepo/` (pnpm workspaces, Turbo, веб-приложение на Vite, API на Express, Prisma с Kysely, CI). В шаблоне нет версий: скрипт ставит каждый пакет в старшем стабильном релизе не моложе суток, но не выше мажора стабильного тега `latest`, с точной фиксацией; `@types/node` ставится по мажору Node, а пакеты воркспейса — как `workspace:*`. Четыре практики этого стека лежат в скиллах без привязки к стеку: CI монорепы в ci-quality-gates (только затронутое, при сбое — всё, один gate), одно хранилище, пока нет замера, в backend-services (существующая база несёт очередь, кеш и блокировки, пока замер не покажет, что нужен отдельный сервис), проверяемая граница клиент/сервер в web-frontend и дисциплина зависимостей в updating-dependencies (у каждого override и патча есть причина и условие снятия).
 
 **Платформы:** web-frontend, backend-services, mobile-development (Android и iOS в `references/`), desktop-development (Windows и Linux в `references/`), ui-motion (анимации и жесты на всех платформах: сначала «анимировать ли вообще», затем easing, бюджеты, прерываемость, reduced motion; значения и API платформ в `references/`). В `references/` у web-frontend — состояние и optimistic-обновления, дизайн-система и тексты деструктивных действий; mobile и desktop ссылаются на них.
 
