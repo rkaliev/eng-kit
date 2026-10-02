@@ -1,6 +1,6 @@
 # A proven TypeScript full-stack profile, a monorepo template and the practices behind them
 
-Status: plan approved (2026-10-02)
+Status: in progress
 Base: f45fc281a1145b5d9ea58086bc978feeddfe1e0b (pi edition: b9046d894f199221c1586565d9cb2411416fa689)
 Links: study of a production TypeScript monorepo (private FRAMEWORK-SOURCES, new §11.18) · plan `~/.claude/plans/buzzing-munching-eich.md`
 
@@ -229,4 +229,5 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 
 ## Progress
 
-None yet
+- Baseline (2026-10-02): src_claude `npm test` 307/307, `tsc --noEmit` ok; pi `npm test` 308/308, `tsc --noEmit` ok. No drift since Base (branch just created from origin/main).
+- Pre-flight: Task 4 consumes the template from Task 3 and `scaffold.json`'s shape from the Design; no conflicts.
