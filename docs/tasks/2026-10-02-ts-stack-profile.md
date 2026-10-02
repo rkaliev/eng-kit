@@ -203,22 +203,22 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 
 **Files:** Modify `skills/ci-quality-gates/SKILL.md` and `references/ci-templates.md`, `skills/backend-services/SKILL.md`, `skills/database-changes/SKILL.md`, `skills/web-frontend/SKILL.md`, `skills/updating-dependencies/SKILL.md` (both editions)
 
-- [ ] ci-templates: a "Monorepo" section.
+- [x] ci-templates: a "Monorepo" section.
   - Covers `turbo run … --affected` (or the tool's equivalent) with `fetch-depth: 0`, everything on main, the cache restored on PRs and saved only from main, one `gate`.
   - Gives a per-package matrix once one job gets slow, falling back to everything on error.
   - The SKILL.md gets one line pointing there.
-- [ ] backend-services: "one store until measured".
+- [x] backend-services: "one store until measured".
   - Queue (`FOR UPDATE SKIP LOCKED`), cache and advisory locks in the existing Postgres.
   - A separate broker or cache only after a measurement or a hard need, recorded in a decision record.
   - database-changes gets one line on statement/lock timeouts per pooled connection, unless it is already there (check first).
-- [ ] web-frontend: client/server and server-only libraries enforced mechanically by a lint import rule, a build-time import guard and a check that a server-only marker is absent from the bundle.
-- [ ] updating-dependencies:
+- [x] web-frontend: client/server and server-only libraries enforced mechanically by a lint import rule, a build-time import guard and a check that a server-only marker is absent from the bundle.
+- [x] updating-dependencies:
   - every override or patch carries a reason and a removal condition;
   - a release-age delay for new versions, with exceptions listed;
   - no `@latest`/unpinned tools in MCP and tool configs;
   - one source for the runtime version, with derived pins checked.
-- [ ] `node --test tests/lint-skills.test.ts` → PASS. Copy to pi; compare-editions shows no new drift.
-- [ ] Commit `feat(skills): monorepo ci, one store, enforced boundaries, dependency discipline`.
+- [x] `node --test tests/lint-skills.test.ts` → PASS. Copy to pi; compare-editions shows no new drift.
+- [x] Commit `feat(skills): monorepo ci, one store, enforced boundaries, dependency discipline`.
 
 ### Task 6: Docs and release
 
@@ -257,3 +257,4 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 - Task 5: the implementer cut untouched web-frontend rules to fit the 800-word limit and its commit carried a Co-Authored-By trailer. Ruling: SKILL.md restored; the boundary section moved to `references/state-and-data.md` with a pointer; commit amended without the trailer (79eaa63 / pi 107678e). database-changes not edited: its Queries section already requires statement and lock timeouts on every connection.
 - Tasks 3–4 round one fixes: 39a5ccc / pi 22c1a8e (real run: turbo 11/11, bundle check, boundary block 8 errors, `/readyz` 503 before migrate and 200 after, SIGTERM exit 0; `@types/node` 24.19.0 on Node 24.21.0).
 - Task 5 review round 1 (With fixes): updating-dependencies "highest stable" contradicted the `latest`-major cap (Decision 12 updated); `packageManager` is not a runtime pin; install scripts split into their own bullet with real settings (npm `min-release-age`/`ignore-scripts` checked at docs.npmjs.com); backend-services stack-free wording, rate-limit counters, transaction-scoped advisory locks behind a pooler; ci-quality-gates: affected-only + main-everything counts as running verification; `@latest` exception for a smoke job outside the gate.
+- Task 5: complete (37082cd..fa75f4d + npm `ignore-scripts` wording; pi 107678e, ce4398d; review round 2 Yes on fa75f4d; `npm test` 330/330 Claude, 331/331 pi).
