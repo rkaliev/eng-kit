@@ -151,12 +151,12 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 
 **Files:** Create `skills/choosing-a-stack/references/ts-fullstack-profile.md` · Modify `skills/choosing-a-stack/SKILL.md` (both editions)
 
-- [ ] RED: a fresh subagent with the current skill text gets "Pick a stack for a new B2B SaaS web product in TypeScript, one team of 4, Postgres, EU hosting." Record the candidates, whether it asks, and whether it checks versions.
-- [ ] Write the profile per the Design: roles table, filter, warnings, scaffold steps, no versions.
-- [ ] Add a row note to the "Web frontend" and "Backend / API" defaults: "TypeScript full-stack in one repo: the profile in `references/ts-fullstack-profile.md` is one candidate". Add a line to step 5: scaffold that candidate by the profile's steps.
-- [ ] GREEN: the same prompt with the new text → the profile appears as one of 2–3 candidates, the subagent asks, and versions are marked "check at the source". The gap is recorded in Progress.
-- [ ] Copy to pi; `node tools/compare-editions.mts` from the workspace shows no new drift.
-- [ ] Commit `feat(choosing-a-stack): typescript full-stack profile`.
+- [x] RED: a fresh subagent with the current skill text gets "Pick a stack for a new B2B SaaS web product in TypeScript, one team of 4, Postgres, EU hosting." Record the candidates, whether it asks, and whether it checks versions.
+- [x] Write the profile per the Design: roles table, filter, warnings, scaffold steps, no versions.
+- [x] Add a row note to the "Web frontend" and "Backend / API" defaults: "TypeScript full-stack in one repo: the profile in `references/ts-fullstack-profile.md` is one candidate". Add a line to step 5: scaffold that candidate by the profile's steps.
+- [x] GREEN: the same prompt with the new text → the profile appears as one of 2–3 candidates, the subagent asks, and versions are marked "check at the source". The gap is recorded in Progress.
+- [x] Copy to pi; `node tools/compare-editions.mts` from the workspace shows no new drift.
+- [x] Commit `feat(choosing-a-stack): typescript full-stack profile`.
 
 ### Task 3: Template and its unit test
 
@@ -243,3 +243,4 @@ None: new files and text. Projects that ran kit-init before keep their `verify.j
 - Ruling: `corepack use` replaced by installing pnpm per pnpm.io — Node 25+ ships without corepack, and `corepack use` writes into the nearest package.json — cost if wrong: one extra install step.
 - Task 2 GREEN re-run on f6f9756: three candidates (profile as A, Next.js, NestJS), "On what you've told me, I lean towards A … this is your call", no "default" wording, no versions (sources listed), 0.x exceptions named for the decision record. Criterion 1 holds.
 - Task 2 review round 2 (With fixes): Minor wording (generators' 0.x claim, down migrations via `prisma migrate diff`, dialect warning, Tests/Dependencies cells) fixed in f6f9756 / pi eaed207; tRPC router types exported from a package with its own tsconfig.
+- Task 2: complete (0f8dcce..current; pi b61df1e, 338a9b8, eaed207 + this wording fix; review round 3 Yes on f6f9756, its last Minor (type-only imports need emitted declarations or project references) and the Prisma history note fixed after; `npm test` 309/309 before Task 3's RED file).
