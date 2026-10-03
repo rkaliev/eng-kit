@@ -17,7 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordFailure, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
@@ -290,9 +290,12 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	const warning = `eng-kit review gate: no verdict recorded: ${result}.`;
 	// Sent back once already: the run failed. It counts as Inconclusive for the commit it reviewed, so a
 	// parallel reviewer's Yes on that commit can't stand alone; a review of a later commit is unaffected.
-	// When no commit can be resolved (several repositories in a plain folder) everything recorded this prompt is charged.
 	if (input.stop_hook_active) {
-		recordFailure(env.projectDir, reviewedHead(input.last_assistant_message ?? ""), ids, env.reviewsRoot);
+		const named = reviewedHead(input.last_assistant_message ?? "");
+		// A SHA that isn't a commit here (a typo) falls back to HEAD, so the failure is never lost.
+		if (named === undefined || typeof recordVerdict(env.projectDir, named, "Inconclusive", ids, env.reviewsRoot) === "string") {
+			recordVerdict(env.projectDir, "HEAD", "Inconclusive", ids, env.reviewsRoot);
+		}
 		return { warning };
 	}
 	return {
