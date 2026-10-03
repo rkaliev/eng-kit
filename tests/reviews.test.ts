@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, readReviews, recordReview, notePr, openPrBranches, recordVerdict, reviewsDir, settlePr, stripRedirects, type ReviewGateOptions } from "../lib/reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, readReviews, recordReview, notePr, openPrBranches, recordVerdict, repoFor, reviewsDir, settlePr, stripRedirects, type ReviewGateOptions } from "../lib/reviews.ts";
 
 const OPTIONS: ReviewGateOptions = { missing: "block", waiver: "reviewGate: false", verify: ["npm test", "npm run lint"] };
 
@@ -567,4 +567,39 @@ test("without a tracking ref for the base, a remote branch that merely ends in /
 	review(report(c, "Yes", x));
 	git("switch", "-q", "main");
 	assert.match(String(check("git merge feat/b")?.reason), /does not cover/, "x is on up/team/main, not on the local main");
+});
+
+test("repoFor: a repository's own top level; in a plain folder the one nested repository holding the commit", () => {
+	const folder = mkdtempSync(join(tmpdir(), "reviews-ws-"));
+	const records = mkdtempSync(join(tmpdir(), "reviews-records-"));
+	const run = (cwd: string, ...args: string[]) => {
+		const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+		assert.equal(r.status, 0, `git ${args.join(" ")}: ${r.stderr}`);
+		return r.stdout.trim();
+	};
+	for (const name of ["a", "b"]) {
+		mkdirSync(join(folder, name));
+		run(join(folder, name), "init", "-q", "-b", "main");
+		run(join(folder, name), "config", "user.email", "t@example.com");
+		run(join(folder, name), "config", "user.name", "t");
+		writeFileSync(join(folder, name, "f"), name);
+		run(join(folder, name), "add", "-A");
+		run(join(folder, name), "commit", "-qm", name);
+	}
+	mkdirSync(join(folder, "plain"));
+	const inA = run(join(folder, "a"), "rev-parse", "HEAD");
+	const real = (p: string) => run(p, "rev-parse", "--show-toplevel");
+	assert.equal(repoFor(join(folder, "a")), real(join(folder, "a")));
+	assert.equal(repoFor(folder, inA), real(join(folder, "a")));
+	assert.deepEqual(repoFor(folder), { error: `${folder} is not inside a git repository` });
+	assert.match((repoFor(folder, "deadbeef0") as { error: string }).error, /not a commit in this folder or its repositories/);
+	// the same commit in two repositories is ambiguous
+	run(join(folder, "b"), "fetch", "-q", join(folder, "a"), "HEAD");
+	assert.deepEqual(repoFor(folder, inA), { error: `${inA} is a commit in several repositories here: a, b` });
+	assert.equal(recordVerdict(folder, inA, "Yes", { promptId: "p", run: "r" }, records), `${inA} is a commit in several repositories here: a, b`);
+	const only = run(join(folder, "b"), "rev-parse", "HEAD");
+	const rec = recordVerdict(folder, only, "Yes", { promptId: "p", run: "r" }, records);
+	assert.equal(typeof rec, "object");
+	assert.equal(readReviews(join(folder, "b"), records).length, 1);
+	assert.equal(readReviews(folder, records).length, 0);
 });
