@@ -103,7 +103,7 @@ If the agent forgets, the Stop hook reminds it ("Working-docs gate: …"), and t
 /eng-kit:finish
 ```
 
-The checks run once more, then the choice: merge locally, push and PR, keep the branch or delete it. **Nothing is merged or pushed to `main` without your choice.** The agent pushes the work branch and opens the PR itself once the review covers HEAD; any other push shows a confirmation dialog. The PR description links the task file at the last commit that had it (`blob/<sha>/docs/tasks/…`).
+The checks run once more, then, after a reviewer `Yes`, the agent pushes the work branch and opens the PR by default; merging locally, keeping the branch or deleting it is your choice. **Nothing is merged or pushed to `main` without you,** and any other push shows a confirmation dialog. The PR description links the task file at the last commit that had it (`blob/<sha>/docs/tasks/…`).
 
 ## Everyday work
 
