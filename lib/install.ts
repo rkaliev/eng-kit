@@ -8,7 +8,7 @@
  * and never overwrites a file the project owns.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { planInit, type InitItem } from "./init.ts";
 
 export const KIT_DIR = ".claude/eng-kit";
@@ -40,9 +40,10 @@ export function kitFiles(kitRoot: string): Map<string, string> {
 	add("skills", ".claude/skills");
 	add("agents", ".claude/agents", (f) => f.endsWith(".md"));
 	add("hooks", `${KIT_DIR}/hooks`, (f) => f.endsWith(".ts"));
-	add("lib", `${KIT_DIR}/lib`, (f) => f.endsWith(".ts"));
+	// The scaffold runs from the plugin root or a kit clone, never from a project copy.
+	add("lib", `${KIT_DIR}/lib`, (f) => f.endsWith(".ts") && !f.endsWith("scaffold.ts"));
 	add("scripts", `${KIT_DIR}/scripts`, (f) => /(verify|init|test-hygiene|review-log)\.ts$/.test(f));
-	add("templates", `${KIT_DIR}/templates`);
+	add("templates", `${KIT_DIR}/templates`, (f) => !f.includes(`${sep}ts-monorepo${sep}`));
 	return files;
 }
 

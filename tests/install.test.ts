@@ -62,3 +62,11 @@ test("re-install updates kit files, keeps project files, and does not duplicate 
 	assert.equal(settings.hooks.PreToolUse.length, 1, "kit hook groups are replaced, not appended");
 	assert.equal(planInstall(root, project).init.find((i) => i.target === ".claude/settings.json")!.status, "exists");
 });
+
+test("the project install leaves the scaffold template and its library in the plugin", () => {
+	const plan = planInstall(root, mkdtempSync(join(tmpdir(), "install-")));
+	const targets = plan.copies.map((c) => c.target);
+	assert.ok(targets.some((t) => t.startsWith(`${KIT_DIR}/templates/`)), "other templates are still installed");
+	assert.deepEqual(targets.filter((t) => t.includes("ts-monorepo")), []);
+	assert.deepEqual(targets.filter((t) => t.endsWith("lib/scaffold.ts")), []);
+});
