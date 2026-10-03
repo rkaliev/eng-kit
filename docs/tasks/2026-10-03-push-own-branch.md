@@ -62,7 +62,10 @@ None. After the update the first push of a work branch no longer asks; records w
 
 ## Follow-ups
 
-- Deeper nesting and `push.default`/upstream-aware target resolution.
+- `gh api`/`glab api` write calls (`-X PUT …/merge`, `-X PATCH …/git/refs/heads/main`) merge or move the base with no question: a non-GET API call should ask.
+- `git svn dcommit` and `git p4 submit` push to another VCS with no rule.
+- `--no-verify` inside a group (`(… git push --no-verify)`) escapes the hook-bypass block: apply `unwrapToken` in that check.
+- `push.default`/upstream-aware target resolution (such forms ask today).
 
 ## Plan
 
@@ -83,17 +86,17 @@ README guard table; `docs/ARCHITECTURE*.md`, `GETTING-STARTED*`, `WALKTHROUGH*` 
 
 ### Task 1: Push classifier
 **Files:** `lib/patterns.ts`, pi `extensions/lib/patterns.ts` · Test `tests/guard.test.ts` (both)
-- [ ] Write the criterion 1–2 matrix as tests against a temp repo (bare `origin` with `origin/HEAD` → main, a feature branch, a detached state, a repo without `origin/HEAD`); run → the "no question" cases FAIL with `confirm`.
-- [ ] Implement `classifyPush`, replace the regex rule, add `gh pr merge`/`glab mr merge` confirm. Update existing expectations that assumed a question for a feature push (guard.test.ts:44, hooks.test.ts:42/53/289/479; pi extensions.test.ts:145–148, 157–158, 256–257, 478) only where the new rule changes the answer.
-- [ ] Both suites + tsc → PASS. Commit `feat(guard): push the own work branch without a question`.
+- [x] Write the criterion 1–2 matrix as tests against a temp repo (bare `origin` with `origin/HEAD` → main, a feature branch, a detached state, a repo without `origin/HEAD`); run → the "no question" cases FAIL with `confirm`.
+- [x] Implement `classifyPush`, replace the regex rule, add `gh pr merge`/`glab mr merge` confirm. Update existing expectations that assumed a question for a feature push (guard.test.ts:44, hooks.test.ts:42/53/289/479; pi extensions.test.ts:145–148, 157–158, 256–257, 478) only where the new rule changes the answer.
+- [x] Both suites + tsc → PASS. Commit `feat(guard): push the own work branch without a question`.
 
 ### Task 2: Verdicts in a multi-repository folder
 **Files:** `lib/reviews.ts` (shared), `lib/hooks.ts`, pi `extensions/guard.ts`, `scripts/review-log.ts` (both) · Tests `tests/reviews.test.ts`, `tests/hooks.test.ts`, pi `tests/extensions.test.ts`
-- [ ] Tests for criterion 4 (folder with two child repos; record via SubagentStop with `projectDir` = folder; gate for `git -C child push …` and `cd child && gh pr create`; review-log from the folder; ambiguous SHA) → FAIL.
-- [ ] Implement `repoFor` and the call-site changes. Both suites + tsc → PASS. Commit `fix(review-gate): record and read verdicts by the repository`.
+- [~] Tests for criterion 4 (folder with two child repos; record via SubagentStop with `projectDir` = folder; gate for `git -C child push …` and `cd child && gh pr create`; review-log from the folder; ambiguous SHA) → FAIL.
+- [~] Implement `repoFor` and the call-site changes. Both suites + tsc → PASS. Commit `fix(review-gate): record and read verdicts by the repository`.
 
 ### Task 3: Skills, docs, release
-- [ ] Skill and doc text per criterion 5 and Post-implementation; version 0.16.0; `release.ts check`. Commit `docs: 0.16.0 own-branch push`.
+- [x] Skill and doc text per criterion 5 and Post-implementation; version 0.16.0; `release.ts check`. Commit `docs: 0.16.0 own-branch push`.
 
 ## Progress
 
@@ -103,4 +106,8 @@ README guard table; `docs/ARCHITECTURE*.md`, `GETTING-STARTED*`, `WALKTHROUGH*` 
 - Task 2 (874bfb6 / pi 4e8ea53) round 1 (With fixes): worktree siblings counted as ambiguous; PR registry per clone let a second clone update a PR unreviewed (regression); a failed run's Inconclusive lost in folder mode; symlinked children; message hint; case-insensitive keys. All taken.
 - Task 2 reverted in both editions (df569c8, 31f779a, 8d112ce / pi 4564439, 1a0b0f2, 4f8e146): `reviews.ts` and `review-log` are back to v0.15.0; suites 358/358 each.
 - Task 1 round 4 (82e8b24, With fixes): only indirect git calls (`xargs git`, `sh -c`, dashed `git-remote`, wrappers) can still add a remote. Ruling (user: autonomous but safe like fortune-os): ask when the git subcommand is missing or is `git`, map `git-<sub>` to `<sub>`; document the residual.
+- Task 1 rounds 3–8 (7768dd7 … 285312a / pi 659fd5b … 68945a0): convention-named branches only, base re-pointing asks, unknown git options ask, quote-split verbs, indirect git (`xargs`, wrappers, dashed binaries, `sh -c`), variables as subcommands, project repository only (common dir), git in subshells/substitutions/assignments, `send-pack`/`http-push` as push verbs (also in the gate's `landing()`), read-only git in substitutions quiet. From round 8 the reviewer applied the user's threshold: obfuscated forms go to the documented residual. Round 8: Yes on 285312a.
+- Task 1: complete (37ae1c7..285312a; pi cbc35c8..68945a0; 366/366 each, tsc clean, workdocs.ts and reviews.ts byte-identical).
+- Task 2: dropped and reverted (user, 2026-10-03).
+- Task 3: complete (0b65258 / pi 59248b7; release check 0.16.0 both; compare-editions no new drift).
 
