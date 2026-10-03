@@ -36,14 +36,14 @@ You don't have to type a command. Claude sees that the task fits the `brainstorm
 1. **Classification out loud:** "This is a new project, the Architectural path."
 2. **Questions one per message,** for example "Where will it run?", "Do we need a DB, or is memory enough for now?".
 3. **Domain questions come in by themselves.** The task is about money, so `payments-and-money` loads with questions about currency, rounding and idempotency. They are asked right away because changing them later is expensive.
-4. **Choosing the stack is always your decision.** There will be 2–3 options (for example, TypeScript + Fastify, Kotlin + Spring, Go) with pros and cons and a recommendation. You choose.
+4. **Choosing the stack is always your decision.** There will be 2–3 options (for example, TypeScript + Fastify, Kotlin + Spring, Go) with pros and cons and a recommendation. You choose. For a TypeScript web product or SaaS with Postgres, the kit's proven full-stack profile can be one of the options; it is never the default.
 5. **The task file** is written on a work branch to `docs/tasks/2026-09-26-cart-api.md`: your request verbatim, then the description (intent, criteria, scope, decisions, design). The agent asks you to approve it, and on your "yes" sets `Status: design approved` and commits. One task file per piece of work stands in for a tracker issue: the plan and the progress record are added to the same file later. It lives only on the work branch and never reaches `main`.
 
 **Until you say "yes", no code is written.** This is a hard rule of the skill.
 
 ## Step 3. Scaffold and checks
 
-After your "yes" the agent creates the scaffold with the stack's official tool: it pins versions and adds the test, lint and typecheck commands. Then:
+After your "yes" the agent creates the scaffold with the stack's official tool (for the TypeScript profile, the kit's `scripts/scaffold-template.ts`): it pins versions and adds the test, lint and typecheck commands. Then:
 
 ```
 /eng-kit:kit-init
