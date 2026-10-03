@@ -43,7 +43,7 @@ You don't have to type a command. Claude sees that the task fits the `brainstorm
 
 ## Step 3. Scaffold and checks
 
-After your "yes" the agent creates the scaffold with the stack's official tool (for the TypeScript profile, the kit's `scripts/scaffold-template.ts`): it pins versions and adds the test, lint and typecheck commands. Then:
+After your "yes" the agent creates the scaffold with the stack's official tool (for the TypeScript profile, the kit's `scripts/scaffold-template.ts <absolute dir> --postgres <major>` (or `--postgres=<major>`), with the major checked at postgresql.org): it pins versions and adds the test, lint and typecheck commands. Then:
 
 ```
 /eng-kit:kit-init
