@@ -17,7 +17,7 @@ This document describes how the plugin works and why it works that way. What plu
 
 1. **The process scales with the size of the task.** A small change takes the short path, an architectural one takes the full path from a task file to review. When in doubt, choose the heavier path. Risk sets the floor: CI and release pipelines, permissions, auth, secrets, money, schema and deploy config never take the short path, however small the change.
 2. **The model doesn't decide by itself that the work is done.** The project's checks decide: the Stop hook sends the agent back to work if there was no green run after the edits.
-3. **Anything irreversible or outward-facing goes through a human.** The PreToolUse hook (guard) blocks dangerous commands and asks for confirmation on push, deploy, migrations and publishing.
+3. **Anything irreversible or outward-facing goes through a human.** The PreToolUse hook (guard) blocks dangerous commands and asks for confirmation on deploy, migrations, publishing, merging and any push except a plain push of the agent's own work branch.
 4. **Task files stay on the work branch.** A task file (description, plan and progress of one piece of work) never reaches the base branch: what lasts moves into `docs/`, and the guard blocks a PR or merge while it exists.
 
 ---
@@ -152,7 +152,7 @@ Claude Code ignores the `hooks`, `mcpServers` and `permissionMode` fields for pl
 
 | Blocks (deny) | Asks (ask; denied in `-p`) |
 |---|---|
-| `--no-verify`, `git commit -n` | `git push`, publishing and releases |
+| `--no-verify`, `git commit -n` | `git push` other than your own work branch (below), publishing and releases |
 | `push --force` / `-f` / `+ref` / `--mirror` | deploys, `terraform apply`, `kubectl apply`, `helm upgrade` |
 | recursive `rm` outside the project and temp | DB migrations, `DROP` / `TRUNCATE` |
 | reading `.env*` (except `.example` and similar), keys, keystores, credentials (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`, `curl … \| sh` |
@@ -161,7 +161,20 @@ Claude Code ignores the `hooks`, `mcpServers` and `permissionMode` fields for pl
 | the same, and a push to the branch of a PR the agent opened, without a reviewer `Yes` verdict for the commit being landed whose range reaches the remote base, or chained after anything but read-only steps and the project's verification commands (review gate); in the reviewer subagent, any shell command but inspection | editing `.claude/guard.json` (Edit/Write, or a non-read-only shell command naming it) |
 | `git commit` on the base branch with a staged task file; writing into the review records (Edit/Write, or a shell command naming their path) | `gh pr merge <number\|URL>`: the PR head isn't known locally (review gate) |
 
-Pushing the work branch itself is allowed (it still asks, like any push).
+**Pushing the work branch.** A plain `git push` of the agent's own work branch passes without a question when all of these hold:
+
+- the command is exactly `git [-C path] push [-u|--set-upstream|-q|-v|--progress|--no-progress|-n|--dry-run|--porcelain] [remote [refspec]]`, with no shell operators, quotes or variables;
+- the current branch is named by the convention `<type>/<kebab>` (`feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`, `ci`, `style`, `revert`) and is not the base;
+- the remote is configured and its effective push URL equals its configured URL;
+- the push config adds nothing (no mirror, push refspecs, `followTags`, `pushOption`, `recurseSubmodules`, `receivepack` or unusual `push.default`) and no `GIT_*` redirect variable is set;
+- the refspec, if any, names only the current branch;
+- the repository is the session's project (same git common directory; worktrees count). A push from any other repository, such as one the agent cloned, asks.
+
+Everything else that pushes still asks. `--force`, `-f`, `+ref` and `--mirror` stay blocked, and `--force-with-lease` asks. The review gate is unchanged: `gh pr create` / `glab mr create` and pushes to a PR branch the agent opened need a `Yes` covering HEAD; merges (`gh pr merge`, `glab mr merge`) and pushes to the base asks.
+
+Also asks, because they can point a push elsewhere: `git remote add|set-url|rename|set-head`; `git config` writes to `remote.`, `url.`, `push.`, `branch.`, `alias.`, `include.` and `includeif.`, and `git config -e`; any `-c` or `--config-env`; `git symbolic-ref`; `git update-ref --stdin` or on `refs/remotes`; unknown git options before the subcommand; indirect git (`xargs git …`, wrappers, dashed `git-<sub>`); `sh -c`, `bash -c` and `eval` strings that contain git.
+
+**What the guard can't see.** A command guard reads the command, not the machine. It does not see indirect execution: quote-obfuscated shell strings (`sh -c 'g""it …'`), interpreter one-liners (`python -c "os.system('git …')"`), shells it doesn't list (`fish -c`), sourced scripts and script files, git under another name (a symlink or a copied binary), and shell writes into `.git/config` or `.git/refs`. Any of these can configure a remote or push. Like `curl`, exfiltration is not something the guard prevents. Server-side CI, review and branch protection carry the rest.
 
 `.claude/guard.json`: `block`, `confirm`, `allow` (regex), `protectedPaths`, `workDocs` (the task-file folders, default `["docs/tasks"]`; `[]` turns the rule off) and `reviewGate` (`false` turns the review gate off). `allow` only removes a question and never removes a block. A separate trust check isn't needed: Claude Code applies project hooks and settings only after the user trusts the folder.
 
@@ -247,7 +260,7 @@ The plan names the test for each criterion, and the PR body says how each new te
 2. Methodology in skills, mechanics in hooks, thin entry points. The rules for done live in one place.
 3. Built-in features aren't duplicated. `Explore` is there for exploration. Models are set through frontmatter (`model:` for agents, `effort: high` for heavy skills); there's no custom routing config. The team pin is the native `--scope project`.
 4. No narrow vendor skills. Project specifics go into the project's CLAUDE.md.
-5. Confirmation on every `git push`. A narrow `allow` in `.claude/guard.json` lifts it for your own branches, for example `^git push origin feat/`.
+5. The agent pushes its own convention-named work branch without a question; every other push asks, and merging, pushing to the base and rewriting pushed history stay yours. A project with another branch convention adds a narrow `allow` in `.claude/guard.json`, for example `^git push origin (story|task)/`.
 6. Skills are in English: triggering is more precise that way. Documentation is in English, with a Russian version of each file (`*.ru.md`).
 
 ---
@@ -277,6 +290,8 @@ The plan names the test for each criterion, and the PR body says how each new te
   - review gate (claude 2.1.285, `--plugin-dir`, a copy of `examples/demo` with planted defects): a PR without review was denied; the `reviewer` agent found float rounding of money (Critical, with rule quotes from CLAUDE.md, the task and the checklist) and an uncovered criterion, verdict `No`, denied again; after the fixes the repeat round over the new range re-checked the old findings, `Yes`, and the guard let `gh pr create` through.
 
 **Not verified:** Windows (the PowerShell tool and running the hook through `cmd`), a live run of the `implementer` agent.
+
+**Known limits of the own-branch push:** see "What the guard can't see" in section 7; server-side CI, review and branch protection carry what a command guard can't.
 
 **Known limits of the review gate:** an interpreter one-liner can still hide a path from the shell checks; the gate protects against a forgotten review, not against an agent that deliberately feeds the reviewer a verdict; it sees only PRs this agent opened, not ones opened in the browser or by another tool; the gate trusts the range the reviewer names; the reviewer's shell allowlist is a parser-based check that refuses what it can't read exactly, not a sandbox; remote-tracking refs are local, so `git update-ref` can fake a merged PR or an already-landed commit; a hook that can't start, runs past its timeout or gets unparsable input lets the call through; the main agent's command parser doesn't follow heredocs or `#` comments, so a landing after one of them may go unseen; in a project install the agent can edit the kit's own files; with no resolvable base branch (no `origin/HEAD`, no `main`/`master`) it does nothing.
 

@@ -93,13 +93,15 @@ Small, bounded changes go straight to `/implement add a case-insensitive search 
 
 | Denies | Asks first (denied in `-p` / headless) |
 |---|---|
-| `--no-verify`, `git commit -n` | `git push`, publish and release commands |
+| `--no-verify`, `git commit -n` | `git push` other than your own work branch, publish and release commands |
 | `push --force` / `-f` / `+ref` / `--mirror` | deploys, `terraform apply`, `kubectl apply`, `helm upgrade` |
 | recursive `rm` outside the project and temp dirs | DB migrations, `DROP` / `TRUNCATE` |
 | reading `.env*`, keys, keystores and credential files (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`, `curl … \| sh` |
 | writing into `.git/` and `protectedPaths` | shell access to secret files, writing a secret file |
 | `gh pr create/merge`, `glab mr create/merge`, merging into or pushing to the base branch while task files are tracked; committing them on the base branch | editing CI and release pipelines |
 | the same without a reviewer `Yes` for the commit being landed, or chained after anything but read-only steps and the project's verification commands (review gate); writing into the review records | editing `.claude/guard.json` (Edit/Write, or a shell command naming it); `gh pr merge <number\|URL>` (review gate) |
+
+**Pushing:** a plain `git push` of your own `<type>/<kebab>` work branch (`feat/x`, `fix/x`, `chore/x`…) from the session's repository, to a configured remote, with nothing added by push config, passes without a question. Everything else that pushes asks, `--force` and `--mirror` stay blocked, merges and pushes to the base ask, and so do `git remote add|set-url|rename|set-head`, risky `git config` writes, `-c`, `git symbolic-ref` and indirect git (`xargs git`, `sh -c`). A project with another branch convention adds an `allow` pattern. A command guard can't see everything: a shell write into `.git/config`, a script file, an interpreter one-liner or git under another name can still configure a remote; like `curl`, exfiltration isn't something it prevents, and server-side CI, review and branch protection carry the rest (details: docs/ARCHITECTURE.md, section 7).
 
 `.claude/guard.json` has six keys: `block`, `confirm`, `allow` (regex sources), `protectedPaths` (path prefixes), `workDocs` (the task-file folders, default `["docs/tasks"]`; `[]` turns that rule off) and `reviewGate` (`false` turns the review gate off). `allow` only relaxes a confirmation, never a denial. The guard never *grants* permission, so your own `permissions` rules still apply.
 

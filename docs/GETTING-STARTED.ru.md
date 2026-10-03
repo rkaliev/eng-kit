@@ -58,7 +58,8 @@ claude ─▶ SessionStart-хук ─▶ в контекст: правила usi
    │                                    (или ты сам: /eng-kit:implement docs/tasks/2026-09-26-discount.md)
    │
    ├─ каждый вызов инструмента ─▶ PreToolUse-хук (guard)
-   │        git push           ─▶ «спросить человека»
+   │        git push (своя feat/…) ─▶ без вопроса
+   │        git push origin main ─▶ «спросить человека»
    │        git push --force   ─▶ «запрещено»
    │        Read .env          ─▶ «запрещено»
    │        gh pr create       ─▶ «запрещено», пока файл задачи в git
@@ -160,7 +161,7 @@ claude plugin details eng-kit      # Skills (33), Agents (2), Hooks (6)
 | Хуки | `/hooks` | SessionStart, PreToolUse, PostToolUse, Stop, UserPromptSubmit → `…/eng-kit/…/hooks/hook.ts` |
 | Агенты | `/agents` | `eng-kit:reviewer`, `eng-kit:implementer` |
 | Правила загружены | «Ответь только строкой из контекста, которая начинается с 'Kit root'» | `Kit root: …/.claude/plugins/cache/eng-kit/eng-kit/0.2.x` |
-| Guard | «Выполни git push --force origin main» | отказ «Guard: Force-pushing rewrites shared history…»; обычный `git push` — окно подтверждения |
+| Guard | «Выполни git push --force origin main» | отказ «Guard: Force-pushing rewrites shared history…»; push в базовую ветку — окно подтверждения, обычный push своей ветки `feat/…` — без него |
 | Verify-гейт | `/eng-kit:kit-init`, затем мелкая правка без тестов | в конце «Verify gate: files changed…», и агент прогонит тесты перед отчётом |
 
 Если скиллы видны, а guard и гейт не срабатывают, проверь `node --version` (нужен ≥ 22.18) и доверие к папке. Ошибки хуков показывает `claude --debug`.
@@ -237,11 +238,11 @@ claude
 | 2 | `/eng-kit:implement tasks/01-percent-discount.md` | План до 7 строк, затем TDD: сначала падающий тест на каждый критерий. Задача про деньги, поэтому подключится `payments-and-money`: только целочисленная арифметика и округление half-up |
 | 3 | (агент говорит «готово») | Если проверок после правок не было, Stop-хук вернёт агента («Verify gate: files changed…»), и отчёт будет с реальными результатами |
 | 4 | `/eng-kit:requesting-code-review` | Агент `reviewer`: Criteria / Confirmed / Assumptions / Questions / Verdict |
-| 5 | `/eng-kit:finish` | Варианты merge / PR / keep / discard. Push и merge — только после твоего выбора |
+| 5 | `/eng-kit:finish` | Варианты merge / PR / keep / discard. Merge — только после твоего выбора; рабочая ветка пушится и PR открывается, когда ревью покрывает HEAD |
 
 **Как проверить guard:**
 - `git push --force` — отказ с подсказкой про `--force-with-lease`;
-- `git push` — вопрос;
+- `git push origin main` (и любой push, кроме обычного push рабочей ветки) — вопрос; `git push` на `feat/x` — без вопроса;
 - `git commit --no-verify` — отказ;
 - `gh pr create`, пока в `docs/tasks/` есть файлы в git или нет вердикта `Yes` ревьюера для HEAD, — отказ.
 
@@ -260,7 +261,7 @@ claude
 - **Добавил маркетплейс, а скиллов нет.** Плагин не установлен: `claude plugin install eng-kit@eng-kit`, затем перезапусти сессию или `/reload-plugins`. Проверка — раздел 3.
 - **Хуки не срабатывают.** Проверь `node --version` (нужен ≥ 22.18) и `/hooks`. Хукам проекта нужно доверие к папке. Отладка: `claude --debug`.
 - **Verify-гейт пишет, что команд нет.** Заполни `.claude/verify.json` или секцию `## Commands` в CLAUDE.md.
-- **Нужен push без вопроса.** Узкое правило в `.claude/guard.json`: `"allow": ["^git push origin (feat|fix)/"]`. Блоки (`--force`, `--no-verify`) это правило не снимает.
+- **Мои ветки названы не `<type>/<kebab>`, и каждый push спрашивает.** Без вопроса пушатся только `feat/x`, `fix/x`, `chore/x` и другие типы из соглашения. Добавь узкое правило в `.claude/guard.json`: `"allow": ["^git push origin (story|task)/"]`. Блоки (`--force`, `--no-verify`) это правило не снимает. У guard есть пределы: см. «Чего guard не видит» в ARCHITECTURE.ru.md, раздел 7.
 - **Guard отказывает в `gh pr create` или merge: «Review gate: …».** У кода ветки нет `Yes` ревьюера. Запусти `/eng-kit:requesting-code-review`, исправь находки и отревьюй новый диапазон. Приземляй отдельной командой, а не в цепочке после `git commit` или `git switch`. Любое изменение после ревью, включая документацию, требует нового ревью, поэтому ревью идёт последним. Диапазон ревью начинается с merge-base с `origin/<база>` или с HEAD прошлого раунда. Отключаешь только ты: `"reviewGate": false` в `.claude/guard.json`.
 - **В моём проекте файлы задач лежат в другом месте или хранятся в репозитории постоянно.** Ключ `workDocs` в `.claude/guard.json` перечисляет папки файлов задач (по умолчанию `["docs/tasks"]`); `[]` отключает это правило.
 - **Хочу временно выключить плагин.** `claude plugin disable eng-kit@eng-kit`, обратно — `enable`.
