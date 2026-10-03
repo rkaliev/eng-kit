@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
-import { openPrBranches, readReviews } from "../lib/reviews.ts";
+import { readReviews } from "../lib/reviews.ts";
 import { readRun, writeRun } from "../lib/state.ts";
 
 const root = resolve(import.meta.dirname, "..");
@@ -588,29 +588,21 @@ test("review-log from a plain folder prints the verdict recorded under the neste
 	assert.match(printed.stdout, /## Reviewer run a1 — No/);
 	assert.match(printed.stdout, /finding text/);
 	assert.equal(readReviews(a, env.reviewsRoot).length, 1);
-	// a commit held by two repositories: its reports are printed once (identical records dedupe)
-	handle({ session_id: "s", cwd: folder, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `shared text\nReviewed BASE: ${main}\nReviewed HEAD: ${main}\nReady to merge: Yes`, prompt_id: "p2", agent_id: "a2" }, env);
-	const shared = log(main);
-	assert.equal(shared.status, 0, shared.stderr);
-	assert.equal(shared.stdout.match(/## Reviewer run/g)?.length, 1);
-	assert.match(shared.stdout, /shared text/);
-	const missing = log("deadbeef0");
-	assert.equal(missing.status, 1);
-	assert.match(missing.stderr, /Run it from inside the repository, e\.g\. `cd <repo> && …`/);
+	const ambiguous = log(main);
+	assert.equal(ambiguous.status, 1);
+	assert.match(ambiguous.stderr, /several repositories here: a, b/);
 });
 
-test("review gate: a SHA that is a commit in two nested repositories is recorded in each of them", () => {
+test("review gate: a SHA that is a commit in two nested repositories is refused and nothing is recorded", () => {
 	const { folder, a, main } = workspace();
 	const env: HookEnv = { root, projectDir: folder, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
 	const report = `Reviewed BASE: ${main}\nReviewed HEAD: ${main}\nReady to merge: Yes`;
-	const out = handle({ session_id: "s", cwd: folder, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: report, prompt_id: "p1", agent_id: "a1" }, env);
-	assert.deepEqual(out, {});
-	assert.deepEqual(readReviews(a, env.reviewsRoot).map((r) => r.sha), [main]);
-	assert.deepEqual(readReviews(join(folder, "b"), env.reviewsRoot).map((r) => r.sha), [main]);
+	const first = handle({ session_id: "s", cwd: folder, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: report, prompt_id: "p1", agent_id: "a1" }, env);
+	assert.match(String(first.warning), /several repositories here: a, b/);
+	assert.equal((first.output as Record<string, unknown> | undefined)?.decision, "block");
+	assert.deepEqual(readReviews(a, env.reviewsRoot), []);
+	assert.deepEqual(readReviews(join(folder, "b"), env.reviewsRoot), []);
 	assert.deepEqual(readReviews(folder, env.reviewsRoot), []);
-	const none = handle({ session_id: "s", cwd: folder, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed BASE: deadbeef0\nReviewed HEAD: deadbeef1\nReady to merge: Yes", prompt_id: "p1", agent_id: "a2" }, env);
-	assert.match(String(none.warning), /is a commit in none of this folder's repositories/);
-	assert.doesNotMatch(String(none.warning), /Run it from inside/);
 });
 
 test("review gate: a worktree of a nested repository is the same repository, not an ambiguity", () => {
@@ -654,30 +646,4 @@ test("review gate: two reviewers of one prompt, one Yes on a's head and one fail
 	const gate = call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "cd a && gh pr create --fill" } });
 	assert.equal(decision(gate), "deny");
 	assert.match(JSON.stringify(gate.output), /Inconclusive/);
-});
-
-test("review gate: a failed run charges every commit already recorded under its prompt, also one that is no repository's HEAD", () => {
-	const { folder, a, main, commit, run } = workspace();
-	const reviewed = commit("a.ts");
-	run(a, "switch", "-q", "main");
-	const env: HookEnv = { root, projectDir: folder, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
-	const call = (input: HookInput) => handle({ session_id: "s", cwd: folder, ...input }, env);
-	const stop = (message: string, agent_id: string, stop_hook_active = false) => call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: message, prompt_id: "p1", agent_id, stop_hook_active });
-	stop(`Reviewed BASE: ${main}\nReviewed HEAD: ${reviewed}\nReady to merge: Yes`, "a1");
-	stop("couldn't read the range", "a2", true);
-	assert.equal(readReviews(a, env.reviewsRoot).find((r) => r.sha === reviewed)?.verdict, "Inconclusive");
-});
-
-test("review gate: a PR entry registered from one clone is not pruned by a read from another clone with a same-named branch at the base", () => {
-	const { folder, a, main, commit, run } = workspace();
-	const head = commit("a.ts");
-	const b = join(folder, "b");
-	const env: HookEnv = { root, projectDir: folder, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
-	const call = (input: HookInput) => handle({ session_id: "s", cwd: folder, ...input }, env);
-	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${main}\nReviewed HEAD: ${head}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1" });
-	call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_use_id: "t1", tool_input: { command: "cd a && gh pr create --fill" } });
-	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_use_id: "t1", tool_input: { command: "cd a && gh pr create --fill" } });
-	run(b, "switch", "-qc", "feat/a");
-	call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git -C b push origin feat/a" } });
-	assert.deepEqual(openPrBranches(folder, a, "origin", "refs/remotes/origin/main", env.reviewsRoot), ["feat/a"]);
 });

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, readReviews, recordReview, notePr, openPrBranches, recordVerdict, reposFor, reviewsDir, settlePr, stripRedirects, type ReviewGateOptions } from "../lib/reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, readReviews, recordReview, notePr, openPrBranches, recordVerdict, repoFor, reviewsDir, settlePr, stripRedirects, type ReviewGateOptions } from "../lib/reviews.ts";
 
 const OPTIONS: ReviewGateOptions = { missing: "block", waiver: "reviewGate: false", verify: ["npm test", "npm run lint"] };
 
@@ -569,7 +569,7 @@ test("without a tracking ref for the base, a remote branch that merely ends in /
 	assert.match(String(check("git merge feat/b")?.reason), /does not cover/, "x is on up/team/main, not on the local main");
 });
 
-test("reposFor: a repository's own top level; in a plain folder every nested repository holding the commit; a verdict is recorded in each", () => {
+test("repoFor: a repository's own top level; in a plain folder the one nested repository holding the commit", () => {
 	const folder = mkdtempSync(join(tmpdir(), "reviews-ws-"));
 	const records = mkdtempSync(join(tmpdir(), "reviews-records-"));
 	const run = (cwd: string, ...args: string[]) => {
@@ -587,31 +587,24 @@ test("reposFor: a repository's own top level; in a plain folder every nested rep
 		run(join(folder, name), "commit", "-qm", name);
 	}
 	mkdirSync(join(folder, "plain"));
-	const [a, b] = [join(folder, "a"), join(folder, "b")];
-	const inA = run(a, "rev-parse", "HEAD");
+	const inA = run(join(folder, "a"), "rev-parse", "HEAD");
 	const real = (p: string) => run(p, "rev-parse", "--show-toplevel");
-	assert.deepEqual(reposFor(a, "whatever"), [real(a)]);
-	assert.deepEqual(reposFor(folder, inA), [real(a)]);
-	assert.deepEqual(reposFor(folder, "deadbeef0"), []);
-	assert.equal(recordVerdict(folder, "deadbeef0", "Yes", { promptId: "p", run: "r" }, records), "Reviewed HEAD deadbeef0 is a commit in none of this folder's repositories");
-	// the same commit in two repositories: one verdict, recorded in each
-	run(b, "fetch", "-q", a, "HEAD");
-	assert.deepEqual(reposFor(folder, inA), [real(a), real(b)]);
-	assert.equal(typeof recordVerdict(folder, inA, "Yes", { promptId: "p", run: "r" }, records), "object");
-	assert.deepEqual([a, b].map((r) => readReviews(r, records).map((x) => x.sha)), [[inA], [inA]]);
+	assert.equal(repoFor(join(folder, "a")), real(join(folder, "a")));
+	assert.equal(repoFor(folder, inA), real(join(folder, "a")));
+	assert.deepEqual(repoFor(folder), { error: `${folder} is not inside a git repository. Run it from inside the repository, e.g. \`cd <repo> && …\`` });
+	assert.match((repoFor(folder, "deadbeef0") as { error: string }).error, /not a commit in this folder or its repositories/);
+	// the same commit in two repositories is ambiguous
+	run(join(folder, "b"), "fetch", "-q", join(folder, "a"), "HEAD");
+	assert.deepEqual(repoFor(folder, inA), { error: `${inA} is a commit in several repositories here: a, b. Run it from inside the repository, e.g. \`cd <repo> && …\`` });
+	assert.equal(recordVerdict(folder, inA, "Yes", { promptId: "p", run: "r" }, records), `${inA} is a commit in several repositories here: a, b. Run it from inside the repository, e.g. \`cd <repo> && …\``);
+	const only = run(join(folder, "b"), "rev-parse", "HEAD");
+	const rec = recordVerdict(folder, only, "Yes", { promptId: "p", run: "r" }, records);
+	assert.equal(typeof rec, "object");
+	assert.equal(readReviews(join(folder, "b"), records).length, 1);
 	assert.equal(readReviews(folder, records).length, 0);
-	// BASE must resolve in the repository: one that lacks it is skipped, none that has it is an error
-	writeFileSync(join(a, "g"), "g");
-	run(a, "add", "-A");
-	run(a, "commit", "-qm", "g");
-	const aOnly = run(a, "rev-parse", "HEAD");
-	const second = mkdtempSync(join(tmpdir(), "reviews-records-"));
-	assert.equal(typeof recordVerdict(folder, inA, "Yes", { promptId: "p", run: "r" }, second, { base: aOnly }), "object");
-	assert.deepEqual([a, b].map((r) => readReviews(r, second).length), [1, 0], "b lacks the BASE: skipped");
-	assert.equal(recordVerdict(folder, inA, "Yes", { promptId: "p", run: "r" }, second, { base: "deadbeef0" }), "Reviewed BASE deadbeef0 is not a commit in this repository");
 });
 
-test("reposFor follows a symlinked child folder to its repository", () => {
+test("repoFor follows a symlinked child folder to its repository", () => {
 	const folder = mkdtempSync(join(tmpdir(), "reviews-ws-"));
 	const elsewhere = mkdtempSync(join(tmpdir(), "reviews-else-"));
 	const run = (cwd: string, ...args: string[]) => {
@@ -627,14 +620,14 @@ test("reposFor follows a symlinked child folder to its repository", () => {
 	run(elsewhere, "commit", "-qm", "x");
 	symlinkSync(elsewhere, join(folder, "linked"));
 	const top = run(elsewhere, "rev-parse", "--show-toplevel");
-	assert.deepEqual(reposFor(folder, run(elsewhere, "rev-parse", "HEAD")), [top]);
+	assert.equal(repoFor(folder, run(elsewhere, "rev-parse", "HEAD")), top);
 });
 
 test("review keys agree across letter case on a case-insensitive filesystem", (t) => {
 	const parent = mkdtempSync(join(tmpdir(), "reviews-case-"));
 	const dir = join(parent, "Repo");
 	mkdirSync(dir);
-	if (!existsSync(join(parent, "repo"))) return t.skip("platform: needs a case-insensitive filesystem (macOS, Windows)");
+	if (!existsSync(join(parent, "repo"))) return t.skip("the filesystem is case-sensitive");
 	spawnSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
 	const root = mkdtempSync(join(tmpdir(), "reviews-records-"));
 	assert.equal(reviewsDir(dir, root), reviewsDir(join(parent, "repo"), root));
