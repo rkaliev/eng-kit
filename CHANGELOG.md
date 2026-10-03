@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.1
+
+- **Template `db.mjs` rejects inherited names.** `node scripts/db.mjs constructor` (or `toString`) now prints the usage line and exits non-zero instead of throwing; the action is checked with `Object.hasOwn`.
+- **`export -n NAME` stays quiet.** Un-exporting a variable no longer asks, whatever the name.
+- **Behaviour test for `db.mjs`.** The text-matching contract test is replaced by a run against a stub `docker`: `up` and `down` arguments, `POSTGRES_MAJOR` from `.postgres-version`, and exit 1 for a bad version file. Skipped on Windows (POSIX stub).
+- **Docs.** The scaffold script tests are described as covering `.postgres-version` and argument parsing.
+
 ## 0.18.0
 
 - **Git variables that run a program or redirect git ask.** Set in front of a git call (`X=… git …`, `env X=… git …`) or exported in the same command (an `export NAME` by name asks too, also `declare -x` and `typeset -x`, after `{`, `then` and the like): the program-running group (`GIT_SSH_COMMAND`, `GIT_SSH`, `GIT_PROXY_COMMAND`, `GIT_ASKPASS`, `SSH_ASKPASS`, `GIT_EXTERNAL_DIFF`, `GIT_PAGER`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`, and `PAGER`, `EDITOR`, `VISUAL` in front of a git call), the config-injection group (`GIT_CONFIG`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`) and the redirecting group (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_EXEC_PATH`, `GIT_NAMESPACE`, `GIT_TEMPLATE_DIR`). A harmless pager, editor or askpass value (empty, `cat`, `true`, `:`) and other variables stay quiet.

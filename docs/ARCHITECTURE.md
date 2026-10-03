@@ -279,7 +279,7 @@ The plan names the test for each criterion, and the PR body says how each new te
   - `kit-init` (including the test-hygiene item: offered, copied with `--test-hygiene`, an older copy reported and replaced with the flag, a CI that doesn't run it reported in the same run);
   - `install-project` (install, update, conflicts, hooks without duplicates);
   - the skill and agent linter, manifest consistency.
-  - the `ts-monorepo` template (no versions, `scaffold.json` names real workspaces, pinned action SHAs) and the scaffold script (refuses a non-empty folder, the planned installs, `.nvmrc` and `packageManager`);
+  - the `ts-monorepo` template (no versions, `scaffold.json` names real workspaces, pinned action SHAs) and the scaffold script (refuses a non-empty folder, the planned installs, `.nvmrc`, `packageManager`, `.postgres-version` and argument parsing);
 - **`npm run typecheck`** and **`claude plugin validate .`**.
 - **`template-smoke`** (`.github/workflows/template-smoke.yml` in the kit's own CI, weekly and on PRs that touch the template or the scaffold script): scaffolds `ts-monorepo` with `--postgres 18` into a clean folder, starts Postgres with `pnpm db:up`, runs `pnpm turbo run typecheck lint test`, `prisma migrate deploy`, `migrate:down` to an empty schema and `prisma migrate deploy` again against Postgres. It is outside `gate` and the release: red means the ecosystem moved and the template needs a fix.
 - **A live `claude -p` run** on a copy of `examples/demo`:

@@ -280,7 +280,7 @@ Push своей ветки из сабагента `implementer` спрашив�
   - `kit-init` (в том числе пункт test-hygiene: предложен, копируется с `--test-hygiene`, старая копия видна в отчёте и заменяется по флагу, CI без него виден в том же прогоне);
   - `install-project` (установка, обновление, конфликты, хуки без дублей);
   - линтер скиллов и агентов, согласованность манифестов.
-  - шаблон `ts-monorepo` (нет версий, `scaffold.json` называет существующие воркспейсы, действия закреплены по SHA) и скрипт scaffold (отказ для непустой папки, планируемые установки, `.nvmrc` и `packageManager`);
+  - шаблон `ts-monorepo` (нет версий, `scaffold.json` называет существующие воркспейсы, действия закреплены по SHA) и скрипт scaffold (отказ для непустой папки, планируемые установки, `.nvmrc`, `packageManager`, `.postgres-version` и разбор аргументов);
 - **`npm run typecheck`** и **`claude plugin validate .`**.
 - **`template-smoke`** (`.github/workflows/template-smoke.yml` в собственном CI кита, раз в неделю и на PR, затрагивающих шаблон или скрипт scaffold): разворачивает `ts-monorepo` с `--postgres 18` в чистую папку, поднимает Postgres через `pnpm db:up`, запускает `pnpm turbo run typecheck lint test`, `prisma migrate deploy`, `migrate:down` до пустой схемы и снова `prisma migrate deploy` на Postgres. Он вне `gate` и релиза: красный означает, что экосистема сдвинулась и шаблон надо поправить.
 - **Живой прогон `claude -p`** на копии `examples/demo`:
