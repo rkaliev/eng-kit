@@ -58,7 +58,8 @@ claude ─▶ SessionStart hook ─▶ into context: using-skills rules + paths 
    │                                      (or you yourself: /eng-kit:implement docs/tasks/2026-09-26-discount.md)
    │
    ├─ every tool call ─▶ PreToolUse hook (guard)
-   │        git push           ─▶ "ask the human"
+   │        git push (own feat/…) ─▶ no question
+   │        git push origin main ─▶ "ask the human"
    │        git push --force   ─▶ "denied"
    │        Read .env          ─▶ "denied"
    │        gh pr create       ─▶ "denied" while a task file is in git
@@ -160,7 +161,7 @@ claude plugin details eng-kit      # Skills (33), Agents (2), Hooks (6)
 | Hooks | `/hooks` | SessionStart, PreToolUse, PostToolUse, Stop, UserPromptSubmit → `…/eng-kit/…/hooks/hook.ts` |
 | Agents | `/agents` | `eng-kit:reviewer`, `eng-kit:implementer` |
 | Rules loaded | "Reply only with the line from your context that starts with 'Kit root'" | `Kit root: …/.claude/plugins/cache/eng-kit/eng-kit/0.2.x` |
-| Guard | "Run git push --force origin main" | denial "Guard: Force-pushing rewrites shared history…"; a plain `git push` shows a confirmation dialog |
+| Guard | "Run git push --force origin main" | denial "Guard: Force-pushing rewrites shared history…"; a push to the base shows a confirmation dialog, a plain push of your own `feat/…` branch does not |
 | Verify gate | `/eng-kit:kit-init`, then a small edit without tests | at the end "Verify gate: files changed…", and the agent runs the tests before reporting |
 
 If the skills are visible but the guard and the gate don't fire, check `node --version` (≥ 22.18 required) and folder trust. `claude --debug` shows hook errors.
@@ -237,11 +238,11 @@ claude
 | 2 | `/eng-kit:implement tasks/01-percent-discount.md` | A plan of up to 7 lines, then TDD: a failing test for each criterion first. The task is about money, so `payments-and-money` kicks in: integer arithmetic only and half-up rounding |
 | 3 | (the agent says "done") | If there were no checks after the edits, the Stop hook sends the agent back ("Verify gate: files changed…"), and the report has real results |
 | 4 | `/eng-kit:requesting-code-review` | The `reviewer` agent: Criteria / Confirmed / Assumptions / Questions / Verdict |
-| 5 | `/eng-kit:finish` | Options merge / PR / keep / discard. Push and merge happen only after your choice |
+| 5 | `/eng-kit:finish` | Options merge / PR / keep / discard. Merge happens only after your choice; the work branch is pushed and the PR opened once the review covers HEAD |
 
 **How to check the guard:**
 - `git push --force`: denied, with a hint about `--force-with-lease`;
-- `git push`: a question;
+- `git push origin main` (and any push except the plain push of your work branch): a question; `git push` on `feat/x`: no question;
 - `git commit --no-verify`: denied;
 - `gh pr create` while `docs/tasks/` has tracked files, or without a reviewer `Yes` for HEAD: denied.
 
@@ -260,7 +261,7 @@ claude
 - **I added the marketplace, but there are no skills.** The plugin isn't installed: `claude plugin install eng-kit@eng-kit`, then restart the session or `/reload-plugins`. To check, see section 3.
 - **Hooks don't fire.** Check `node --version` (≥ 22.18 required) and `/hooks`. Project hooks need folder trust. Debugging: `claude --debug`.
 - **The verify gate says there are no commands.** Fill in `.claude/verify.json` or the `## Commands` section in CLAUDE.md.
-- **I need push without a question.** A narrow rule in `.claude/guard.json`: `"allow": ["^git push origin (feat|fix)/"]`. This rule doesn't lift blocks (`--force`, `--no-verify`).
+- **My branches aren't named `<type>/<kebab>` and every push asks.** Only `feat/x`, `fix/x`, `chore/x` and the other conventional types push silently. Add a narrow rule in `.claude/guard.json`: `"allow": ["^git push( -u)? origin (story|task)/[a-z0-9._-]+$"]`. This rule doesn't lift blocks (`--force`, `--no-verify`). `allow` skips all of the guard's questions for the matching command, so keep patterns anchored. The guard has limits: see "What the guard can't see" in ARCHITECTURE.md section 7.
 - **The guard denies `gh pr create` or a merge: "Review gate: …".** The branch's code has no reviewer `Yes`. Run `/eng-kit:requesting-code-review`, fix its findings and review the new range. Land in a command of its own, not chained after `git commit` or `git switch`. Any change after the review, docs included, needs a new one, so review last. The review's range starts at the merge-base with `origin/<base>`, or at the previous round's HEAD. Only you turn it off: `"reviewGate": false` in `.claude/guard.json`.
 - **My project keeps task files elsewhere, or in the repo for good.** The `workDocs` key in `.claude/guard.json` lists the task-file folders (default `["docs/tasks"]`); `[]` turns that rule off.
 - **I want to disable the plugin temporarily.** `claude plugin disable eng-kit@eng-kit`; to turn it back on, `enable`.

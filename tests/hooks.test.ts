@@ -476,7 +476,7 @@ test("review gate: a successful gh pr create registers its branch for the push g
 	const create = (id: string) => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_use_id: id, tool_input: { command: "gh pr create --fill" } });
 	create("t1");
 	call({ hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_use_id: "t1", tool_input: { command: "gh pr create --fill" } });
-	assert.equal(push(), "ask", "a failed PR creation opened nothing: only the guard's usual question before a push");
+	assert.equal(push(), undefined, "a failed PR creation opened nothing: pushing the own work branch asks nothing");
 	create("t2");
 	// The shell's cwd may have moved by the time the result arrives: the branch comes from where the command started.
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_use_id: "t2", cwd: tmpdir(), tool_input: { command: "gh pr create --fill" } });
@@ -514,4 +514,24 @@ test("a crash while handling PreToolUse asks with the error instead of failing o
 	}
 	const ok = respond(JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "s" }), env);
 	assert.equal(ok.code, 0, "a normal call still works");
+});
+
+test("guard: the implementer's own-branch push asks; the main agent's passes", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
+	git("remote", "add", "origin", remote);
+	git("push", "-q", "origin", "main");
+	git("switch", "-qc", "feat/a");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const pre = (command: string, agent_type?: string) => decision(handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, agent_type }, env));
+	assert.equal(pre("git push"), undefined, "the main agent pushes its work branch");
+	for (const agent of ["eng-kit:implementer", "implementer"]) {
+		assert.equal(pre("git push", agent), "ask", agent);
+		assert.equal(pre("git push -u origin feat/a 2>&1", agent), "ask", agent);
+	}
+	assert.equal(pre("git status", "eng-kit:implementer"), undefined, "the implementer's other git calls are untouched");
+	const reason = (handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push" }, agent_type: "eng-kit:implementer" }, env).output!.hookSpecificOutput as Record<string, string>).permissionDecisionReason;
+	assert.match(String(reason), /implementer doesn't push; the coordinator does after review/);
 });

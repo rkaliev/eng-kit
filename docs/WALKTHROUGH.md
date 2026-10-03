@@ -103,7 +103,7 @@ If the agent forgets, the Stop hook reminds it ("Working-docs gate: …"), and t
 /eng-kit:finish
 ```
 
-The checks run once more, then the choice: merge locally, push and PR, keep the branch or delete it. **Nothing is pushed without your choice.** On `git push` the guard shows a confirmation dialog. The PR description links the task file at the last commit that had it (`blob/<sha>/docs/tasks/…`).
+The checks run once more, then the choice: merge locally, push and PR, keep the branch or delete it. **Nothing is merged or pushed to `main` without your choice.** The agent pushes the work branch and opens the PR itself once the review covers HEAD; any other push shows a confirmation dialog. The PR description links the task file at the last commit that had it (`blob/<sha>/docs/tasks/…`).
 
 ## Everyday work
 
@@ -302,9 +302,9 @@ After "yes" it writes these documents and lists them in `docs/README.md`.
 ## What the guard stops
 
 - `git push --force` and `git commit --no-verify`: denied immediately.
-- `git push`, deploys, migrations: it asks you first.
+- a push other than the plain push of your work branch, deploys, migrations: it asks you first.
 - Reading `.env`: denied, so secrets don't reach the model.
-- Creating or merging a PR/MR, a merge or a push into `main` while a task file is in git, or committing a task file on `main`: denied until it's moved and deleted. Pushing the work branch itself only asks. In CI the `working-docs` job fails if `docs/tasks/*.md` is tracked.
+- Creating or merging a PR/MR, a merge or a push into `main` while a task file is in git, or committing a task file on `main`: denied until it's moved and deleted. A plain push of the work branch passes. In CI the `working-docs` job fails if `docs/tasks/*.md` is tracked.
 - Everything else is decided by Claude Code's normal permissions.
 
 ## What to commit to the project
