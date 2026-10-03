@@ -476,7 +476,7 @@ test("review gate: a successful gh pr create registers its branch for the push g
 	const create = (id: string) => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_use_id: id, tool_input: { command: "gh pr create --fill" } });
 	create("t1");
 	call({ hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_use_id: "t1", tool_input: { command: "gh pr create --fill" } });
-	assert.equal(push(), "ask", "a failed PR creation opened nothing: only the guard's usual question before a push");
+	assert.equal(push(), undefined, "a failed PR creation opened nothing: pushing the own work branch asks nothing");
 	create("t2");
 	// The shell's cwd may have moved by the time the result arrives: the branch comes from where the command started.
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_use_id: "t2", cwd: tmpdir(), tool_input: { command: "gh pr create --fill" } });

@@ -143,7 +143,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 			: tool === "PowerShell"
 				? { action: "block" as const, reason: "The reviewer is read-only: its PowerShell calls aren't checked, so they are refused. Use Bash for inspection commands." }
 				: checkReviewerCommand(command, cwd, resolveVerifyCommands(env.projectDir).commands, env.root);
-		decision = reviewer ?? checkCommand(command, env.projectDir, config);
+		decision = reviewer ?? checkCommand(command, env.projectDir, config, cwd);
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
 		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, ".claude/guard.json") ?? decision;
