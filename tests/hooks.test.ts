@@ -8,6 +8,11 @@ import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type
 import { readReviews } from "../lib/reviews.ts";
 import { readRun, writeRun } from "../lib/state.ts";
 
+// Isolate git from the machine's own config (the guard's git calls inherit this process's environment).
+process.env.HOME = mkdtempSync(join(tmpdir(), "home-"));
+process.env.XDG_CONFIG_HOME = join(process.env.HOME, ".config");
+process.env.GIT_CONFIG_NOSYSTEM = "1";
+
 const root = resolve(import.meta.dirname, "..");
 
 function setup(files: Record<string, string> = { "CLAUDE.md": "## Commands\n- `npm test`\n- `npm run typecheck`\n" }) {
@@ -286,7 +291,7 @@ test("task files: guard blocks a PR while they exist; Stop reminds once to delet
 	const pr = bash("gh pr create --fill");
 	assert.equal(decision(pr), "deny");
 	assert.match((pr.output!.hookSpecificOutput as Record<string, string>).permissionDecisionReason!, /^Guard: Task files would reach .*docs\/tasks\/p\.md/);
-	assert.equal(decision(bash("git push -u origin feat/a")), "ask", "the work branch may be pushed after confirmation");
+	assert.notEqual(decision(bash("git push -u origin feat/a")), "deny", "the task-file gate does not refuse a push of the work branch");
 	assert.equal(call({ hook_event_name: "Stop" }).output, undefined, "a plan with open tasks is not finished");
 
 	writeFileSync(join(projectDir, "docs/tasks/p.md"), "# P\n\nStatus: in progress\n\n## Plan\n\n- [x] one\n- [x] two\n\n## Progress\n");

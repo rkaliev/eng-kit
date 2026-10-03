@@ -130,7 +130,7 @@ claude
 /eng-kit:implement docs/tasks/…-cart-api.md         исполнение с тестами и отчётом; в конце
                                                     долгоживущее уходит в docs/, файл задачи удаляется
 /eng-kit:requesting-code-review                     ревью по запросу (implement и finish ревьюят последний коммит сами)
-/eng-kit:finish                                     merge / PR / keep / discard — на твой выбор
+/eng-kit:finish                                     PR по умолчанию после Yes; merge, keep или discard — на твой выбор
 ```
 
 Файл задачи (описание, план и прогресс в одном файле) живёт только в рабочей ветке, и guard не откроет PR и не сделает merge, пока он есть. Подробнее — в [WALKTHROUGH.ru.md](WALKTHROUGH.ru.md).

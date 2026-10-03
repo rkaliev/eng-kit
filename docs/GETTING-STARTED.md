@@ -130,7 +130,7 @@ The agent shows a plan and, on your "yes", creates `.claude/verify.json` (the te
 /eng-kit:implement docs/tasks/…-cart-api.md         execution with tests and a report; at the end
                                                     what lasts moves to docs/, the task file is deleted
 /eng-kit:requesting-code-review                     a review on demand (implement and finish review the final commit)
-/eng-kit:finish                                     merge / PR / keep / discard, your choice
+/eng-kit:finish                                     PR by default after a Yes; merge, keep or discard on your choice
 ```
 
 The task file (description, plan and progress in one file) lives only on the work branch, and the guard won't open a PR or merge while it exists. The details: [WALKTHROUGH.md](WALKTHROUGH.md).
