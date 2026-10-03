@@ -16,7 +16,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
-import { checkCommand, checkPath, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
+import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
 import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
@@ -59,6 +59,7 @@ export const BOOTSTRAP_MARKER = "eng-kit:using-skills bootstrap";
 const SHELL_TOOLS = new Set(["Bash", "PowerShell"]);
 /** The kit reviewer: `eng-kit:reviewer` as a plugin, `reviewer` in a project install. */
 const REVIEWER = /^(eng-kit:)?reviewer$/;
+const IMPLEMENTER = /^(eng-kit:)?implementer$/;
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
 export function verifyScriptCommand(root: string): string {
@@ -144,6 +145,10 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 				? { action: "block" as const, reason: "The reviewer is read-only: its PowerShell calls aren't checked, so they are refused. Use Bash for inspection commands." }
 				: checkReviewerCommand(command, cwd, resolveVerifyCommands(env.projectDir).commands, env.root);
 		decision = reviewer ?? checkCommand(command, env.projectDir, config, cwd);
+		// The implementer hands its commit back; the coordinator pushes after review.
+		if (decision.action === "allow" && IMPLEMENTER.test(input.agent_type ?? "") && ownBranchPush(command, cwd, process.env, env.projectDir)) {
+			decision = { action: "confirm", reason: "The implementer doesn't push; the coordinator does after review." };
+		}
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
 		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, ".claude/guard.json") ?? decision;
