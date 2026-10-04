@@ -192,6 +192,8 @@ export function tokenize(command: string): string[] {
 	let current = "";
 	let quote: "'" | '"' | "$'" | null = null;
 	let has = false;
+	// The unquoted, unescaped `<` or `>` just before this character, if any: `>&`, `<&` and `>|` continue it.
+	let operator = "";
 	const push = () => {
 		if (has) tokens.push(current);
 		current = "";
@@ -199,6 +201,8 @@ export function tokenize(command: string): string[] {
 	};
 	for (let i = 0; i < command.length; i++) {
 		const ch = command[i]!;
+		const after = operator;
+		operator = "";
 		if (quote === "'") {
 			if (ch === "'") quote = null;
 			else current += ch;
@@ -247,8 +251,8 @@ export function tokenize(command: string): string[] {
 			i++;
 			continue;
 		}
-		// `&>`, `&>>`, `>&` and `<&` are redirections, not a background `&`.
-		if (ch === "&" && (command[i + 1] === ">" || command[i - 1] === ">" || command[i - 1] === "<")) {
+		// `&>`, `&>>`, `>&`, `<&` and `>|` are redirections, not a background `&` or a pipe.
+		if ((ch === "&" && (command[i + 1] === ">" || after !== "")) || (ch === "|" && after === ">")) {
 			push();
 			continue;
 		}
@@ -259,6 +263,7 @@ export function tokenize(command: string): string[] {
 		}
 		if (/\s/.test(ch) || ch === "<" || ch === ">") {
 			push();
+			if (ch === "<" || ch === ">") operator = ch;
 			continue;
 		}
 		current += ch;
