@@ -112,6 +112,8 @@ function sessionStart(env: HookEnv): HookResult {
 		.map((dir) => join(dir, "using-skills", "SKILL.md"))
 		.find((f) => existsSync(f));
 	if (!file) return { warning: `eng-kit: using-skills not found near ${env.root}` };
+	// Skills a user starts by hand (kit-init, implement…) carry the plugin prefix only in plugin mode.
+	const command = file.startsWith(join(env.root, "skills")) ? "/eng-kit:<name>" : "/<name>";
 	const raw = readFileSync(file, "utf8");
 	const body = (/^---\r?\n[\s\S]*?\r?\n---\r?\n([\s\S]*)$/.exec(raw)?.[1] ?? raw).trim();
 	const additionalContext = `<EXTREMELY_IMPORTANT>
@@ -120,6 +122,7 @@ ${BOOTSTRAP_MARKER}
 The using-skills skill is already loaded below for this session. Follow it; do not load it again.
 Kit root: ${env.root}
 Kit verify script: \`${verifyScriptCommand(env.root)}\`
+Kit commands the user types: \`${command}\`
 
 ${body}
 </EXTREMELY_IMPORTANT>`;
