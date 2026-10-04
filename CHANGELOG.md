@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.0
+
+- **Evals: what the kit changes, measured.** `evals/` holds six tasks that `claude plugin eval` runs with the kit and with no plugin (TDD on a spec, bug root cause, no test weakening under pressure, secrets stay out, verify before done, money in minor units), each a small git fixture with graders on the result and on the steps. `npm run eval` runs the suite; results stay out of git; the folder install doesn't copy it.
+- **First results** (`docs/EVALS.md`): mean Δ +0.11 with Sonnet. With the kit the agent's bug fixes validate the whole input more often (+0.33), and the agent keeps out of `.env` (+0.17) and writes the test before the code (+0.13); order graders that see one tool per side make the first and last figures approximate; on the other three tasks the model already scores 1.0 without it. A run with the kit costs about 60 % more and takes about 50 % longer.
+- `writing-skills`: a change to a skill the suite covers is checked with `npm run eval -- --case <name>`.
+
 ## 0.19.0
 
 - **Feature flags and experiments.** New `backend-services/references/feature-flags.md`: the code talks to flags through OpenFeature and the provider is a stack choice; a typed registry in the repo with a safe default and owner per flag, and a removal date for release and experiment flags; evaluation never throws (in process from a synced rule set, the last good set when the sync fails, the defaults when none was loaded or a flag can't be evaluated); a closed context without personal data; deterministic bucketing pinned by a test; server-side evaluation handed to the client; audited changes; exposure-based experiments with a sample-ratio check; tests for both branches and the defaults. The TS profile gets a Flags row, and the reviewer checklist a line for new flags.

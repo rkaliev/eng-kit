@@ -143,7 +143,10 @@ npm install
 npm test                  # hook handlers, hook e2e over stdin, init, install, test-hygiene, skill/agent linter
 npm run typecheck
 claude plugin validate .
+npm run eval -- --case <name>   # with-kit vs no-plugin eval (docs/EVALS.md); uses plan usage
 ```
+
+`evals/` holds tasks that `claude plugin eval` runs with the kit and without it; `docs/EVALS.md` explains the cases and the latest results.
 
 Edit skills with the `writing-skills` skill, and keep `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.ru.md` in sync.
 
