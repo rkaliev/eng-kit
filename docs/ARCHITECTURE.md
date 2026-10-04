@@ -299,6 +299,8 @@ The plan names the test for each criterion, and the PR body says how each new te
 
 ---
 
+**Evals.** `evals/` holds six tasks (TDD on a spec, bug root cause, no test weakening under pressure, secrets stay out, verify before done, money in minor units) that `claude plugin eval` runs with the kit and with no plugin; the score difference is what the kit adds. Fixtures are small git repos created by each case's `scaffold.sh`; graders check both the result and the steps, with a judge only where a pattern can't decide. The folder install never copies `evals/`. The first run (kit 0.19.0, Sonnet) gave a mean Δ of +0.12: the kit makes the agent reproduce a bug before fixing it and write the test before the code; on the other four tasks the model already scores 1.0 without it. Results and caveats: `docs/EVALS.md`.
+
 ## 10. How to extend it
 
 - A new skill is written with `writing-skills`: first a scenario without the skill (RED), then a minimal skill. Then `npm test`, `claude plugin validate .` and a line in this document. Subagents are written the same way, with `writing-skills/references/agents.md`.

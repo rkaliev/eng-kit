@@ -60,4 +60,4 @@ An agent is a role with its own context, tools and report; write one when isolat
 
 Also check that the description triggers: ask for the task in plain words and see whether the skill loads.
 
-Before shipping, run `npm test` in this package (it lints frontmatter, names, word budgets and relative links) and `claude plugin validate .`. Then add what you changed and why to `docs/ARCHITECTURE.ru.md`.
+A change to a skill the eval suite covers is checked with `npm run eval -- --case <name>` against `docs/EVALS.md` (it costs plan usage). Before shipping, run `npm test` in this package (it lints frontmatter, names, word budgets and relative links) and `claude plugin validate .`. Then add what you changed and why to `docs/ARCHITECTURE.ru.md`.

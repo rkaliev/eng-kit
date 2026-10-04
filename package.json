@@ -1,6 +1,6 @@
 {
   "name": "eng-kit",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "private": true,
   "description": "Claude Code plugin. Disciplined coding agent for any project (web, mobile or desktop; any domain; new or existing code): process, platform and domain skills plus guard and verify hooks.",
   "type": "module",
@@ -19,7 +19,8 @@
   "scripts": {
     "test": "node --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "validate": "claude plugin validate ."
+    "validate": "claude plugin validate .",
+    "eval": "claude plugin eval . --scaffold --allow-tools Bash Write Edit --model sonnet --judge-model sonnet --no-publish"
   },
   "devDependencies": {
     "@types/node": "22.18.0",
