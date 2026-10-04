@@ -37,6 +37,17 @@ test("SessionStart injects the using-skills body with the kit paths", () => {
 	assert.match(out.additionalContext!, /## The rule/);
 	assert.match(out.additionalContext!, /scripts[\\/]verify\.ts/);
 	assert.doesNotMatch(out.additionalContext!, /^---\nname:/m, "frontmatter is stripped");
+	assert.match(out.additionalContext!, /Kit commands the user types: `\/eng-kit:<name>`/, "plugin layout");
+});
+
+test("SessionStart names the user commands without a prefix in a project install", () => {
+	const project = mkdtempSync(join(tmpdir(), "hooks-install-"));
+	mkdirSync(join(project, ".claude", "skills", "using-skills"), { recursive: true });
+	mkdirSync(join(project, ".claude", "eng-kit"), { recursive: true });
+	writeFileSync(join(project, ".claude", "skills", "using-skills", "SKILL.md"), "---\nname: using-skills\n---\n## The rule\n");
+	const env: HookEnv = { root: join(project, ".claude", "eng-kit"), projectDir: project, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
+	const out = handle({ session_id: "s1", cwd: project, hook_event_name: "SessionStart", source: "startup" }, env).output!.hookSpecificOutput as Record<string, string>;
+	assert.match(out.additionalContext!, /Kit commands the user types: `\/<name>`/);
 });
 
 test("PreToolUse: deny for blocks, ask for confirmations, no opinion otherwise", () => {

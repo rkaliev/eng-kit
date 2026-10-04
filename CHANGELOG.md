@@ -2,8 +2,8 @@
 
 ## 0.21.0
 
-- **Load a skill before naming it.** The eval runs showed the agent announcing "Using test-driven-development" without loading the skill, then working from memory (it took a missing-module error as the failing test, which the test standard rules out). `using-skills` now says to load the skill first, then announce it, and that naming a skill without loading it doesn't count. In `tdd-discount` the skill now loads in 2–3 of 3 runs, up from 0 of 5. `verify-before-done` still loads no skill: a skill needed at the end of a task isn't reached by a rule read at the start; a Stop-hook reminder is the next step.
-- `using-skills` is tighter to stay within its word budget: the `/<name>` line is gone, and the tool lines are shorter.
+- **Load a skill before naming it.** In the eval traces the agent announced "Using test-driven-development" without loading the skill and worked from memory: it took a missing-module error as the failing test, which test-driven-development rules out. `using-skills` now says to load the skill first, then announce it, and that naming a skill without loading it doesn't count. In `tdd-discount` the skill loaded in 5 of 6 runs with this wording, against 0 of 5 before (small samples; `docs/EVALS.md`). `verify-before-done` still loads no skill; a likely reason is that its skill is needed at the end of the task, which a Stop-hook reminder will test.
+- **The session context names the command form** the user types for kit commands: `/eng-kit:<name>` as a plugin, `/<name>` in a project install. It replaces a line in `using-skills`, which made room for the new rule within the skill's word budget; the tool lines there are also shorter.
 
 ## 0.20.0
 
