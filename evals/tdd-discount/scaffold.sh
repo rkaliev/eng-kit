@@ -7,4 +7,4 @@ cp -R "$here/fixture/." .
 for f in dot-*; do [ -e "$f" ] && mv "$f" ".${f#dot-}"; done
 git init -q -b main
 git add -A
-git -c user.name=eval -c user.email=eval@example.invalid commit -qm "initial"
+git -c user.name=eval -c user.email=eval@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -q --no-verify -m "initial"

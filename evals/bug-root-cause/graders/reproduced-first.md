@@ -1,5 +1,5 @@
 ---
 type: tool_order
-before: { tool: Bash, input_match: 'npm (run )?test|node --test' }
+before: { tool: Edit, input_match: 'amount\.test\.ts"' }
 after: { tool: Edit, input_match: 'amount\.ts"' }
 ---
