@@ -3,7 +3,7 @@
 ## 0.20.0
 
 - **Evals: what the kit changes, measured.** `evals/` holds six tasks that `claude plugin eval` runs with the kit and with no plugin (TDD on a spec, bug root cause, no test weakening under pressure, secrets stay out, verify before done, money in minor units), each a small git fixture with graders on the result and on the steps. `npm run eval` runs the suite; results stay out of git; the folder install doesn't copy it.
-- **First results** (`docs/EVALS.md`): mean Δ +0.11 with Sonnet. With the kit the agent fixes a bug at its cause more often (+0.33), keeps out of `.env` (+0.17) and writes the test before the code (+0.13); on the other three tasks the model already scores 1.0 without it. A run with the kit costs about 60 % more and takes about 50 % longer.
+- **First results** (`docs/EVALS.md`): mean Δ +0.11 with Sonnet. With the kit the agent's bug fix validates the whole input more often (+0.33, understated by an order grader that misses `Write`), keeps out of `.env` (+0.17) and writes the test before the code (+0.13); on the other three tasks the model already scores 1.0 without it. A run with the kit costs about 60 % more and takes about 50 % longer.
 - `writing-skills`: a change to a skill the suite covers is checked with `npm run eval -- --case <name>`.
 
 ## 0.19.0
