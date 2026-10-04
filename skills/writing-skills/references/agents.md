@@ -18,8 +18,8 @@ A subagent is a role with its own context window, its own tools and a fixed repo
 
 ```yaml
 ---
-name: reviewer             # lowercase, hyphens
-description: Read-only code reviewer with a fresh context. Use after … to …   # decides delegation
+name: api-auditor             # lowercase, hyphens
+description: Read-only API auditor. Use after … to …   # decides delegation
 tools: Read, Grep, Glob, Bash      # allowlist; omitted = every tool the session has
 disallowedTools: Edit, Write       # removed from what is inherited
 model: opus                        # sonnet | opus | haiku | inherit | a full id
@@ -32,7 +32,7 @@ Plugin agents can't set `hooks`, `mcpServers` or `permissionMode`; put hooks in 
 ## The prompt
 
 - **One responsibility.** "Review a git range against its requirements", not "review and fix".
-- **Least privilege.** Grant only the tools the role needs. A reviewer gets no edit tools; a researcher gets no shell. Nesting (an agent dispatching agents) stays off unless the role is an orchestrator: leave `Agent` out of `tools`.
+- **Least privilege.** Grant only the tools the role needs. A reviewer gets no edit tools; a researcher gets no shell. A shell can write files, so a read-only role that needs one also needs a hook or guard rule that limits its commands. Nesting (an agent dispatching agents) stays off unless the role is an orchestrator: leave `Agent` out of `tools` or add it to `disallowedTools`.
 - **Model by stakes:** the most capable model for review, security and design judgment; a fast one for search and mechanical work.
 - **Self-contained input.** The agent never sees the conversation. Its prompt says what it receives (task text, paths, ranges, commands) and what to do when something is missing: report `NEEDS_CONTEXT`, don't guess.
 - **A fixed report.** End with machine-readable lines the caller or a hook can parse (a status word, a verdict, the SHAs reviewed) and a short human summary. Say what counts as evidence (commands run with their output, `file:line`).
