@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.1
+
+- **The review gate reads the shell more closely.** `>|` and `>& file` take their file name, so `git push >|log origin HEAD:main` is a push of `HEAD:main`; a `&` before `<` stays a command separator. Push options with a separate value (`-o`, `--push-option`, `--repo`, `--receive-pack`, `--exec`) no longer name the remote. A `git push` without a refspec is checked where git would push it (`@{push}`), so a branch whose upstream is the base can't land on it unreviewed under `push.default=upstream`.
+- **Folders are followed through `cd -P`, `cd --`, `cd -`, `pushd`/`popd`, `~`, `$HOME` and `$TMPDIR`**, in the review gate and in the protection of the review records; a failed `cd` no longer moves the records check to the wrong folder, and a `>` inside quotes is not a write.
+- **The command guard** blocks the abbreviations git accepts for `--no-verify` (`--no-veri`, `--no-verif`), and reads `&>`, `&>>` and `2>&1` as redirections, so `declare &>/dev/null -x GIT_DIR=…` asks like `declare -x GIT_DIR=…`.
+- **The reviewer** sets earlier reports aside only after `git merge-base --is-ancestor {BASE} {REMOTE_BASE}` confirms that the range starts on the remote base; otherwise it says Inconclusive.
+- **test-hygiene v5:** a one-argument Vitest `context.skip("platform: …")` keeps its reason. Re-run kit-init with `--test-hygiene` to replace an older copy.
+- Docs: `git-workflow`'s `--ff-only` step, the `/finish` summaries (a PR by default after a Yes), the README guard table on PR/MR merges, and an `allow` pattern also quieting the `implementer`'s push.
+
 ## 0.21.0
 
 - **Load a skill before naming it.** In the eval traces the agent announced "Using test-driven-development" without loading the skill and worked from memory: it took a missing-module error as the failing test, which test-driven-development rules out. `using-skills` now says to load the skill first, then announce it, and that naming a skill without loading it doesn't count. In `tdd-discount` the skill loaded in 5 of 6 runs with this wording, against 0 of 5 before (small samples; `docs/EVALS.md`). `verify-before-done` still loads no skill; a likely reason is that its skill is needed at the end of the task, which a Stop-hook reminder will test.
