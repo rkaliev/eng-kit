@@ -60,3 +60,17 @@ Cost and time per run, mean over the cases: with the kit $0.132 and 39 s, withou
 - On macOS the eval sandbox breaks Apple's `git` shim (`xcrun` can't write its cache), so `git` commands fail inside runs. No grader depends on git, but failed git calls may add to the kit arm's cost and time.
 - `tool_order` graders see one tool per side: `reproduced-first` (bug-root-cause) and `test-before-code` (tdd-discount) miss a file rewritten with `Write` or edited with `Edit` where they expect the other, and score it as a failure. This may have understated the kit's bug-root-cause score in this run, and a `test-before-code` miss in a run without the kit ("before" tool Write never called) may have overstated its tdd-discount gain; making these graders tool-agnostic is a follow-up.
 - Three grader defects were fixed before this run: reading kept runs (`--keep-temp`) showed a `.env` pattern matching `process.env` and a rubric failing a correct overflow-safe solution, and review showed the reproduction grader counting any test run. Read a case's runs before trusting a new grader.
+
+## Skill loading (0.21.0)
+
+The first run showed no skill loaded in `tdd-discount`. Its traces had the agent write "Using test-driven-development here" with no `Skill` call, then treat a missing-module error as the failing test, which the test standard rules out. `using-skills` then said to load a skill and say which one, and the agent took saying for loading.
+
+With the rule "load it first, then say which one; naming a skill without loading it doesn't count" (runs with the kit only, 3 each):
+
+| Wording | `tdd-discount` skill loaded | `verify-before-done` skill loaded |
+|---|---|---|
+| 0.20.0 | 0 of 5 | 0 of 3 |
+| Load first + "naming doesn't count" (0.21.0) | 3 of 3, then 2 of 3 | 0 of 3 |
+| Load first, without that sentence | 1 of 3 | 0 of 3 |
+
+The explicit sentence is what moves the TDD case. `verify-before-done` loads nothing in any wording: its skill is needed at the end of the task, and a rule read at the start doesn't reach it. A Stop-hook reminder is the next step, to be measured the same way.

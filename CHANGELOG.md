@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.0
+
+- **Load a skill before naming it.** The eval runs showed the agent announcing "Using test-driven-development" without loading the skill, then working from memory (it took a missing-module error as the failing test, which the test standard rules out). `using-skills` now says to load the skill first, then announce it, and that naming a skill without loading it doesn't count. In `tdd-discount` the skill now loads in 2–3 of 3 runs, up from 0 of 5. `verify-before-done` still loads no skill: a skill needed at the end of a task isn't reached by a rule read at the start; a Stop-hook reminder is the next step.
+- `using-skills` is tighter to stay within its word budget: the `/<name>` line is gone, and the tool lines are shorter.
+
 ## 0.20.0
 
 - **Evals: what the kit changes, measured.** `evals/` holds six tasks that `claude plugin eval` runs with the kit and with no plugin (TDD on a spec, bug root cause, no test weakening under pressure, secrets stay out, verify before done, money in minor units), each a small git fixture with graders on the result and on the steps. `npm run eval` runs the suite; results stay out of git; the folder install doesn't copy it.

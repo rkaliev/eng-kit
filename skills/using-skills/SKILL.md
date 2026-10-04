@@ -9,7 +9,7 @@ If you were dispatched as a subagent for one specific task, skip this skill and 
 
 ## The rule
 
-Before you respond or act, including before clarifying questions or exploring code, check the available skills. If one plausibly applies, load it with the Skill tool and follow it. Say which one: "Using <skill> to <purpose>". If it turns out not to fit, drop it and say so.
+Before you respond or act, including before clarifying questions or exploring code, check the available skills. If one plausibly applies, load it with the Skill tool first, then say which one: "Using <skill> to <purpose>", and follow it. Naming a skill without loading it doesn't count: you would be working from memory of an older version. If it turns out not to fit, drop it and say so.
 
 Precedence: the user's direct instructions, then project files (CLAUDE.md, AGENTS.md), then skills, then your defaults. Process skills come first and set the approach; platform and domain skills supply the specifics.
 
@@ -50,10 +50,9 @@ When unsure, take the heavier path. If hidden complexity shows up mid-task, stop
 
 ## Tools in Claude Code
 
-- The user can type `/<name>` (`/eng-kit:<name>` as a plugin).
-- **Verification:** the kit verify script ("Kit verify script" in the session context) runs `.claude/verify.json` or CLAUDE.md's Commands; prefer it as completion evidence. A Stop hook returns you once if files changed after the last green run.
-- **Delegation:** for a subagent use the Agent tool: `Explore` to scout, `reviewer` to review, `implementer` for one plan task. Send independent agents in one message, each with a self-contained prompt.
-- **Tasks:** use a todo for multi-step work; task files keep their Plan checkboxes and Progress.
+- **Verification:** the kit verify script (named in the session context) runs `.claude/verify.json` or CLAUDE.md's Commands; prefer it as evidence. A Stop hook returns you once if files changed since the last green run.
+- **Delegation:** the Agent tool: `Explore` to scout, `reviewer` to review, `implementer` for one plan task; independent ones in one message, each with a self-contained prompt.
+- **Tasks:** a todo for multi-step work; task files hold Plan and Progress.
 - **Guard:** a hook denies irreversible or secret-leaking calls and asks before outward-facing ones, except your own work branch's push. Never reword a denied command to get past it; ask.
 
 ## Red flags
