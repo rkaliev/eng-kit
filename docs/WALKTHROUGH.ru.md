@@ -331,7 +331,7 @@ claude plugin install eng-kit@eng-kit --scope project
 | `/eng-kit:verify` | Прогнать проверки |
 | `/eng-kit:new-task <что сделать>` | Файл задачи только с описанием и критериями |
 | `/eng-kit:docs [тема \| changelog \| decision …]` | Документация проекта: README, главы docs, CHANGELOG, записи решений |
-| `/eng-kit:finish` | merge / PR / keep / discard |
+| `/eng-kit:finish` | PR по умолчанию после Yes; merge, keep или discard — на твой выбор |
 | «следи за CI» после push | CI через `gh pr checks --watch`: до 2 попыток на упавшую проверку, дальше вопрос; сам агент не мержит |
 | `/eng-kit:ci-quality-gates` | CI проекта: команды из verify.json, `gate`, секреты, аудит, миграции, e2e без ретраев. `/eng-kit:kit-init` показывает, всё ли из проверок есть в CI |
 | «обнови зависимость X» | `updating-dependencies`: по одной, changelog прочитан, мажор — только с твоим «да» |

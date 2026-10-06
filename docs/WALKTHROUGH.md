@@ -331,7 +331,7 @@ claude plugin install eng-kit@eng-kit --scope project
 | `/eng-kit:verify` | Run the checks |
 | `/eng-kit:new-task <what to do>` | A task file with only the description and criteria |
 | `/eng-kit:docs [topic \| changelog \| decision …]` | Project documentation: README, docs chapters, CHANGELOG, decision records |
-| `/eng-kit:finish` | merge / PR / keep / discard |
+| `/eng-kit:finish` | PR by default after a Yes; merge, keep or discard on your choice |
 | "watch CI" after push | CI through `gh pr checks --watch`: up to 2 attempts per failed check, then a question; the agent doesn't merge by itself |
 | `/eng-kit:ci-quality-gates` | The project's CI: commands from verify.json, `gate`, secrets, audit, migrations, e2e without retries. `/eng-kit:kit-init` shows whether all the checks are in CI |
 | "update dependency X" | `updating-dependencies`: one at a time, changelog read, major versions only with your "yes" |

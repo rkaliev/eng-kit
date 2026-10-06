@@ -238,7 +238,7 @@ claude
 | 2 | `/eng-kit:implement tasks/01-percent-discount.md` | План до 7 строк, затем TDD: сначала падающий тест на каждый критерий. Задача про деньги, поэтому подключится `payments-and-money`: только целочисленная арифметика и округление half-up |
 | 3 | (агент говорит «готово») | Если проверок после правок не было, Stop-хук вернёт агента («Verify gate: files changed…»), и отчёт будет с реальными результатами |
 | 4 | `/eng-kit:requesting-code-review` | Агент `reviewer`: Criteria / Confirmed / Assumptions / Questions / Verdict |
-| 5 | `/eng-kit:finish` | Варианты merge / PR / keep / discard. Merge — только после твоего выбора; рабочая ветка пушится и PR открывается, когда ревью покрывает HEAD |
+| 5 | `/eng-kit:finish` | PR по умолчанию после Yes; merge, keep или discard — на твой выбор. Merge — только после твоего выбора; рабочая ветка пушится и PR открывается, когда ревью покрывает HEAD |
 
 **Как проверить guard:**
 - `git push --force` — отказ с подсказкой про `--force-with-lease`;

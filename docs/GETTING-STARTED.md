@@ -238,7 +238,7 @@ claude
 | 2 | `/eng-kit:implement tasks/01-percent-discount.md` | A plan of up to 7 lines, then TDD: a failing test for each criterion first. The task is about money, so `payments-and-money` kicks in: integer arithmetic only and half-up rounding |
 | 3 | (the agent says "done") | If there were no checks after the edits, the Stop hook sends the agent back ("Verify gate: files changed…"), and the report has real results |
 | 4 | `/eng-kit:requesting-code-review` | The `reviewer` agent: Criteria / Confirmed / Assumptions / Questions / Verdict |
-| 5 | `/eng-kit:finish` | Options merge / PR / keep / discard. Merge happens only after your choice; the work branch is pushed and the PR opened once the review covers HEAD |
+| 5 | `/eng-kit:finish` | PR by default after a Yes; merge, keep or discard on your choice. Merge happens only after your choice; the work branch is pushed and the PR opened once the review covers HEAD |
 
 **How to check the guard:**
 - `git push --force`: denied, with a hint about `--force-with-lease`;
