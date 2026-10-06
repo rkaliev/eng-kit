@@ -1,6 +1,6 @@
 # Token usage in the terminal: status line and per-branch ledger
 
-Status: design approved (2026-10-06)
+Status: plan approved (2026-10-06)
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
 Base: 669691e51146845fbca6a32f8abb8f4580e3deeb
 Links: None
