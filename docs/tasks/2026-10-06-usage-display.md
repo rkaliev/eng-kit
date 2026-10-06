@@ -131,9 +131,9 @@ Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs 
 
 ### Task 5: branch summary
 **Files:** Create `scripts/usage-log.ts` · Modify `skills/finish/SKILL.md`, `lib/usage.ts` (`summaryLine`) · Test `tests/usage.test.ts`
-- [ ] Test (criterion 4): `summaryLine({ byAgent: { main: 3.4e6, reviewer: 2.1e6, implementer: 8e5 } … })` → `main 3.4M · reviewer 2.1M · implementer 800k · total 6.3M`, agents by size
-- [ ] Run → FAIL; implement; the script prints the current (or named) branch; finish skill: one sentence to run it after verification and include the line in the summary
-- [ ] Run → PASS (lint-skills too); commit `feat(usage): branch token summary in /finish`
+- [x] Test (criterion 4): `summaryLine({ byAgent: { main: 3.4e6, reviewer: 2.1e6, implementer: 8e5 } … })` → `main 3.4M · reviewer 2.1M · implementer 800k · total 6.3M`, agents by size
+- [x] Run → FAIL; implement; the script prints the current (or named) branch; finish skill: one sentence to run it after verification and include the line in the summary
+- [x] Run → PASS (lint-skills too); commit `feat(usage): branch token summary in /finish`
 
 ### Task 6: pi edition
 **Files:** Copy `lib/usage.ts` → `src/extensions/lib/usage.ts`, `scripts/usage-log.ts`; Modify `src/extensions/guard.ts`, `src/prompts/finish.md`; Tests `src/tests/usage.test.ts` (same as Task 1, path-adjusted), `src/tests/guard*.test.ts`
@@ -151,3 +151,4 @@ Task 1: complete (642d993..e1bbc29, npm test → 400 pass; usage tests seen fail
 Task 2: complete (ed742b9..16e8973, npm test → 401 pass; ledger hook test seen failing on assertion first)
 Task 3: complete (b2211f8..12c1b71, npm test → 403 pass; statusline tests seen failing first; script tried by hand: coloured line, garbage → eng-kit, exit 0)
 Task 4: complete (9b3f41f..f52a243, npm test → 405 pass; installer tests seen failing first; script tried on a temp CLAUDE_CONFIG_DIR: dry-run, add, same)
+Task 5: complete (c8556ae..ee6c424, npm test → 406 pass incl. lint-skills; summary test seen failing first)
