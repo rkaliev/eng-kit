@@ -4,7 +4,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { appendUsage, branchSummary, formatTokens, readTranscriptUsage, type Tokens } from "../lib/usage.ts";
+import { appendUsage, branchSummary, formatTokens, readTranscriptUsage, summaryLine, type Tokens } from "../lib/usage.ts";
 import { reviewsDir } from "../lib/reviews.ts";
 
 const tokens = (input: number, output = 0, cacheWrite = 0, cacheRead = 0): Tokens => ({ input, output, cacheWrite, cacheRead });
@@ -46,4 +46,9 @@ test("token counts read at a glance", () => {
 	assert.equal(formatTokens(950), "950");
 	assert.equal(formatTokens(12_345), "12k");
 	assert.equal(formatTokens(1_234_567), "1.2M");
+});
+
+test("a branch summary lists agents by size, then the total", () => {
+	assert.equal(summaryLine({ byAgent: { implementer: 800_000, main: 3_400_000, reviewer: 2_100_000 }, subagents: 2_900_000, total: 6_300_000 }), "main 3.4M · reviewer 2.1M · implementer 800k · total 6.3M");
+	assert.equal(summaryLine({ byAgent: {}, subagents: 0, total: 0 }), "no token use recorded for this branch");
 });

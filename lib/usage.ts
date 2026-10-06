@@ -103,3 +103,10 @@ function parse(line: string): unknown {
 function count(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
+
+/** `main 3.4M · reviewer 2.1M · implementer 800k · total 6.3M`, agents by size. */
+export function summaryLine(summary: BranchSummary): string {
+	const agents = Object.entries(summary.byAgent).sort((a, b) => b[1] - a[1]);
+	if (agents.length === 0) return "no token use recorded for this branch";
+	return [...agents.map(([agent, n]) => `${agent} ${formatTokens(n)}`), `total ${formatTokens(summary.total)}`].join(" · ");
+}
