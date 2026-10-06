@@ -73,4 +73,15 @@ Runs with the kit only (`--ablation none`), 2026-10-04, Claude Code 2.1.289, age
 | Load first + "naming a skill without loading it doesn't count" (0.21.0) | 3 of 3, then 2 of 3 | 0 of 3 |
 | Load first, without that sentence | 1 of 3 | 0 of 3 |
 
-With the sentence the skill loaded in 5 of 6 runs, without it in 1 of 3: small samples, a signal rather than proof. `verify-before-done` loaded nothing in any wording. A likely reason is that its skill is needed at the end of the task, while the rule is read at the start; a Stop-hook reminder will test that, measured the same way.
+With the sentence the skill loaded in 5 of 6 runs, without it in 1 of 3: small samples, a signal rather than proof. `verify-before-done` loaded nothing in any wording. A likely reason is that its skill is needed at the end of the task, while the rule is read at the start.
+
+## A Stop-hook reminder for verification? (2026-10-06, not added)
+
+Before adding a reminder to load `verification-before-completion`, two harder cases checked whether there is a gap for it to close: one where CI also runs `npm run lint` but the prompt names only `npm test`, and one where the e2e tests can't run here (they need a staging address). Agent and judge `sonnet`, 3 runs per arm, Claude Code 2.1.291, $1.38:
+
+| Case | With kit | Without | Δ |
+|---|---|---|---|
+| lint found from CI and run, both checks reported | 1.00 | 1.00 | 0.00 |
+| e2e reported as not run, with the reason | 1.00 | 1.00 | 0.00 |
+
+The kept runs show the skill was not loaded in any of them, yet both arms ran every check and reported honestly. With no gap to close, the reminder would only add the skill's text to every finished task, so it was not added; the verify gate already enforces the mechanical part. The two cases were dropped as well: like `verify-before-done`, they score at the ceiling.
