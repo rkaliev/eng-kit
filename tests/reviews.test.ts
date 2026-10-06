@@ -767,6 +767,9 @@ test("gate files: a > is a write wherever it stands, since the guard can't pair 
 	const check = (command: string, cwd = project) => checkGateFiles(command, cwd, project, ".claude/guard.json")?.action ?? "allow";
 	assert.equal(check(`cat x > ${records}/y`), "block");
 	assert.equal(check(`cd ${records}/h && cat <<EOF\nls what's here\nEOF\ncat /tmp/r.json > abc.json`, "/"), "block", "an apostrophe in a heredoc body doesn't hide a later write");
+	for (const write of [`echo x >!${records}/h/a.json`, `cd ${records}/h && file -C -m x`, `cd ${records}/h && less -o a.json /etc/hosts`, "cp /tmp/r.json $TMPDIR/eng-kit/./reviews/h/a.json"]) {
+		assert.equal(check(write, "/"), "block", `a write into the records: ${write}`);
+	}
 });
 
 test("a PR created inside a compound command is registered, even when a later step fails or a subshell moved", () => {
