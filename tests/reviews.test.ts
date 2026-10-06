@@ -749,6 +749,9 @@ test("cd options, cd -, pushd and popd are followed to the checkout a landing ru
 	}
 	assert.match(check(`grep -q x README.md &&>/dev/null cd ${wt}; gh pr create --fill`)!.reason!, /can't tell which checkout/, "&&> is && then a redirection");
 	assert.equal(check(`cd ${wt} && gh pr create --title t --body "$(cat <<'EOF'\nbody\nEOF\n)"`), undefined, "a substitution in quotes can't move the shell");
+	for (const hidden of [`git commit -F - <<'EOF'\nLet's go\nEOF\ngh pr create --fill`, `git commit -F - <<-EOF\nit's\n\tEOF\ngit push origin HEAD:main`, `echo "$(cd ${dir} && gh pr create --fill)"`]) {
+		assert.match(check(hidden, OPTIONS, wt)?.reason ?? "", /can't read/, `a landing the segments don't show: ${hidden}`);
+	}
 	symlinkSync(join(wt, "src"), join(dir, "lnk"));
 	assert.equal(check(`cd -P lnk && cd .. && git push origin HEAD:main`), undefined, "cd -P follows the symlink's real folder");
 	assert.equal(action(check(`cd -PL lnk && cd .. && git push origin HEAD:main`)), "block", "the last of -P and -L wins");

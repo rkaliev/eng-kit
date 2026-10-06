@@ -435,3 +435,50 @@ export function safeRealpath(path: string): string {
 		return path;
 	}
 }
+
+/**
+ * The command without heredoc bodies: the lines after a line with `<<WORD` (`<<-`, a quoted WORD) up to the line
+ * that ends it. The operator is found in the raw text, so a `<<` in quotes drops lines too: callers use this text
+ * only to find more, never to see less.
+ */
+export function dropHeredocBodies(command: string): string {
+	const out: string[] = [];
+	const open: Array<{ word: string; tabs: boolean }> = [];
+	for (const line of command.split("\n")) {
+		if (open.length > 0) {
+			if ((open[0]!.tabs ? line.replace(/^\t+/, "") : line) === open[0]!.word) open.shift();
+			continue;
+		}
+		out.push(line);
+		// `<<<` is a here-string, not a heredoc.
+		for (const m of line.matchAll(/(?<!<)<<(-?)[ \t]*(['"]?)([\w.-]+)\2/g)) open.push({ word: m[3]!, tabs: m[1] === "-" });
+	}
+	return out.join("\n");
+}
+
+/** The text of each `$(…)` and backtick substitution inside double quotes: it runs, but stays one word. */
+export function quotedSubstitutions(command: string): string[] {
+	const found: string[] = [];
+	let quote: string | null = null;
+	for (let i = 0; i < command.length; i++) {
+		const ch = command[i]!;
+		if (quote === "'") {
+			if (ch === "'") quote = null;
+		} else if (ch === "\\") i++;
+		else if (quote === null) {
+			if (ch === "'" || ch === '"') quote = ch;
+		} else if (ch === '"') quote = null;
+		else if (ch === "`") {
+			const end = command.indexOf("`", i + 1);
+			found.push(command.slice(i + 1, end === -1 ? undefined : end));
+			i = end === -1 ? command.length : end;
+		} else if (command.startsWith("$(", i)) {
+			let depth = 1;
+			let j = i + 2;
+			for (; j < command.length && depth > 0; j++) depth += command[j] === "(" ? 1 : command[j] === ")" ? -1 : 0;
+			found.push(command.slice(i + 2, depth === 0 ? j - 1 : j));
+			i = j - 1;
+		}
+	}
+	return found;
+}

@@ -14,7 +14,7 @@ import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, wri
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { splitSegments, tokenize, type GuardDecision } from "./patterns.ts";
-import { blankQuoted, follow, moveSegments, parseMove, plainShell, reachable, safeRealpath, segmentsOf, stripRedirects, Subshells, writes } from "./shell.ts";
+import { blankQuoted, dropHeredocBodies, follow, moveSegments, parseMove, plainShell, quotedSubstitutions, reachable, safeRealpath, segmentsOf, stripRedirects, Subshells, writes } from "./shell.ts";
 import { baseBranch, currentBranch, landing, pushedToBase, type Landing } from "./workdocs.ts";
 
 export type Verdict = "Yes" | "With fixes" | "No" | "Inconclusive";
@@ -258,6 +258,9 @@ export function readReports(projectDir: string, sha: string, root?: string): Arr
  * Anything the guard can't follow (a variable, a nested subshell, another repository) fails closed.
  */
 export function checkReview(command: string, cwd: string, projectDir: string, options: ReviewGateOptions, root?: string): GuardDecision | undefined {
+	if (hiddenLanding(command)) {
+		return decision(options.missing, "the guard can't read where this command lands: a landing follows a heredoc body or sits in a substitution in double quotes. Run the landing as its own command.", options);
+	}
 	const shell = new Subshells(cwd, command);
 	let unsafeBefore = false;
 	for (const { raw, alone, before } of segmentsOf(tokenize(stripRedirects(command)))) {
@@ -303,6 +306,23 @@ export function checkReview(command: string, cwd: string, projectDir: string, op
 		}
 	}
 	return undefined;
+}
+
+/** Landings (not commits) in the command's segments. */
+function landings(command: string): number {
+	return segmentsOf(tokenize(stripRedirects(command))).filter(({ raw }) => {
+		const l = landing(raw.map((t) => t.replace(/^\(+|\)+$/g, "")).filter(Boolean));
+		return l !== undefined && l.kind !== "commit";
+	}).length;
+}
+
+/**
+ * A landing the segments don't show: an apostrophe in a heredoc body opens a quote the shell never sees and
+ * swallows the lines after it, and a substitution in double quotes stays one word although it runs.
+ */
+function hiddenLanding(command: string): boolean {
+	const text = dropHeredocBodies(command);
+	return landings(text) > landings(command) || quotedSubstitutions(text).some((s) => landings(s) > 0);
 }
 
 /**
