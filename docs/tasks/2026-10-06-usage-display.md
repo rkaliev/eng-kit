@@ -118,9 +118,9 @@ Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs 
 ### Task 3: status line
 **Files:** Create `lib/statusline.ts`, `scripts/statusline.ts` · Test `tests/statusline.test.ts`
 **Interfaces:** `statusText(input: unknown, sub: number | undefined, color: boolean): string`; `bar(pct: number): string` (10 cells, `▓` per started 10 %, rest `░`)
-- [ ] Tests (criteria 1, 1a, 7): full input → `ctx ▓▓▓▓▓░░░░░ 42% · $1.87 · 5h ▓▓▓▓▓▓▓░░░ 63% ↻14:20 · 7d ▓▓▓▓░░░░░░ 31% · sub 1.2M` without colour; no `rate_limits` → no 5h/7d parts; `sub` undefined → no sub part; garbage → `eng-kit`; colour rows at 0/49 → green (32), 50/79 → yellow (33), 80/100 → red (31); `color=false` (from `NO_COLOR`) → no `\x1b[`
-- [ ] Run → FAIL; implement; `resets_at` shown as local `HH:MM`; the script reads stdin, finds the branch of `workspace.current_dir`, reads the ledger once, prints one line, exits 0 on any error
-- [ ] Run → PASS; commit `feat(usage): status line with bars and colours`
+- [x] Tests (criteria 1, 1a, 7): full input → `ctx ▓▓▓▓▓░░░░░ 42% · $1.87 · 5h ▓▓▓▓▓▓▓░░░ 63% ↻14:20 · 7d ▓▓▓▓░░░░░░ 31% · sub 1.2M` without colour; no `rate_limits` → no 5h/7d parts; `sub` undefined → no sub part; garbage → `eng-kit`; colour rows at 0/49 → green (32), 50/79 → yellow (33), 80/100 → red (31); `color=false` (from `NO_COLOR`) → no `\x1b[`
+- [x] Run → FAIL; implement; `resets_at` shown as local `HH:MM`; the script reads stdin, finds the branch of `workspace.current_dir`, reads the ledger once, prints one line, exits 0 on any error
+- [x] Run → PASS; commit `feat(usage): status line with bars and colours`
 
 ### Task 4: status-line installer
 **Files:** Modify `lib/statusline.ts` · Create `scripts/statusline-install.ts` · Test `tests/statusline.test.ts`
@@ -149,3 +149,4 @@ Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs 
 Baseline: 642d993, npm test 397 pass, typecheck clean.
 Task 1: complete (642d993..e1bbc29, npm test → 400 pass; usage tests seen failing on assertions first)
 Task 2: complete (ed742b9..16e8973, npm test → 401 pass; ledger hook test seen failing on assertion first)
+Task 3: complete (b2211f8..12c1b71, npm test → 403 pass; statusline tests seen failing first; script tried by hand: coloured line, garbage → eng-kit, exit 0)
