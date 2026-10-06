@@ -156,13 +156,15 @@ export function notePr(projectDir: string, callId: string, command: string, cwd:
 		const tokens = raw.map((t) => t.replace(/^\(+|\)+$/g, "")).filter(Boolean);
 		const l = landing(tokens);
 		const dir = shell.dir;
-		if (shell.move(raw, alone, before) === undefined && l?.kind === "pr" && !l.merge && !l.repo && dir !== undefined) {
-			// `gh pr create --head owner:branch` (a fork) pushes to `branch`.
-			const branch = l.target?.replace(/^[^:]+:/, "") ?? currentBranch(dir);
-			if (branch) {
+		if (shell.move(raw, alone, before) === undefined && l?.kind === "pr" && !l.merge && !l.repo) {
+			// `gh pr create --head owner:branch` (a fork) pushes to `branch`. After a move the guard doesn't follow
+			// (the user confirmed it), the PR may come from any folder the command may reach.
+			const dirs = dir !== undefined ? [dir] : reachable(command, cwd).dirs;
+			const branches = [...new Set(l.target ? [l.target.replace(/^[^:]+:/, "")] : dirs.map(currentBranch).filter((b) => b !== undefined))];
+			if (branches.length > 0) {
 				const pending = readJson(projectDir, PENDING_FILE, root);
 				// Not the last step: a later step may fail after the PR exists, so a failed call still registers it.
-				pending[callId] = { branch, at: Date.now(), last: index === segments.length - 1 };
+				pending[callId] = { branches, at: Date.now(), last: index === segments.length - 1 };
 				writeJson(projectDir, PENDING_FILE, pending, root);
 			}
 		}
@@ -172,16 +174,16 @@ export function notePr(projectDir: string, callId: string, command: string, cwd:
 /** After the call: register its noted PR branch if it succeeded (or failed after the PR step), forget it if not. */
 export function settlePr(projectDir: string, callId: string, ok: boolean, root?: string): void {
 	const pending = readJson(projectDir, PENDING_FILE, root);
-	const noted = pending[callId] as { branch?: unknown; last?: unknown } | undefined;
+	const noted = pending[callId] as { branches?: unknown; last?: unknown } | undefined;
 	if (!noted) return;
 	delete pending[callId];
 	for (const [id, entry] of Object.entries(pending)) {
 		if (Date.now() - Number((entry as { at?: unknown }).at ?? 0) > PENDING_MAX_AGE_MS) delete pending[id];
 	}
 	writeJson(projectDir, PENDING_FILE, pending, root);
-	if ((!ok && noted.last !== false) || typeof noted.branch !== "string") return;
+	if ((!ok && noted.last !== false) || !Array.isArray(noted.branches)) return;
 	const prs = readPrs(projectDir, root);
-	prs[noted.branch] = Date.now();
+	for (const branch of noted.branches) if (typeof branch === "string") prs[branch] = Date.now();
 	writePrs(projectDir, prs, root);
 }
 

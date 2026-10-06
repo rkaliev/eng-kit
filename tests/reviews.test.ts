@@ -773,27 +773,17 @@ test("gate files: a > is a write wherever it stands, since the guard can't pair 
 });
 
 test("a PR created inside a compound command is registered, even when a later step fails or a subshell moved", () => {
-	const { dir, root, git } = repo();
+	const { dir, root, git, commit } = repo();
 	const open = () => openPrBranches(dir, dir, "origin", "refs/remotes/origin/main", root);
 	notePr(dir, "t1", "(cd /tmp) && gh pr create --fill", dir, root);
 	settlePr(dir, "t1", true, root);
 	assert.deepEqual(open(), ["feat/a"], "the subshell's cd ends with it");
 	const wt = join(dir, ".worktrees", "n");
 	git("worktree", "add", "-q", "-b", "feat/n", wt, "main");
+	commit({ "src/n.ts": "export const n = 1;\n" }, wt);
 	notePr(dir, "t3", `(cd src && (ls) && cd ${wt}) && gh pr create --fill`, dir, root);
 	settlePr(dir, "t3", true, root);
-	assert.deepEqual(open(), ["feat/a"], "after a nested subshell the folder stays unknown: feat/n is not noted");
-	notePr(dir, "t4", `grep -q x README.md && cd ${wt} && (ls); gh pr create --fill`, dir, root);
-	settlePr(dir, "t4", true, root);
-	assert.deepEqual(open(), ["feat/a"], "a move in a broken && chain is not followed: feat/n is not noted");
-	notePr(dir, "t5", `grep -q x README.md && cd ${wt} && (ls; ls); gh pr create --fill`, dir, root);
-	settlePr(dir, "t5", true, root);
-	assert.deepEqual(open(), ["feat/a"], "a separator inside the subshell doesn't end the outer && chain");
-	notePr(dir, "t6", `echo $( cd ${wt} && gh pr create --fill )`, dir, root);
-	notePr(dir, "t7", `PR=$(cd ${wt} && gh pr create --fill)`, dir, root);
-	settlePr(dir, "t7", true, root);
-	settlePr(dir, "t6", true, root);
-	assert.deepEqual(open(), ["feat/a"], "a move inside a substitution is not followed");
+	assert.deepEqual(open(), ["feat/a", "feat/n"], "after a move the guard doesn't follow, every branch the PR may come from is noted");
 	const other = repo();
 	notePr(other.dir, "t2", "gh pr create --fill && gh pr view --web", other.dir, other.root);
 	settlePr(other.dir, "t2", false, other.root);
