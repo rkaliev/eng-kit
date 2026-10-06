@@ -1,6 +1,6 @@
 # Token usage in the terminal: status line and per-branch ledger
 
-Status: plan approved (2026-10-06)
+Status: in progress
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
 Base: 669691e51146845fbca6a32f8abb8f4580e3deeb
 Links: None
@@ -104,10 +104,10 @@ Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs 
 **Files:** Create `lib/usage.ts` · Test `tests/usage.test.ts`
 **Interfaces:** Produces `type Tokens = { input: number; output: number; cacheWrite: number; cacheRead: number }`; `readTranscriptUsage(path: string): { model: string; tokens: Tokens }[]`; `appendUsage(projectDir: string, record: UsageRecord, root?: string): void`; `branchSummary(projectDir: string, branch: string, root?: string): { byAgent: Record<string, number>; subagents: number; total: number }`; `formatTokens(n: number): string`.
 `UsageRecord = { kind: "subagent"; id: string; agent: string; model: string; tokens: Tokens; branch: string; at: number } | { kind: "session"; id: string; tokens: Tokens; branch: string; at: number }`. Ledger: `join(reviewsDir(projectDir, root ?? <tmpdir>/eng-kit/usage), "ledger.jsonl")`.
-- [ ] Tests: `readTranscriptUsage` on a fixture with a repeated message id sums it once (criterion 2); an unreadable path and a corrupt line give `[]`/skip (criterion 7); two `session` records with one id count only the later, two ids add up, `subagent` records add by agent (criterion 3); `formatTokens` 950 → "950", 12_345 → "12k", 1_234_567 → "1.2M"
-- [ ] Run `npm test -- tests/usage.test.ts` → FAIL on the assertions (stubs return empty)
-- [ ] Implement; total tokens = input + output + cacheWrite + cacheRead
-- [ ] Run → PASS, full suite; commit `feat(usage): per-branch token ledger and transcript reader`
+- [x] Tests: `readTranscriptUsage` on a fixture with a repeated message id sums it once (criterion 2); an unreadable path and a corrupt line give `[]`/skip (criterion 7); two `session` records with one id count only the later, two ids add up, `subagent` records add by agent (criterion 3); `formatTokens` 950 → "950", 12_345 → "12k", 1_234_567 → "1.2M"
+- [x] Run `npm test -- tests/usage.test.ts` → FAIL on the assertions (stubs return empty)
+- [x] Implement; total tokens = input + output + cacheWrite + cacheRead
+- [x] Run → PASS, full suite; commit `feat(usage): per-branch token ledger and transcript reader`
 
 ### Task 2: Claude hooks fill the ledger
 **Files:** Modify `lib/hooks.ts` (`HookEnv.usageRoot?`), `tests/hooks.test.ts`
@@ -146,4 +146,5 @@ Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs 
 
 ## Progress
 
-None yet
+Baseline: 642d993, npm test 397 pass, typecheck clean.
+Task 1: complete (642d993..e1bbc29, npm test → 400 pass; usage tests seen failing on assertions first)
