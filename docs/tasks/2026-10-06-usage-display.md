@@ -125,9 +125,9 @@ Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs 
 ### Task 4: status-line installer
 **Files:** Modify `lib/statusline.ts` · Create `scripts/statusline-install.ts` · Test `tests/statusline.test.ts`
 **Interfaces:** `planStatusLine(settings: string | undefined, command: string, force: boolean): { status: "added" | "same" | "replaced" | "refused" | "invalid"; text?: string }`; `stableRoot(kitRoot: string, home: string): string` (`…/plugins/cache/<market>/<plugin>/<ver>` → `~/.claude/plugins/marketplaces/<market>` when it exists, else `kitRoot`)
-- [ ] Tests (criterion 5): no file → added; ours → same; someone else's → refused, with `force` → replaced (other keys kept); invalid JSON → invalid, untouched; `stableRoot` maps a cache path and keeps a project path
-- [ ] Run → FAIL; implement; the script prints the planned change and writes `~/.claude/settings.json` only on added/replaced
-- [ ] Run → PASS; commit `feat(usage): status-line installer for user settings`
+- [x] Tests (criterion 5): no file → added; ours → same; someone else's → refused, with `force` → replaced (other keys kept); invalid JSON → invalid, untouched; `stableRoot` maps a cache path and keeps a project path
+- [x] Run → FAIL; implement; the script prints the planned change and writes `~/.claude/settings.json` only on added/replaced
+- [x] Run → PASS; commit `feat(usage): status-line installer for user settings`
 
 ### Task 5: branch summary
 **Files:** Create `scripts/usage-log.ts` · Modify `skills/finish/SKILL.md`, `lib/usage.ts` (`summaryLine`) · Test `tests/usage.test.ts`
@@ -150,3 +150,4 @@ Baseline: 642d993, npm test 397 pass, typecheck clean.
 Task 1: complete (642d993..e1bbc29, npm test → 400 pass; usage tests seen failing on assertions first)
 Task 2: complete (ed742b9..16e8973, npm test → 401 pass; ledger hook test seen failing on assertion first)
 Task 3: complete (b2211f8..12c1b71, npm test → 403 pass; statusline tests seen failing first; script tried by hand: coloured line, garbage → eng-kit, exit 0)
+Task 4: complete (9b3f41f..f52a243, npm test → 405 pass; installer tests seen failing first; script tried on a temp CLAUDE_CONFIG_DIR: dry-run, add, same)
