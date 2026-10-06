@@ -2,7 +2,7 @@
 
 Status: design approved (2026-10-06)
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
-Base: <set by writing-plans>
+Base: 669691e51146845fbca6a32f8abb8f4580e3deeb
 Links: None
 
 <details><summary>Original request</summary>
@@ -25,7 +25,7 @@ Claude Code passes a status-line command the session's cost, context use and sub
 
 | # | Criterion (observable, testable) | How it is verified |
 |---|---|---|
-| 1 | Claude: the status line prints one line `ctx ▓▓▓▓░░░░░░ 42% · $1.87 · 5h ▓▓▓▓▓▓░░░░ 63% ↻14:20 · 7d ▓▓▓░░░░░░░ 31% · sub 1.2M` from the JSON Claude Code passes it; a missing field is left out (API users have no `rate_limits`), and malformed input prints a short fallback instead of failing | unit: statusline formatter rows for full input, no rate limits, no ledger, malformed JSON |
+| 1 | Claude: the status line prints one line `ctx ▓▓▓▓▓░░░░░ 42% · $1.87 · 5h ▓▓▓▓▓▓▓░░░ 63% ↻14:20 · 7d ▓▓▓▓░░░░░░ 31% · sub 1.2M` from the JSON Claude Code passes it; a missing field is left out (API users have no `rate_limits`), and malformed input prints a short fallback instead of failing | unit: statusline formatter rows for full input, no rate limits, no ledger, malformed JSON |
 | 1a | Each percentage has a 10-cell bar (`▓` per started 10 %, `░` for the rest) and is coloured by level: green below 50 %, yellow from 50 %, red from 80 %; with `NO_COLOR` set, the same text has no colour codes | unit: bar and colour rows at 0, 49, 50, 79, 80, 100 %; `NO_COLOR` row |
 | 2 | Each subagent run adds one ledger record: branch, agent type, model, input / output / cache-write / cache-read tokens, counted once per message id | unit: ledger from a fixture transcript with a repeated message; hook test for SubagentStop |
 | 3 | The main session's tokens are recorded per branch at Stop, so a branch total covers main + subagents across sessions without double counting | unit: two Stop snapshots of one session count once; two sessions add up |
@@ -67,7 +67,7 @@ None: opt-in installer; the ledger starts empty.
 ## Risks and open questions
 
 - The Claude transcript format may change → reader is defensive (decision 4), and a test pins the fields it reads.
-- Does pi's `subagent` tool result carry usage? → first plan task verifies it on pi-subagents; if not, pi shows only the branch total of the main session.
+- pi's `subagent` tool result carries usage: verified in pi-subagents 0.76.1 (`SingleResult.usage`, `model`).
 - Status-line cost: it runs on every assistant message → reading the ledger must stay cheap (one file, tail only).
 
 ## Follow-ups
@@ -77,7 +77,72 @@ None: opt-in installer; the ledger starts empty.
 
 ## Plan
 
-None yet
+> Execute with the executing-plans skill. Only this section uses `- [ ]` checkboxes.
+
+**Goal:** a status line with context, session cost, plan limits and subagent tokens, and a per-branch token ledger summarised by `/finish`, in both editions.
+**Architecture:** a shared `lib/usage.ts` keeps a JSONL ledger per repository (subagent runs and session snapshots, keyed by branch) and reads Claude transcripts; Claude fills it from SubagentStop/Stop and shows it in `scripts/statusline.ts`; pi fills it from `subagent` results and `agent_end`, and shows it with `ctx.ui.setStatus`.
+**Stack / constraints:** Node ≥22.18, `.ts` run directly, no dependencies; `lib/usage.ts` byte-identical in `src_claude/lib/` and `src/extensions/lib/`; ledger and transcript errors never fail a hook or the status line; no Claude trailers in commits.
+**Verification:** `npm test && npm run typecheck` in each repo.
+
+Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs carry no usage; a subagent transcript (`agent_transcript_path`) has `message.id`, `message.model`, `message.usage.{input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens}` and repeats a message; the status-line stdin has `cost.total_cost_usd`, `context_window.used_percentage`, `rate_limits.{five_hour,seven_day}.{used_percentage,resets_at}`, `workspace.current_dir`; pi-subagents 0.76.1 `SingleResult` has `usage.{input, output, cacheRead, cacheWrite}` and `model`.
+
+### Review focus
+1. A session snapshot written at every Stop must replace, not add to, the previous one of that session.
+2. A subagent transcript that repeats a message id counts it once.
+3. The status line with no ledger, no `rate_limits`, or garbage stdin.
+4. An existing user `statusLine` that isn't ours is never overwritten without `--force`.
+5. Ledger growth: the status line reads it on every message; it must stay one file read.
+
+### Post-implementation
+- README (both): a "Token usage" section — status line install command, what it shows, `usage-log`.
+- `docs/ARCHITECTURE.md` + `.ru.md` (both): the ledger and where it lives.
+- CHANGELOG 0.22.0 (both); versions 0.22.0 (eng-kit `package.json`, `.claude-plugin/plugin.json`; pi `package.json`).
+- private `docs/FRAMEWORK-SOURCES.ru.md` §11.28.
+- finish skill (Claude) and `prompts/finish.md` (pi): print the branch summary.
+
+### Task 1: ledger and transcript reader (`lib/usage.ts`)
+**Files:** Create `lib/usage.ts` · Test `tests/usage.test.ts`
+**Interfaces:** Produces `type Tokens = { input: number; output: number; cacheWrite: number; cacheRead: number }`; `readTranscriptUsage(path: string): { model: string; tokens: Tokens }[]`; `appendUsage(projectDir: string, record: UsageRecord, root?: string): void`; `branchSummary(projectDir: string, branch: string, root?: string): { byAgent: Record<string, number>; subagents: number; total: number }`; `formatTokens(n: number): string`.
+`UsageRecord = { kind: "subagent"; id: string; agent: string; model: string; tokens: Tokens; branch: string; at: number } | { kind: "session"; id: string; tokens: Tokens; branch: string; at: number }`. Ledger: `join(reviewsDir(projectDir, root ?? <tmpdir>/eng-kit/usage), "ledger.jsonl")`.
+- [ ] Tests: `readTranscriptUsage` on a fixture with a repeated message id sums it once (criterion 2); an unreadable path and a corrupt line give `[]`/skip (criterion 7); two `session` records with one id count only the later, two ids add up, `subagent` records add by agent (criterion 3); `formatTokens` 950 → "950", 12_345 → "12k", 1_234_567 → "1.2M"
+- [ ] Run `npm test -- tests/usage.test.ts` → FAIL on the assertions (stubs return empty)
+- [ ] Implement; total tokens = input + output + cacheWrite + cacheRead
+- [ ] Run → PASS, full suite; commit `feat(usage): per-branch token ledger and transcript reader`
+
+### Task 2: Claude hooks fill the ledger
+**Files:** Modify `lib/hooks.ts` (`HookEnv.usageRoot?`), `tests/hooks.test.ts`
+- [ ] Test: a SubagentStop for any agent type with a fixture `agent_transcript_path` appends one `subagent` record (agent type, model, tokens, current branch); a Stop with a fixture `transcript_path` appends a `session` snapshot; both in a try so a missing transcript changes nothing else (reviewer verdict path unchanged)
+- [ ] Run → FAIL; implement at the top of `subagentStop` and `stop` (before `stop_hook_active` returns); run → PASS, full suite
+- [ ] Commit `feat(usage): record subagent runs and session snapshots from hooks`
+
+### Task 3: status line
+**Files:** Create `lib/statusline.ts`, `scripts/statusline.ts` · Test `tests/statusline.test.ts`
+**Interfaces:** `statusText(input: unknown, sub: number | undefined, color: boolean): string`; `bar(pct: number): string` (10 cells, `▓` per started 10 %, rest `░`)
+- [ ] Tests (criteria 1, 1a, 7): full input → `ctx ▓▓▓▓▓░░░░░ 42% · $1.87 · 5h ▓▓▓▓▓▓▓░░░ 63% ↻14:20 · 7d ▓▓▓▓░░░░░░ 31% · sub 1.2M` without colour; no `rate_limits` → no 5h/7d parts; `sub` undefined → no sub part; garbage → `eng-kit`; colour rows at 0/49 → green (32), 50/79 → yellow (33), 80/100 → red (31); `color=false` (from `NO_COLOR`) → no `\x1b[`
+- [ ] Run → FAIL; implement; `resets_at` shown as local `HH:MM`; the script reads stdin, finds the branch of `workspace.current_dir`, reads the ledger once, prints one line, exits 0 on any error
+- [ ] Run → PASS; commit `feat(usage): status line with bars and colours`
+
+### Task 4: status-line installer
+**Files:** Modify `lib/statusline.ts` · Create `scripts/statusline-install.ts` · Test `tests/statusline.test.ts`
+**Interfaces:** `planStatusLine(settings: string | undefined, command: string, force: boolean): { status: "added" | "same" | "replaced" | "refused" | "invalid"; text?: string }`; `stableRoot(kitRoot: string, home: string): string` (`…/plugins/cache/<market>/<plugin>/<ver>` → `~/.claude/plugins/marketplaces/<market>` when it exists, else `kitRoot`)
+- [ ] Tests (criterion 5): no file → added; ours → same; someone else's → refused, with `force` → replaced (other keys kept); invalid JSON → invalid, untouched; `stableRoot` maps a cache path and keeps a project path
+- [ ] Run → FAIL; implement; the script prints the planned change and writes `~/.claude/settings.json` only on added/replaced
+- [ ] Run → PASS; commit `feat(usage): status-line installer for user settings`
+
+### Task 5: branch summary
+**Files:** Create `scripts/usage-log.ts` · Modify `skills/finish/SKILL.md`, `lib/usage.ts` (`summaryLine`) · Test `tests/usage.test.ts`
+- [ ] Test (criterion 4): `summaryLine({ byAgent: { main: 3.4e6, reviewer: 2.1e6, implementer: 8e5 } … })` → `main 3.4M · reviewer 2.1M · implementer 800k · total 6.3M`, agents by size
+- [ ] Run → FAIL; implement; the script prints the current (or named) branch; finish skill: one sentence to run it after verification and include the line in the summary
+- [ ] Run → PASS (lint-skills too); commit `feat(usage): branch token summary in /finish`
+
+### Task 6: pi edition
+**Files:** Copy `lib/usage.ts` → `src/extensions/lib/usage.ts`, `scripts/usage-log.ts`; Modify `src/extensions/guard.ts`, `src/prompts/finish.md`; Tests `src/tests/usage.test.ts` (same as Task 1, path-adjusted), `src/tests/guard*.test.ts`
+- [ ] Test (criterion 6): a `subagent` tool_result with `usage` and `model` appends a record per run; `agent_end` appends a session snapshot from the branch's assistant messages; the status text is `sub 1.2M · branch 5.6M`
+- [ ] Run → FAIL; implement (`ctx.ui.setStatus("eng-kit", …)` only with a UI); run → PASS; `cmp` the two `usage.ts`
+- [ ] Commit `feat(usage): pi ledger and status text`
+
+### Task 7: docs and release
+- [ ] Post-implementation docs and versions in both repos; full verification; commit `chore: release 0.22.0`
 
 ## Progress
 
