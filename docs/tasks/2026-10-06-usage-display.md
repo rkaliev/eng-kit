@@ -111,9 +111,9 @@ Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs 
 
 ### Task 2: Claude hooks fill the ledger
 **Files:** Modify `lib/hooks.ts` (`HookEnv.usageRoot?`), `tests/hooks.test.ts`
-- [ ] Test: a SubagentStop for any agent type with a fixture `agent_transcript_path` appends one `subagent` record (agent type, model, tokens, current branch); a Stop with a fixture `transcript_path` appends a `session` snapshot; both in a try so a missing transcript changes nothing else (reviewer verdict path unchanged)
-- [ ] Run → FAIL; implement at the top of `subagentStop` and `stop` (before `stop_hook_active` returns); run → PASS, full suite
-- [ ] Commit `feat(usage): record subagent runs and session snapshots from hooks`
+- [x] Test: a SubagentStop for any agent type with a fixture `agent_transcript_path` appends one `subagent` record (agent type, model, tokens, current branch); a Stop with a fixture `transcript_path` appends a `session` snapshot; both in a try so a missing transcript changes nothing else (reviewer verdict path unchanged)
+- [x] Run → FAIL; implement at the top of `subagentStop` and `stop` (before `stop_hook_active` returns); run → PASS, full suite
+- [x] Commit `feat(usage): record subagent runs and session snapshots from hooks`
 
 ### Task 3: status line
 **Files:** Create `lib/statusline.ts`, `scripts/statusline.ts` · Test `tests/statusline.test.ts`
@@ -148,3 +148,4 @@ Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs 
 
 Baseline: 642d993, npm test 397 pass, typecheck clean.
 Task 1: complete (642d993..e1bbc29, npm test → 400 pass; usage tests seen failing on assertions first)
+Task 2: complete (ed742b9..16e8973, npm test → 401 pass; ledger hook test seen failing on assertion first)
