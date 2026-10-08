@@ -137,9 +137,9 @@ Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs 
 
 ### Task 6: pi edition
 **Files:** Copy `lib/usage.ts` → `src/extensions/lib/usage.ts`, `scripts/usage-log.ts`; Modify `src/extensions/guard.ts`, `src/prompts/finish.md`; Tests `src/tests/usage.test.ts` (same as Task 1, path-adjusted), `src/tests/guard*.test.ts`
-- [ ] Test (criterion 6): a `subagent` tool_result with `usage` and `model` appends a record per run; `agent_end` appends a session snapshot from the branch's assistant messages; the status text is `sub 1.2M · branch 5.6M`
-- [ ] Run → FAIL; implement (`ctx.ui.setStatus("eng-kit", …)` only with a UI); run → PASS; `cmp` the two `usage.ts`
-- [ ] Commit `feat(usage): pi ledger and status text`
+- [x] Test (criterion 6): a `subagent` tool_result with `usage` and `model` appends a record per run; `agent_end` appends a session snapshot from the branch's assistant messages; the status text is `sub 1.2M · branch 5.6M`
+- [x] Run → FAIL; implement (`ctx.ui.setStatus("eng-kit", …)` only with a UI); run → PASS; `cmp` the two `usage.ts`
+- [x] Commit `feat(usage): pi ledger and status text`
 
 ### Task 7: docs and release
 - [ ] Post-implementation docs and versions in both repos; full verification; commit `chore: release 0.22.0`
@@ -152,3 +152,5 @@ Task 2: complete (ed742b9..16e8973, npm test → 401 pass; ledger hook test seen
 Task 3: complete (b2211f8..12c1b71, npm test → 403 pass; statusline tests seen failing first; script tried by hand: coloured line, garbage → eng-kit, exit 0)
 Task 4: complete (9b3f41f..f52a243, npm test → 405 pass; installer tests seen failing first; script tried on a temp CLAUDE_CONFIG_DIR: dry-run, add, same)
 Task 5: complete (c8556ae..ee6c424, npm test → 406 pass incl. lint-skills; summary test seen failing first)
+Ruling: pi's /finish is a prompt template and can't run a script or know the package path — pi registers a /usage command and /finish tells the user to run it — cost if wrong: one manual command at the end of a task.
+Task 6: complete (pi 7ad4836..8e136b6, npm test → 400 pass; pi ledger test seen failing on assertion first; usage.ts cmp-identical)
