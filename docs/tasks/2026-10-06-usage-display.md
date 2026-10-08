@@ -142,7 +142,7 @@ Verified facts the plan relies on (2026-10-06): Claude Code 2.1.291 hook inputs 
 - [x] Commit `feat(usage): pi ledger and status text`
 
 ### Task 7: docs and release
-- [ ] Post-implementation docs and versions in both repos; full verification; commit `chore: release 0.22.0`
+- [x] Post-implementation docs and versions in both repos; full verification; commit `chore: release 0.22.0`
 
 ## Progress
 
@@ -153,4 +153,5 @@ Task 3: complete (b2211f8..12c1b71, npm test → 403 pass; statusline tests seen
 Task 4: complete (9b3f41f..f52a243, npm test → 405 pass; installer tests seen failing first; script tried on a temp CLAUDE_CONFIG_DIR: dry-run, add, same)
 Task 5: complete (c8556ae..ee6c424, npm test → 406 pass incl. lint-skills; summary test seen failing first)
 Ruling: pi's /finish is a prompt template and can't run a script or know the package path — pi registers a /usage command and /finish tells the user to run it — cost if wrong: one manual command at the end of a task.
-Task 6: complete (pi 7ad4836..8e136b6, npm test → 400 pass; pi ledger test seen failing on assertion first; usage.ts cmp-identical)
+Task 6: complete (pi 20942ef..8e136b6, npm test → 400 pass; pi ledger test seen failing on assertion first; usage.ts cmp-identical)
+Task 7: complete (d0f141e..badfac6, verify script → all 4 checks PASS; folder-install test seen failing first for the new scripts)
