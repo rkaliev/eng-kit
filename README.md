@@ -131,6 +131,16 @@ When the kit's `reviewer` agent finishes (`reviewer` or `eng-kit:reviewer`; othe
 - A plain `cd`, `pushd` or `popd` and `git -C <dir>` are followed, so a worktree's branch is checked; any other move, or a move after `&&` once the chain breaks, makes the folder unknown, and the landing is denied (details: docs/ARCHITECTURE.md). Land in a command of its own: a landing chained after anything but read-only steps and the project's verification commands is denied; a PR/MR merge (`gh pr merge`, `glab mr merge`) always asks, with or without a `Yes`;
 - only you turn it off, with `"reviewGate": false` in `.claude/guard.json`.
 
+## Token usage
+
+`node <kit>/scripts/statusline-install.ts` adds the eng-kit status line to your user settings (`~/.claude/settings.json`); `--dry-run` shows the change, and another status line is replaced only with `--force`:
+
+```
+ctx ▓▓▓▓▓░░░░░ 42% · $1.87 · 5h ▓▓▓▓▓▓▓░░░ 63% ↻14:20 · 7d ▓▓▓▓░░░░░░ 31% · sub 1.2M
+```
+
+Context use, the session's cost and the plan's 5-hour and 7-day limits come from Claude Code (API users have no plan limits); a bar turns yellow from 50 % and red from 80 %, and `NO_COLOR` turns colours off. `sub` is the tokens the branch's subagents used. `node <kit>/scripts/usage-log.ts [branch]` prints a branch's tokens by agent, and `/finish` quotes it.
+
 ## Models
 
 - `reviewer` → `opus`, `implementer` → `sonnet`. The heavy-reasoning skills (brainstorming, writing-plans, systematic-debugging, security-review) set `effort: high`.
