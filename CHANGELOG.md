@@ -2,7 +2,7 @@
 
 ## 0.23.1
 
-- **Background reviewers record their verdicts.** A reviewer running in the background hands its report back through a `SubagentHandback` tool call, so its last message has no text and the review gate recorded nothing: every such review read as missing and the landing stayed denied. The SubagentStop hook now reads the report from the last hand-back in the subagent transcript. A handed-back report is already delivered, so sending the reviewer back can no longer fix it: one without the three verdict lines counts as `Inconclusive` at once.
+- **Background reviewers record their verdicts.** A reviewer running in the background hands its report back through a `SubagentHandback` tool call, and its last message (at most a short summary) has no verdict lines, so the review gate recorded nothing: every such review read as missing and the landing stayed denied. The SubagentStop hook now takes the report from the last hand-back of the reviewer's current run in the subagent transcript; a continued reviewer's earlier hand-backs don't count. A handed-back report is already delivered, so sending the reviewer back can no longer fix it: one without the three verdict lines counts as `Inconclusive` at once.
 
 ## 0.23.0
 

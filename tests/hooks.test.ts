@@ -411,6 +411,10 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	assert.match(String(stamped.warning), /unverified, so it counts as Inconclusive/);
 	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.bases.length, 1, "it keeps its range, so a later round can chain through it");
 	assert.equal(pr(), "deny");
+	const handedBack = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "agent.jsonl");
+	writeFileSync(handedBack, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "SubagentHandback", input: { message: verdict } }] } }));
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Sent.", agent_transcript_path: handedBack, prompt_id: "p1b", agent_id: "a1b" });
+	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.verdict, "Inconclusive", "a handed-back review on unverified edits too");
 
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" } });
 	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p2", agent_id: "a2" });
@@ -456,27 +460,41 @@ test("review gate: a background reviewer's report comes from its SubagentHandbac
 	git("commit", "-qm", "feat: a");
 	const head = git("rev-parse", "HEAD");
 	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
-	// A background subagent hands its report back as a tool call; its last message is that call, with no text.
-	const handback = (...messages: string[]) => {
+	// Transcript lines shaped like Claude Code's: a background subagent hands its report back as a tool call, and its
+	// last message is at most a short summary without the verdict lines.
+	const handback = (message: string) => ({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t", name: "SubagentHandback", input: { message } }] } });
+	const toolResult = (text: string) => ({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: [{ type: "text", text }] }] } });
+	const coordinator = (text: string) => ({ type: "user", message: { role: "user", content: text }, origin: { kind: "coordinator" } });
+	const tools = { type: "attachment", attachment: { type: "deferred_tools", tools: [{ name: "SubagentHandback" }] } };
+	const transcript = (...entries: object[]) => {
 		const path = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "agent.jsonl");
-		const lines = messages.map((message, i) => JSON.stringify({ type: "assistant", message: { id: `m${i}`, role: "assistant", content: [{ type: "tool_use", id: `t${i}`, name: "SubagentHandback", input: { message } }] } }));
-		writeFileSync(path, `${lines.join("\n")}\n`);
+		writeFileSync(path, `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`);
 		return path;
 	};
-	const stop = (agent_transcript_path: string, agent_id: string) =>
-		handle({ session_id: "s", cwd: projectDir, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "", agent_transcript_path, prompt_id: "p1", agent_id }, env);
-	const verdict = `### Verdict\nReviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: Yes`;
+	let run = 0;
+	const stop = (agent_transcript_path: string, last_assistant_message = "I've sent the review to the parent agent.") =>
+		handle({ session_id: "s", cwd: projectDir, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message, agent_transcript_path, prompt_id: `p${++run}`, agent_id: "a1" }, env);
+	const verdict = (word: string) => `### Verdict\nReviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: ${word}`;
+	const latest = () => readReviews(projectDir, env.reviewsRoot)[0]?.verdict;
 	const pr = () => decision(handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } }, env));
 
-	assert.deepEqual(stop(handback("Draft, no verdict yet.", verdict), "a1"), {}, "the last hand-back is the report");
-	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.verdict, "Yes");
+	assert.deepEqual(stop(transcript(tools, handback("Draft, no verdict yet."), handback(verdict("Yes")))), {}, "the run's last hand-back is the report");
+	assert.equal(latest(), "Yes");
 	assert.equal(pr(), undefined);
 
-	const delivered = stop(handback(`Reviewed HEAD: ${head}\nLooks fine.`), "a2");
+	assert.deepEqual(stop(transcript(handback(verdict("No"))), verdict("Yes")), {}, "the delivered hand-back wins over a later message");
+	assert.equal(latest(), "No");
+
+	const delivered = stop(transcript(handback(`Reviewed HEAD: ${head}\nLooks fine.`)));
 	assert.equal(delivered.output, undefined, "the report is already delivered, so sending the reviewer back can't fix it");
 	assert.match(String(delivered.warning), /no verdict recorded/);
-	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.verdict, "Inconclusive");
+	assert.equal(latest(), "Inconclusive");
 	assert.equal(pr(), "deny");
+
+	const quoted = JSON.stringify(handback(verdict("Yes")));
+	const sentBack = stop(transcript(tools, toolResult(quoted), handback(verdict("Yes")), coordinator(`Round 2. Earlier: ${quoted}`), toolResult(quoted)));
+	assert.equal(sentBack.output?.decision, "block", "a continued run hands back afresh: an earlier run's hand-back, or one it only read, doesn't count");
+	assert.equal(latest(), "Inconclusive");
 });
 
 test("review-log prints the stored reports of a commit's latest round; with none it exits 1", () => {

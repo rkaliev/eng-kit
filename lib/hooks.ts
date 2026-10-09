@@ -285,14 +285,15 @@ export function runsVerifyScript(shell: string): boolean {
 
 /**
  * The kit reviewer (plugin `eng-kit:reviewer`, project install `reviewer`) ends with its verdict: record it.
- * A report without the verdict lines sends the reviewer back once to add them.
+ * A report without the verdict lines sends the reviewer back once to add them; a handed-back one fails at once.
  */
 function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	recordUsage(env, input, "subagent");
 	if (!REVIEWER.test(input.agent_type ?? "")) return {};
 	const ids = { promptId: input.prompt_id || input.session_id || "none", run: input.agent_id || "none" };
-	// A background reviewer delivers its report through a SubagentHandback call, so its last message has no text.
-	const handedBack = parseReview(input.last_assistant_message ?? "") ? undefined : handbackReport(input.agent_transcript_path);
+	// A background reviewer delivers its report through a SubagentHandback call; what it writes after that (a short
+	// summary, often without the verdict lines) never reaches its caller, so the hand-back is the report.
+	const handedBack = handbackReport(input.agent_transcript_path);
 	const report = handedBack ?? input.last_assistant_message ?? "";
 	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive.
 	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir).commands.length > 0;
@@ -325,8 +326,11 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 }
 
 /**
- * The message of the last SubagentHandback call in a subagent's transcript, if any. The transcript format is
- * internal, so only assistant `tool_use` blocks named SubagentHandback with a string `input.message` are read.
+ * The message of the last SubagentHandback call in the subagent's current run, if any. A continued subagent keeps one
+ * transcript, and each run starts with an incoming message (a user entry that isn't only tool results), so a
+ * hand-back before the last one belongs to an earlier run. The transcript format is internal, so only the entry
+ * types, user content shapes and assistant `tool_use` blocks named SubagentHandback with a string
+ * `input.message` are read; text the subagent only read sits in user entries and never counts.
  */
 function handbackReport(path: string | undefined): string | undefined {
 	if (!path) return undefined;
@@ -338,15 +342,20 @@ function handbackReport(path: string | undefined): string | undefined {
 	}
 	let report: string | undefined;
 	for (const line of text.split("\n")) {
-		if (!line.includes('"SubagentHandback"')) continue;
+		if (!line.includes('"SubagentHandback"') && !line.includes('"type":"user"')) continue;
 		let entry: { type?: unknown; message?: { content?: unknown } };
 		try {
 			entry = JSON.parse(line);
 		} catch {
 			continue;
 		}
-		if (entry.type !== "assistant" || !Array.isArray(entry.message?.content)) continue;
-		for (const block of entry.message.content as Array<{ type?: unknown; name?: unknown; input?: { message?: unknown } }>) {
+		const content = entry.message?.content;
+		if (entry.type === "user") {
+			if (!Array.isArray(content) || content.some((block: { type?: unknown }) => block?.type !== "tool_result")) report = undefined;
+			continue;
+		}
+		if (entry.type !== "assistant" || !Array.isArray(content)) continue;
+		for (const block of content as Array<{ type?: unknown; name?: unknown; input?: { message?: unknown } }>) {
 			if (block?.type === "tool_use" && block.name === "SubagentHandback" && typeof block.input?.message === "string") report = block.input.message;
 		}
 	}
