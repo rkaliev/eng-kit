@@ -27,7 +27,7 @@ test("install is a dry run by default, then installs a working copy", () => {
 
 	const real = install(project, "--yes");
 	assert.equal(real.status, 0, real.stderr);
-	for (const f of [".claude/skills/using-skills/SKILL.md", ".claude/skills/implement/SKILL.md", ".claude/agents/reviewer.md", `${KIT_DIR}/hooks/hook.ts`, `${KIT_DIR}/lib/hooks.ts`, `${KIT_DIR}/scripts/verify.ts`, `${KIT_DIR}/scripts/review-log.ts`, `${KIT_DIR}/package.json`, ".claude/verify.json"]) {
+	for (const f of [".claude/skills/using-skills/SKILL.md", ".claude/skills/implement/SKILL.md", ".claude/agents/reviewer.md", `${KIT_DIR}/hooks/hook.ts`, `${KIT_DIR}/lib/hooks.ts`, `${KIT_DIR}/scripts/verify.ts`, `${KIT_DIR}/scripts/review-log.ts`, `${KIT_DIR}/scripts/usage-log.ts`, `${KIT_DIR}/scripts/statusline.ts`, `${KIT_DIR}/scripts/statusline-install.ts`, `${KIT_DIR}/package.json`, ".claude/verify.json"]) {
 		assert.ok(existsSync(join(project, f)), f);
 	}
 	const settings = JSON.parse(readFileSync(join(project, ".claude/settings.json"), "utf8"));

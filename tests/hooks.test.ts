@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
 import { readReviews } from "../lib/reviews.ts";
+import { branchSummary } from "../lib/usage.ts";
 import { readRun, writeRun } from "../lib/state.ts";
 
 // Isolate git from the machine's own config (the guard's git calls inherit this process's environment).
@@ -550,4 +551,31 @@ test("guard: the implementer's own-branch push asks; the main agent's passes", (
 	assert.equal(pre("git status", "eng-kit:implementer"), undefined, "the implementer's other git calls are untouched");
 	const reason = (handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push" }, agent_type: "eng-kit:implementer" }, env).output!.hookSpecificOutput as Record<string, string>).permissionDecisionReason;
 	assert.match(String(reason), /implementer doesn't push; the coordinator does after review/);
+});
+
+test("token ledger: SubagentStop records the subagent's tokens and Stop the session's, on the branch of the folder the work runs in", () => {
+	const { env, call, projectDir } = setup();
+	env.usageRoot = mkdtempSync(join(tmpdir(), "hooks-usage-"));
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" });
+	git("init", "-q", "-b", "feat/u");
+	git("-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x");
+	const wt = join(projectDir, ".worktrees", "w");
+	git("worktree", "add", "-q", "-b", "feat/w", wt);
+	const transcript = (input: number) => {
+		const path = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "t.jsonl");
+		writeFileSync(path, JSON.stringify({ type: "assistant", message: { id: "m1", model: "m", usage: { input_tokens: input, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } }));
+		return path;
+	};
+	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:implementer", agent_id: "a1", agent_transcript_path: transcript(99) }), {});
+	call({ hook_event_name: "Stop", transcript_path: transcript(9) });
+	call({ hook_event_name: "Stop", transcript_path: transcript(19), cwd: wt });
+	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "Explore", agent_id: "a2", agent_transcript_path: join(tmpdir(), "no-such.jsonl") }), {});
+	assert.deepEqual(branchSummary(projectDir, "feat/u", env.usageRoot), { byAgent: { implementer: 100, main: 10 }, subagents: 100, total: 110 });
+	assert.deepEqual(branchSummary(projectDir, "feat/w", env.usageRoot), { byAgent: { main: 10 }, subagents: 0, total: 10 }, "work in a worktree counts on its branch, and only what it added");
+	const other = mkdtempSync(join(tmpdir(), "hooks-other-repo-"));
+	spawnSync("git", ["init", "-q", "-b", "feat/o"], { cwd: other });
+	call({ hook_event_name: "SubagentStop", agent_type: "Explore", agent_id: "a3", agent_transcript_path: transcript(49), cwd: other });
+	assert.deepEqual(branchSummary(other, "feat/o", env.usageRoot), { byAgent: { Explore: 50 }, subagents: 50, total: 50 }, "work in another repository goes to that repository's ledger, where its status line reads it");
+	call({ hook_event_name: "Stop", transcript_path: transcript(29), cwd: other });
+	assert.equal(branchSummary(other, "feat/o", env.usageRoot).byAgent.main, 10, "the session moved to another repository: only what it added there");
 });

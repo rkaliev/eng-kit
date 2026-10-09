@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.0
+
+- **Token usage in the terminal.** `node <kit>/scripts/statusline-install.ts` sets the eng-kit status line in your user settings (a plugin can't set one): `ctx ▓▓▓▓▓░░░░░ 42% · $1.87 · 5h ▓▓▓▓▓▓▓░░░ 63% ↻14:20 · 7d ▓▓▓▓░░░░░░ 31% · sub 1.2M`. Context use, session cost and the plan's 5-hour and 7-day limits come from Claude Code; bars turn yellow from 50 % and red from 80 % (`NO_COLOR` turns colours off); another status line is replaced only with `--force`.
+- **Token ledger per branch.** The SubagentStop and Stop hooks add the tokens of each subagent run and what the session added (read from the transcripts, each message once) to a private ledger per repository and branch in the temp folder, on the branch where they were spent. `node <kit>/scripts/usage-log.ts [branch]` prints a branch's tokens by agent (`main 3.4M · reviewer 2.1M · implementer 800k · total 6.3M`), and `/finish` quotes it.
+
 ## 0.21.2
 
 - **Hidden landings are denied.** A landing a heredoc body hides (an apostrophe in the body opens a quote the shell never sees), one inside a substitution in double quotes (`echo "$(cd wt && gh pr create)"`), and one in a `$(…)` or backticks of an unquoted heredoc body (`<<EOF` runs them, so a PR body with `` `git push origin main` `` pushes) is one the guard can't read: run it as its own command. Landings are compared by what they land and how often (not by folder), so a landing-like line in a message or a repeat of a visible landing doesn't stand in for a hidden one; plain text and escaped backticks in an unquoted body don't count. `git commit -m "$(cat <<'EOF' … EOF)" && git push` reads as before.

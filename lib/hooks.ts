@@ -19,7 +19,8 @@ import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from 
 import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
-import { checkWorkDocs, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
+import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
+import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -34,6 +35,8 @@ export interface HookInput {
 	tool_use_id?: string;
 	last_assistant_message?: string;
 	prompt_id?: string;
+	transcript_path?: string;
+	agent_transcript_path?: string;
 }
 
 export interface HookEnv {
@@ -46,6 +49,8 @@ export interface HookEnv {
 	runsRoot?: string;
 	/** Where review stamps live (tests override it). */
 	reviewsRoot?: string;
+	/** Where the token ledger lives (tests override it). */
+	usageRoot?: string;
 }
 
 export interface HookResult {
@@ -283,6 +288,7 @@ export function runsVerifyScript(shell: string): boolean {
  * A report without the verdict lines sends the reviewer back once to add them.
  */
 function subagentStop(input: HookInput, env: HookEnv): HookResult {
+	recordUsage(env, input, "subagent");
 	if (!REVIEWER.test(input.agent_type ?? "")) return {};
 	const ids = { promptId: input.prompt_id || input.session_id || "none", run: input.agent_id || "none" };
 	const report = input.last_assistant_message ?? "";
@@ -316,6 +322,13 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 }
 
 function stop(input: HookInput, env: HookEnv): HookResult {
+	const result = stopGates(input, env);
+	// After the gates, so a slow transcript read can't cost a reminder.
+	recordUsage(env, input, "session");
+	return result;
+}
+
+function stopGates(input: HookInput, env: HookEnv): HookResult {
 	if (input.stop_hook_active) return {};
 	const sessionId = input.session_id ?? "";
 	const state = loadState(env.stateDir, sessionId);
@@ -352,6 +365,32 @@ function stop(input: HookInput, env: HookEnv): HookResult {
 	if (reasons.length === 0) return {};
 	saveState(env.stateDir, sessionId, next);
 	return { output: { decision: "block", reason: reasons.join("\n\n") } };
+}
+
+/**
+ * Adds a transcript's tokens to the ledger (lib/usage.ts), on the branch of the folder the work runs in: a subagent
+ * run as a whole, the session as what it added since its last snapshot. A convenience: it never fails the hook.
+ */
+function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session"): void {
+	try {
+		const id = kind === "session" ? input.session_id : input.agent_id;
+		const path = kind === "session" ? input.transcript_path : input.agent_transcript_path;
+		// One folder for the branch and the ledger: the one the work runs in when it is a repository (a worktree, or
+		// another repository than the project's), where the status line and usage-log read it.
+		const dir = input.cwd && currentBranch(input.cwd) ? input.cwd : env.projectDir;
+		const branch = currentBranch(dir);
+		const used = path && id ? readTranscriptUsage(path) : [];
+		if (!branch || !id || used.length === 0) return;
+		const tokens: Tokens = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+		for (const { tokens: t } of used) for (const key of Object.keys(tokens) as Array<keyof Tokens>) tokens[key] += t[key];
+		if (kind === "session") return appendSessionSnapshot(dir, id, tokens, branch, env.usageRoot);
+		// The model that used the most tokens names the run; a plugin's agent counts under its own name.
+		const model = used.reduce((a, b) => (total(b.tokens) > total(a.tokens) ? b : a)).model;
+		const agent = (input.agent_type || "subagent").replace(/^[^:]+:/, "");
+		appendUsage(dir, { kind, id, agent, model, tokens, branch, at: Date.now() }, env.usageRoot);
+	} catch {
+		// The ledger is optional; the hook's own work goes on.
+	}
 }
 
 function userPromptSubmit(input: HookInput, env: HookEnv): HookResult {

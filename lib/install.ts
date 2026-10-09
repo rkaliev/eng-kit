@@ -42,7 +42,7 @@ export function kitFiles(kitRoot: string): Map<string, string> {
 	add("hooks", `${KIT_DIR}/hooks`, (f) => f.endsWith(".ts"));
 	// The scaffold runs from the plugin root or a kit clone, never from a project copy.
 	add("lib", `${KIT_DIR}/lib`, (f) => f.endsWith(".ts") && !f.endsWith("scaffold.ts"));
-	add("scripts", `${KIT_DIR}/scripts`, (f) => /(verify|init|test-hygiene|review-log)\.ts$/.test(f));
+	add("scripts", `${KIT_DIR}/scripts`, (f) => /(verify|init|test-hygiene|review-log|usage-log|statusline|statusline-install)\.ts$/.test(f));
 	add("templates", `${KIT_DIR}/templates`, (f) => !f.includes(`${sep}ts-monorepo${sep}`));
 	return files;
 }
