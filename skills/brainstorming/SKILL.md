@@ -1,7 +1,7 @@
 ---
 name: brainstorming
 description: Use before any creative or behavior-changing work - building a feature, component, screen, endpoint or project, adding functionality, or modifying how something behaves
-effort: high
+effort: xhigh
 ---
 
 # Brainstorming: from idea to approved design

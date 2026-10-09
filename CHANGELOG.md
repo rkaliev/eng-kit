@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.23.0
+
+- **Extra effort for hard work.** The `reviewer` agent and the brainstorming, writing-plans, systematic-debugging and security-review skills run at `effort: xhigh` (was `high`): deeper reasoning at a higher token spend. A model without `xhigh` runs it as `high`; `CLAUDE_CODE_EFFORT_LEVEL` still overrides it.
+
 ## 0.22.0
 
 - **Token usage in the terminal.** `node <kit>/scripts/statusline-install.ts` sets the eng-kit status line in your user settings (a plugin can't set one): `ctx ▓▓▓▓▓░░░░░ 42% · $1.87 · 5h ▓▓▓▓▓▓▓░░░ 63% ↻14:20 · 7d ▓▓▓▓░░░░░░ 31% · sub 1.2M`. Context use, session cost and the plan's 5-hour and 7-day limits come from Claude Code; bars turn yellow from 50 % and red from 80 % (`NO_COLOR` turns colours off); another status line is replaced only with `--force`.

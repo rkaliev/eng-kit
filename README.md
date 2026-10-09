@@ -143,7 +143,7 @@ Context use, the session's cost and the plan's 5-hour and 7-day limits come from
 
 ## Models
 
-- `reviewer` → `opus`, `implementer` → `sonnet`. The heavy-reasoning skills (brainstorming, writing-plans, systematic-debugging, security-review) set `effort: high`.
+- `reviewer` → `opus`, `implementer` → `sonnet`. The reviewer and the heavy-reasoning skills (brainstorming, writing-plans, systematic-debugging, security-review) set `effort: xhigh`; a model without `xhigh` runs it as `high`, and `CLAUDE_CODE_EFFORT_LEVEL` overrides it.
 - Override everything with `/model`, or with `CLAUDE_CODE_SUBAGENT_MODEL` for subagents.
 
 ## Develop

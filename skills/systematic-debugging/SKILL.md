@@ -1,7 +1,7 @@
 ---
 name: systematic-debugging
 description: Use when encountering any bug, test failure, build or CI failure, crash, performance problem or unexpected behavior, before proposing a fix
-effort: high
+effort: xhigh
 ---
 
 # Systematic debugging

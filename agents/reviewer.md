@@ -4,7 +4,7 @@ description: Read-only code reviewer with a fresh context. Use after a task, pla
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit
 model: opus
-effort: high
+effort: xhigh
 color: purple
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: security-review
 description: Use when changes touch authentication, authorization, user input, file uploads, secrets, cryptography, dependencies, payments or personal data, or when asked for a security review or audit
-effort: high
+effort: xhigh
 ---
 
 # Security review

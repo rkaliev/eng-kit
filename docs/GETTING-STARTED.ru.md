@@ -253,7 +253,7 @@ claude
 ## 7. Модели
 
 - **Агенты:** `reviewer` работает на `opus`, `implementer` — на `sonnet`. Всех сабагентов на одну модель переводят `CLAUDE_CODE_SUBAGENT_MODEL` и `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` в `env` настроек.
-- **Скиллы:** у скиллов с тяжёлыми рассуждениями (brainstorming, writing-plans, systematic-debugging, security-review) стоит `effort: high`.
+- **Скиллы:** у скиллов с тяжёлыми рассуждениями (brainstorming, writing-plans, systematic-debugging, security-review) и у ревьюера стоит `effort: xhigh`; модель без `xhigh` работает с ним как с `high`, а `CLAUDE_CODE_EFFORT_LEVEL` перекрывает его.
 - **Основная сессия:** `/model`, `--model` — всё встроенное.
 
 ## 8. Частые вопросы
