@@ -375,16 +375,19 @@ function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session
 	try {
 		const id = kind === "session" ? input.session_id : input.agent_id;
 		const path = kind === "session" ? input.transcript_path : input.agent_transcript_path;
-		const branch = currentBranch(input.cwd ?? env.projectDir) ?? currentBranch(env.projectDir);
+		// One folder for the branch and the ledger: the one the work runs in when it is a repository (a worktree, or
+		// another repository than the project's), where the status line and usage-log read it.
+		const dir = input.cwd && currentBranch(input.cwd) ? input.cwd : env.projectDir;
+		const branch = currentBranch(dir);
 		const used = path && id ? readTranscriptUsage(path) : [];
 		if (!branch || !id || used.length === 0) return;
 		const tokens: Tokens = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
 		for (const { tokens: t } of used) for (const key of Object.keys(tokens) as Array<keyof Tokens>) tokens[key] += t[key];
-		if (kind === "session") return appendSessionSnapshot(env.projectDir, id, tokens, branch, env.usageRoot);
+		if (kind === "session") return appendSessionSnapshot(dir, id, tokens, branch, env.usageRoot);
 		// The model that used the most tokens names the run; a plugin's agent counts under its own name.
 		const model = used.reduce((a, b) => (total(b.tokens) > total(a.tokens) ? b : a)).model;
 		const agent = (input.agent_type || "subagent").replace(/^[^:]+:/, "");
-		appendUsage(env.projectDir, { kind, id, agent, model, tokens, branch, at: Date.now() }, env.usageRoot);
+		appendUsage(dir, { kind, id, agent, model, tokens, branch, at: Date.now() }, env.usageRoot);
 	} catch {
 		// The ledger is optional; the hook's own work goes on.
 	}

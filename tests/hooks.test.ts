@@ -572,4 +572,8 @@ test("token ledger: SubagentStop records the subagent's tokens and Stop the sess
 	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "Explore", agent_id: "a2", agent_transcript_path: join(tmpdir(), "no-such.jsonl") }), {});
 	assert.deepEqual(branchSummary(projectDir, "feat/u", env.usageRoot), { byAgent: { implementer: 100, main: 10 }, subagents: 100, total: 110 });
 	assert.deepEqual(branchSummary(projectDir, "feat/w", env.usageRoot), { byAgent: { main: 10 }, subagents: 0, total: 10 }, "work in a worktree counts on its branch, and only what it added");
+	const other = mkdtempSync(join(tmpdir(), "hooks-other-repo-"));
+	spawnSync("git", ["init", "-q", "-b", "feat/o"], { cwd: other });
+	call({ hook_event_name: "SubagentStop", agent_type: "Explore", agent_id: "a3", agent_transcript_path: transcript(49), cwd: other });
+	assert.deepEqual(branchSummary(other, "feat/o", env.usageRoot), { byAgent: { Explore: 50 }, subagents: 50, total: 50 }, "work in another repository goes to that repository's ledger, where its status line reads it");
 });

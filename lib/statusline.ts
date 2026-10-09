@@ -2,7 +2,7 @@
  * The eng-kit status line for Claude Code: context use, session cost, plan limits and the branch's subagent tokens.
  * Claude Code passes the session as JSON on stdin; a field it leaves out (API users have no plan limits) is left out.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatTokens } from "./usage.ts";
 
@@ -77,8 +77,15 @@ export function planStatusLine(settings: string | undefined, command: string, fo
  * changes on every update, so its marketplace clone is used when it exists; any other root is kept.
  */
 export function stableRoot(kitRoot: string, home: string): string {
-	const market = /[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/][^\\/]+[\\/][^\\/]+[\\/]?$/.exec(kitRoot)?.[1];
-	const clone = market ? join(home, ".claude", "plugins", "marketplaces", market) : undefined;
-	// A marketplace that lists the plugin by another source has no copy of the script.
-	return clone && existsSync(join(clone, "scripts", "statusline.ts")) ? clone : kitRoot;
+	const [, market, plugin] = /[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/][^\\/]+[\\/]?$/.exec(kitRoot) ?? [];
+	if (!market || !plugin) return kitRoot;
+	const clone = join(home, ".claude", "plugins", "marketplaces", market);
+	// The clone is the plugin itself only when its manifest names it; a marketplace that lists the plugin by another
+	// source has no copy of the script.
+	try {
+		const name = (JSON.parse(readFileSync(join(clone, ".claude-plugin", "plugin.json"), "utf8")) as { name?: unknown }).name;
+		return name === plugin && existsSync(join(clone, "scripts", "statusline.ts")) ? clone : kitRoot;
+	} catch {
+		return kitRoot;
+	}
 }

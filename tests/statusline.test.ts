@@ -59,6 +59,9 @@ test("the status line points at the marketplace clone, which survives plugin upd
 	mkdirSync(join(home, ".claude", "plugins", "marketplaces", "eng-kit", "scripts"), { recursive: true });
 	assert.equal(stableRoot(cache, home), cache, "a marketplace clone without the script (the plugin lives elsewhere): keep the given root");
 	writeFileSync(join(home, ".claude", "plugins", "marketplaces", "eng-kit", "scripts", "statusline.ts"), "");
+	assert.equal(stableRoot(cache, home), cache, "a clone whose plugin manifest isn't eng-kit's: keep the given root");
+	mkdirSync(join(home, ".claude", "plugins", "marketplaces", "eng-kit", ".claude-plugin"));
+	writeFileSync(join(home, ".claude", "plugins", "marketplaces", "eng-kit", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "eng-kit" }));
 	assert.equal(stableRoot(cache, home), join(home, ".claude", "plugins", "marketplaces", "eng-kit"));
 	assert.equal(stableRoot("/work/app/.claude/eng-kit", home), "/work/app/.claude/eng-kit", "a project install keeps its path");
 });
