@@ -467,7 +467,7 @@ test("review gate: a background reviewer's report comes from its SubagentHandbac
 	const toolResult = (text: string) => ({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: [{ type: "text", text }] }] } });
 	const coordinator = (text: string) => ({ type: "user", message: { role: "user", content: text }, origin: { kind: "coordinator" } });
 	const tools = { type: "attachment", attachment: { type: "deferred_tools", tools: [{ name: "SubagentHandback" }] } };
-	const delivered_ = toolResult(JSON.stringify({ success: true, message: "Report delivered to your caller." }));
+	const deliveredResult = toolResult(JSON.stringify({ success: true, message: "Report delivered to your caller." }));
 	const queued = (prompt: string) => ({ type: "attachment", attachment: { type: "queued_command", prompt } });
 	const transcript = (...entries: object[]) => {
 		const path = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "agent.jsonl");
@@ -481,7 +481,7 @@ test("review gate: a background reviewer's report comes from its SubagentHandbac
 	const latest = () => readReviews(projectDir, env.reviewsRoot)[0]?.verdict;
 	const pr = () => decision(handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } }, env));
 
-	assert.deepEqual(stop(transcript(tools, handback("Draft, no verdict yet."), delivered_, handback(verdict("Yes")), delivered_, tools)), {}, "the run's last hand-back is the report, its own tool result doesn't end the run");
+	assert.deepEqual(stop(transcript(tools, handback("Draft, no verdict yet."), deliveredResult, handback(verdict("Yes")), deliveredResult, tools)), {}, "the run's last hand-back is the report, its own tool result doesn't end the run");
 	assert.equal(latest(), "Yes");
 	assert.equal(pr(), undefined);
 
@@ -497,8 +497,12 @@ test("review gate: a background reviewer's report comes from its SubagentHandbac
 	const quoted = JSON.stringify(handback(verdict("Yes")));
 	const sentBack = stop(transcript(tools, toolResult(quoted), handback(verdict("Yes")), coordinator(`Round 2. Earlier: ${quoted}`), toolResult(quoted)));
 	assert.equal(sentBack.output?.decision, "block", "a continued run hands back afresh: an earlier run's hand-back, or one it only read, doesn't count");
-	assert.equal(stop(transcript(handback(verdict("Yes")), delivered_, queued("Also check X."))).output?.decision, "block", "a message queued while the reviewer worked starts a new run too");
+	assert.equal(stop(transcript(handback(verdict("Yes")), deliveredResult, queued("Also check X."))).output?.decision, "block", "a message queued while the reviewer worked starts a new run too");
 	assert.equal(latest(), "Inconclusive");
+	for (const incoming of [queued("<task-notification>done</task-notification>"), coordinator("Round 2.")]) {
+		assert.deepEqual(stop(transcript(handback(verdict("Yes")), deliveredResult, incoming, handback(verdict("No")), deliveredResult)), {}, "the new run's hand-back is the report");
+		assert.equal(latest(), "No");
+	}
 });
 
 test("review-log prints the stored reports of a commit's latest round; with none it exits 1", () => {

@@ -327,10 +327,11 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 
 /**
  * The message of the last SubagentHandback call in the subagent's current run, if any. A continued subagent keeps one
- * transcript, and each run starts with an incoming message (a user entry that isn't only tool results, or a message
- * queued while the subagent worked), so a hand-back before the last one belongs to an earlier run. The transcript format is internal, so only the entry
- * types, user content shapes and assistant `tool_use` blocks named SubagentHandback with a string
- * `input.message` are read; text the subagent only read sits in user entries and never counts.
+ * transcript, and each run starts with an incoming message: a user entry with more than tool results, or a
+ * `queued_command` attachment (a coordinator message or a background-task notification queued while the subagent
+ * worked), so a hand-back before the last one belongs to an earlier run. The transcript format is internal, so only
+ * the entry types, an attachment's type, user content shapes and assistant `tool_use` blocks named SubagentHandback
+ * with a string `input.message` are read; text the subagent only read sits in user entries and never counts.
  */
 function handbackReport(path: string | undefined): string | undefined {
 	if (!path) return undefined;
