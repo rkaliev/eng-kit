@@ -285,13 +285,16 @@ export function runsVerifyScript(shell: string): boolean {
 
 /**
  * The kit reviewer (plugin `eng-kit:reviewer`, project install `reviewer`) ends with its verdict: record it.
- * A report without the verdict lines sends the reviewer back once to add them.
+ * A report without the verdict lines sends the reviewer back once to add them; a handed-back one fails at once.
  */
 function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	recordUsage(env, input, "subagent");
 	if (!REVIEWER.test(input.agent_type ?? "")) return {};
 	const ids = { promptId: input.prompt_id || input.session_id || "none", run: input.agent_id || "none" };
-	const report = input.last_assistant_message ?? "";
+	// A background reviewer delivers its report through a SubagentHandback call; what it writes after that (a short
+	// summary, often without the verdict lines) never reaches its caller, so the hand-back is the report.
+	const handedBack = handbackReport(input.agent_transcript_path);
+	const report = handedBack ?? input.last_assistant_message ?? "";
 	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive.
 	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir).commands.length > 0;
 	const parsed = parseReview(report);
@@ -304,8 +307,9 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	const warning = `eng-kit review gate: no verdict recorded: ${result}.`;
 	// Sent back once already: the run failed. It counts as Inconclusive for the commit it reviewed, so a
 	// parallel reviewer's Yes on that commit can't stand alone; a review of a later commit is unaffected.
-	if (input.stop_hook_active) {
-		const named = reviewedHead(input.last_assistant_message ?? "");
+	// A handed-back report is already delivered: sending the reviewer back can't change it, so it fails at once.
+	if (input.stop_hook_active || handedBack !== undefined) {
+		const named = reviewedHead(report);
 		// A SHA that isn't a commit here (a typo) falls back to HEAD, so the failure is never lost.
 		if (named === undefined || typeof recordVerdict(env.projectDir, named, "Inconclusive", ids, env.reviewsRoot) === "string") {
 			recordVerdict(env.projectDir, "HEAD", "Inconclusive", ids, env.reviewsRoot);
@@ -319,6 +323,48 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 			reason: `Review gate: ${result}. End your report with exactly three lines: \`Reviewed BASE: <the commit your range starts at>\`, \`Reviewed HEAD: <the SHA you reviewed>\` and \`Ready to merge: <one of Yes, No, With fixes, Inconclusive>\`.`,
 		},
 	};
+}
+
+/**
+ * The message of the last SubagentHandback call in the subagent's current run, if any. A continued subagent keeps one
+ * transcript, and each run starts with an incoming message: a user entry with more than tool results, or a
+ * `queued_command` attachment (a coordinator message or a background-task notification queued while the subagent
+ * worked), so a hand-back before the last one belongs to an earlier run. The transcript format is internal, so only
+ * the entry types, an attachment's type, user content shapes and assistant `tool_use` blocks named SubagentHandback
+ * with a string `input.message` are read; text the subagent only read sits in user entries and never counts.
+ */
+function handbackReport(path: string | undefined): string | undefined {
+	if (!path) return undefined;
+	let text: string;
+	try {
+		text = readFileSync(path, "utf8");
+	} catch {
+		return undefined;
+	}
+	let report: string | undefined;
+	for (const line of text.split("\n")) {
+		if (!line.includes('"SubagentHandback"') && !line.includes('"type":"user"') && !line.includes('"queued_command"')) continue;
+		let entry: { type?: unknown; message?: { content?: unknown }; attachment?: { type?: unknown } };
+		try {
+			entry = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		const content = entry.message?.content;
+		if (entry.type === "user") {
+			if (!Array.isArray(content) || content.some((block: { type?: unknown }) => block?.type !== "tool_result")) report = undefined;
+			continue;
+		}
+		if (entry.type === "attachment" && entry.attachment?.type === "queued_command") {
+			report = undefined;
+			continue;
+		}
+		if (entry.type !== "assistant" || !Array.isArray(content)) continue;
+		for (const block of content as Array<{ type?: unknown; name?: unknown; input?: { message?: unknown } }>) {
+			if (block?.type === "tool_use" && block.name === "SubagentHandback" && typeof block.input?.message === "string") report = block.input.message;
+		}
+	}
+	return report;
 }
 
 function stop(input: HookInput, env: HookEnv): HookResult {

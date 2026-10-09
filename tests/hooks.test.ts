@@ -411,6 +411,11 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	assert.match(String(stamped.warning), /unverified, so it counts as Inconclusive/);
 	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.bases.length, 1, "it keeps its range, so a later round can chain through it");
 	assert.equal(pr(), "deny");
+	const handedBack = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "agent.jsonl");
+	writeFileSync(handedBack, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "SubagentHandback", input: { message: verdict } }] } }));
+	const handedBackStop = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Sent.", agent_transcript_path: handedBack, prompt_id: "p1b", agent_id: "a1b" });
+	assert.match(String(handedBackStop.warning), /unverified, so it counts as Inconclusive/, "a handed-back review on unverified edits too");
+	assert.equal(handedBackStop.output, undefined);
 
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" } });
 	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p2", agent_id: "a2" });
@@ -445,6 +450,59 @@ test("review gate: a report without Reviewed BASE is sent back once, naming all 
 	assert.match(String(first.output?.reason), /exactly three lines: `Reviewed BASE: <the commit your range starts at>`, `Reviewed HEAD: <the SHA you reviewed>` and `Ready to merge:/);
 	assert.equal(stop(true).output, undefined, "sent back only once");
 	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.verdict, "Inconclusive");
+});
+
+test("review gate: a background reviewer's report comes from its SubagentHandback call; without the verdict lines it counts as Inconclusive at once", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const head = git("rev-parse", "HEAD");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	// Transcript lines shaped like Claude Code's: a background subagent hands its report back as a tool call, and its
+	// last message is at most a short summary without the verdict lines.
+	const handback = (message: string) => ({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t", name: "SubagentHandback", input: { message } }] } });
+	const toolResult = (text: string) => ({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: [{ type: "text", text }] }] } });
+	const coordinator = (text: string) => ({ type: "user", message: { role: "user", content: text }, origin: { kind: "coordinator" } });
+	const tools = { type: "attachment", attachment: { type: "deferred_tools", tools: [{ name: "SubagentHandback" }] } };
+	const deliveredResult = toolResult(JSON.stringify({ success: true, message: "Report delivered to your caller." }));
+	const queued = (prompt: string) => ({ type: "attachment", attachment: { type: "queued_command", prompt } });
+	const transcript = (...entries: object[]) => {
+		const path = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "agent.jsonl");
+		writeFileSync(path, `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`);
+		return path;
+	};
+	let run = 0;
+	const stop = (agent_transcript_path: string, last_assistant_message = "I've sent the review to the parent agent.") =>
+		handle({ session_id: "s", cwd: projectDir, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message, agent_transcript_path, prompt_id: `p${++run}`, agent_id: "a1" }, env);
+	const verdict = (word: string) => `### Verdict\nReviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: ${word}`;
+	const latest = () => readReviews(projectDir, env.reviewsRoot)[0]?.verdict;
+	const pr = () => decision(handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } }, env));
+
+	assert.deepEqual(stop(transcript(tools, handback("Draft, no verdict yet."), deliveredResult, handback(verdict("Yes")), deliveredResult, tools)), {}, "the run's last hand-back is the report, its own tool result doesn't end the run");
+	assert.equal(latest(), "Yes");
+	assert.equal(pr(), undefined);
+
+	assert.deepEqual(stop(transcript(handback(verdict("No"))), verdict("Yes")), {}, "the delivered hand-back wins over a later message");
+	assert.equal(latest(), "No");
+
+	const delivered = stop(transcript(handback(`Reviewed HEAD: ${head}\nLooks fine.`)));
+	assert.equal(delivered.output, undefined, "the report is already delivered, so sending the reviewer back can't fix it");
+	assert.match(String(delivered.warning), /no verdict recorded/);
+	assert.equal(latest(), "Inconclusive");
+	assert.equal(pr(), "deny");
+
+	const quoted = JSON.stringify(handback(verdict("Yes")));
+	const sentBack = stop(transcript(tools, toolResult(quoted), handback(verdict("Yes")), coordinator(`Round 2. Earlier: ${quoted}`), toolResult(quoted)));
+	assert.equal(sentBack.output?.decision, "block", "a continued run hands back afresh: an earlier run's hand-back, or one it only read, doesn't count");
+	assert.equal(stop(transcript(handback(verdict("Yes")), deliveredResult, queued("Also check X."))).output?.decision, "block", "a message queued while the reviewer worked starts a new run too");
+	assert.equal(latest(), "Inconclusive");
+	for (const incoming of [queued("<task-notification>done</task-notification>"), coordinator("Round 2.")]) {
+		assert.deepEqual(stop(transcript(handback(verdict("Yes")), deliveredResult, incoming, handback(verdict("No")), deliveredResult)), {}, "the new run's hand-back is the report");
+		assert.equal(latest(), "No");
+	}
 });
 
 test("review-log prints the stored reports of a commit's latest round; with none it exits 1", () => {
