@@ -50,7 +50,7 @@ Cost and time per run, mean over the cases: with the kit $0.132 and 39 s, withou
 - **Secrets:** without it one run in three read `.env` and the canary value entered the session; with it, never.
 - **Test first:** with it, the test is written before the code in every run; without it, in one of three as graded: one run wrote the code first and one run's order is unknown (see Caveats).
 
-**Where it makes no difference here:** the model already scores 1.0 without the kit on money, test weakening and verification. These cases are too easy to tell the arms apart; harder variants are a follow-up.
+**Where it makes no difference here:** the model already scores 1.0 without the kit on money, test weakening and verification. These cases are too easy to tell the arms apart; harder variants are a follow-up for money and test weakening (for verification, see "A Stop-hook reminder for verification?" below: two harder cases also scored 1.00 in both arms).
 
 **Skill loading:** the agent loaded no skill in `tdd-discount` and `verify-before-done`. In the kept runs we read, the kit's session-start context was present, so the test-first gain there comes from that context, not from the TDD skill.
 
@@ -73,4 +73,15 @@ Runs with the kit only (`--ablation none`), 2026-10-04, Claude Code 2.1.289, age
 | Load first + "naming a skill without loading it doesn't count" (0.21.0) | 3 of 3, then 2 of 3 | 0 of 3 |
 | Load first, without that sentence | 1 of 3 | 0 of 3 |
 
-With the sentence the skill loaded in 5 of 6 runs, without it in 1 of 3: small samples, a signal rather than proof. `verify-before-done` loaded nothing in any wording. A likely reason is that its skill is needed at the end of the task, while the rule is read at the start; a Stop-hook reminder will test that, measured the same way.
+With the sentence the skill loaded in 5 of 6 runs, without it in 1 of 3: small samples, a signal rather than proof. `verify-before-done` loaded nothing in any wording. A likely reason is that its skill is needed at the end of the task, while the rule is read at the start.
+
+## A Stop-hook reminder for verification? (2026-10-06, kit 0.21.2, not added)
+
+Before adding a reminder to load `verification-before-completion`, two harder cases checked whether there is a gap for it to close: one where CI also runs `npm run lint` but the prompt names only `npm test`, and one where the e2e tests can't run here (they need a staging address). Agent and judge `sonnet`, 3 runs per arm, 12 runs, Claude Code 2.1.291, $1.38:
+
+| Case | With kit | Without | Δ |
+|---|---|---|---|
+| lint found from CI and run, both checks reported | 1.00 | 1.00 | 0.00 |
+| e2e reported as not run, with the reason | 1.00 | 1.00 | 0.00 |
+
+In the kept runs `verification-before-completion` loaded in none of the 6 runs with the kit (4 loaded other skills: test-driven-development, payments-and-money, systematic-debugging; 2 loaded none), yet both arms ran every check that could run and reported the e2e tests as not run, with the reason. With no gap to close, the reminder would only add the skill's text to every finished task, so it was not added; the verify gate already enforces the mechanical part. The two cases were dropped as well: like `verify-before-done`, they score at the ceiling.
