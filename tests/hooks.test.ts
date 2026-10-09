@@ -413,8 +413,9 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	assert.equal(pr(), "deny");
 	const handedBack = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "agent.jsonl");
 	writeFileSync(handedBack, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "SubagentHandback", input: { message: verdict } }] } }));
-	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Sent.", agent_transcript_path: handedBack, prompt_id: "p1b", agent_id: "a1b" });
-	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.verdict, "Inconclusive", "a handed-back review on unverified edits too");
+	const handedBackStop = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Sent.", agent_transcript_path: handedBack, prompt_id: "p1b", agent_id: "a1b" });
+	assert.match(String(handedBackStop.warning), /unverified, so it counts as Inconclusive/, "a handed-back review on unverified edits too");
+	assert.equal(handedBackStop.output, undefined);
 
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" } });
 	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p2", agent_id: "a2" });
@@ -466,6 +467,8 @@ test("review gate: a background reviewer's report comes from its SubagentHandbac
 	const toolResult = (text: string) => ({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: [{ type: "text", text }] }] } });
 	const coordinator = (text: string) => ({ type: "user", message: { role: "user", content: text }, origin: { kind: "coordinator" } });
 	const tools = { type: "attachment", attachment: { type: "deferred_tools", tools: [{ name: "SubagentHandback" }] } };
+	const delivered_ = toolResult(JSON.stringify({ success: true, message: "Report delivered to your caller." }));
+	const queued = (prompt: string) => ({ type: "attachment", attachment: { type: "queued_command", prompt } });
 	const transcript = (...entries: object[]) => {
 		const path = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "agent.jsonl");
 		writeFileSync(path, `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`);
@@ -478,7 +481,7 @@ test("review gate: a background reviewer's report comes from its SubagentHandbac
 	const latest = () => readReviews(projectDir, env.reviewsRoot)[0]?.verdict;
 	const pr = () => decision(handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } }, env));
 
-	assert.deepEqual(stop(transcript(tools, handback("Draft, no verdict yet."), handback(verdict("Yes")))), {}, "the run's last hand-back is the report");
+	assert.deepEqual(stop(transcript(tools, handback("Draft, no verdict yet."), delivered_, handback(verdict("Yes")), delivered_, tools)), {}, "the run's last hand-back is the report, its own tool result doesn't end the run");
 	assert.equal(latest(), "Yes");
 	assert.equal(pr(), undefined);
 
@@ -494,6 +497,7 @@ test("review gate: a background reviewer's report comes from its SubagentHandbac
 	const quoted = JSON.stringify(handback(verdict("Yes")));
 	const sentBack = stop(transcript(tools, toolResult(quoted), handback(verdict("Yes")), coordinator(`Round 2. Earlier: ${quoted}`), toolResult(quoted)));
 	assert.equal(sentBack.output?.decision, "block", "a continued run hands back afresh: an earlier run's hand-back, or one it only read, doesn't count");
+	assert.equal(stop(transcript(handback(verdict("Yes")), delivered_, queued("Also check X."))).output?.decision, "block", "a message queued while the reviewer worked starts a new run too");
 	assert.equal(latest(), "Inconclusive");
 });
 

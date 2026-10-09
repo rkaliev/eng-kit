@@ -327,8 +327,8 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 
 /**
  * The message of the last SubagentHandback call in the subagent's current run, if any. A continued subagent keeps one
- * transcript, and each run starts with an incoming message (a user entry that isn't only tool results), so a
- * hand-back before the last one belongs to an earlier run. The transcript format is internal, so only the entry
+ * transcript, and each run starts with an incoming message (a user entry that isn't only tool results, or a message
+ * queued while the subagent worked), so a hand-back before the last one belongs to an earlier run. The transcript format is internal, so only the entry
  * types, user content shapes and assistant `tool_use` blocks named SubagentHandback with a string
  * `input.message` are read; text the subagent only read sits in user entries and never counts.
  */
@@ -342,8 +342,8 @@ function handbackReport(path: string | undefined): string | undefined {
 	}
 	let report: string | undefined;
 	for (const line of text.split("\n")) {
-		if (!line.includes('"SubagentHandback"') && !line.includes('"type":"user"')) continue;
-		let entry: { type?: unknown; message?: { content?: unknown } };
+		if (!line.includes('"SubagentHandback"') && !line.includes('"type":"user"') && !line.includes('"queued_command"')) continue;
+		let entry: { type?: unknown; message?: { content?: unknown }; attachment?: { type?: unknown } };
 		try {
 			entry = JSON.parse(line);
 		} catch {
@@ -352,6 +352,10 @@ function handbackReport(path: string | undefined): string | undefined {
 		const content = entry.message?.content;
 		if (entry.type === "user") {
 			if (!Array.isArray(content) || content.some((block: { type?: unknown }) => block?.type !== "tool_result")) report = undefined;
+			continue;
+		}
+		if (entry.type === "attachment" && entry.attachment?.type === "queued_command") {
+			report = undefined;
 			continue;
 		}
 		if (entry.type !== "assistant" || !Array.isArray(content)) continue;
