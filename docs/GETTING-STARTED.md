@@ -253,7 +253,7 @@ claude
 ## 7. Models
 
 - **Agents:** `reviewer` runs on `opus`, `implementer` on `sonnet`. To move all subagents to one model, set `CLAUDE_CODE_SUBAGENT_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` in the settings `env`.
-- **Skills:** skills with heavy reasoning (brainstorming, writing-plans, systematic-debugging, security-review) set `effort: high`.
+- **Skills:** skills with heavy reasoning (brainstorming, writing-plans, systematic-debugging, security-review) and the reviewer set `effort: xhigh`; a model without `xhigh` runs it as `high`, and `CLAUDE_CODE_EFFORT_LEVEL` overrides it.
 - **Main session:** `/model`, `--model`, all built in.
 
 ## 8. FAQ

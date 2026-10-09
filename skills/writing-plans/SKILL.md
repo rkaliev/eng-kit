@@ -1,7 +1,7 @@
 ---
 name: writing-plans
 description: Use when you have an approved design in a task file, or clear requirements, for a multi-step change, before touching code
-effort: high
+effort: xhigh
 ---
 
 # Writing plans

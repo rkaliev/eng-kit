@@ -23,7 +23,7 @@ description: Read-only API auditor. Use after … to …   # decides delegation
 tools: Read, Grep, Glob, Bash      # allowlist; omitted = every tool the session has
 disallowedTools: Edit, Write       # removed from what is inherited
 model: opus                        # sonnet | opus | haiku | inherit | a full id
-effort: high
+effort: xhigh
 ---
 ```
 

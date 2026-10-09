@@ -25,7 +25,7 @@ description: Use when … # third person; triggers only; description + when_to_u
 Optional fields worth knowing:
 - `disable-model-invocation: true`: only the user runs it (`/<name>`). Use it for entry points and side effects: deploys, commits, setup.
 - `argument-hint` and `$ARGUMENTS`: for entry points that take a task or path.
-- `effort: high`: for skills whose value is careful reasoning (design, debugging, security).
+- `effort: xhigh`: for skills whose value is careful reasoning (design, planning, debugging, security).
 - `allowed-tools`: pre-approves tools while the skill runs. Keep it narrow; never grant broad `Bash`.
 - `context: fork` with `agent: <type>`: runs the skill in an isolated subagent. Only for self-contained tasks that return a result.
 
