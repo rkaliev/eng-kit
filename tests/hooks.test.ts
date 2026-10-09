@@ -447,6 +447,38 @@ test("review gate: a report without Reviewed BASE is sent back once, naming all 
 	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.verdict, "Inconclusive");
 });
 
+test("review gate: a background reviewer's report comes from its SubagentHandback call; without the verdict lines it counts as Inconclusive at once", () => {
+	const projectDir = gitRepo({});
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const head = git("rev-parse", "HEAD");
+	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	// A background subagent hands its report back as a tool call; its last message is that call, with no text.
+	const handback = (...messages: string[]) => {
+		const path = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "agent.jsonl");
+		const lines = messages.map((message, i) => JSON.stringify({ type: "assistant", message: { id: `m${i}`, role: "assistant", content: [{ type: "tool_use", id: `t${i}`, name: "SubagentHandback", input: { message } }] } }));
+		writeFileSync(path, `${lines.join("\n")}\n`);
+		return path;
+	};
+	const stop = (agent_transcript_path: string, agent_id: string) =>
+		handle({ session_id: "s", cwd: projectDir, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "", agent_transcript_path, prompt_id: "p1", agent_id }, env);
+	const verdict = `### Verdict\nReviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: Yes`;
+	const pr = () => decision(handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } }, env));
+
+	assert.deepEqual(stop(handback("Draft, no verdict yet.", verdict), "a1"), {}, "the last hand-back is the report");
+	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.verdict, "Yes");
+	assert.equal(pr(), undefined);
+
+	const delivered = stop(handback(`Reviewed HEAD: ${head}\nLooks fine.`), "a2");
+	assert.equal(delivered.output, undefined, "the report is already delivered, so sending the reviewer back can't fix it");
+	assert.match(String(delivered.warning), /no verdict recorded/);
+	assert.equal(readReviews(projectDir, env.reviewsRoot)[0]?.verdict, "Inconclusive");
+	assert.equal(pr(), "deny");
+});
+
 test("review-log prints the stored reports of a commit's latest round; with none it exits 1", () => {
 	const projectDir = gitRepo({});
 	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();

@@ -291,7 +291,9 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	recordUsage(env, input, "subagent");
 	if (!REVIEWER.test(input.agent_type ?? "")) return {};
 	const ids = { promptId: input.prompt_id || input.session_id || "none", run: input.agent_id || "none" };
-	const report = input.last_assistant_message ?? "";
+	// A background reviewer delivers its report through a SubagentHandback call, so its last message has no text.
+	const handedBack = parseReview(input.last_assistant_message ?? "") ? undefined : handbackReport(input.agent_transcript_path);
+	const report = handedBack ?? input.last_assistant_message ?? "";
 	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive.
 	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir).commands.length > 0;
 	const parsed = parseReview(report);
@@ -304,8 +306,9 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	const warning = `eng-kit review gate: no verdict recorded: ${result}.`;
 	// Sent back once already: the run failed. It counts as Inconclusive for the commit it reviewed, so a
 	// parallel reviewer's Yes on that commit can't stand alone; a review of a later commit is unaffected.
-	if (input.stop_hook_active) {
-		const named = reviewedHead(input.last_assistant_message ?? "");
+	// A handed-back report is already delivered: sending the reviewer back can't change it, so it fails at once.
+	if (input.stop_hook_active || handedBack !== undefined) {
+		const named = reviewedHead(report);
 		// A SHA that isn't a commit here (a typo) falls back to HEAD, so the failure is never lost.
 		if (named === undefined || typeof recordVerdict(env.projectDir, named, "Inconclusive", ids, env.reviewsRoot) === "string") {
 			recordVerdict(env.projectDir, "HEAD", "Inconclusive", ids, env.reviewsRoot);
@@ -319,6 +322,35 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 			reason: `Review gate: ${result}. End your report with exactly three lines: \`Reviewed BASE: <the commit your range starts at>\`, \`Reviewed HEAD: <the SHA you reviewed>\` and \`Ready to merge: <one of Yes, No, With fixes, Inconclusive>\`.`,
 		},
 	};
+}
+
+/**
+ * The message of the last SubagentHandback call in a subagent's transcript, if any. The transcript format is
+ * internal, so only assistant `tool_use` blocks named SubagentHandback with a string `input.message` are read.
+ */
+function handbackReport(path: string | undefined): string | undefined {
+	if (!path) return undefined;
+	let text: string;
+	try {
+		text = readFileSync(path, "utf8");
+	} catch {
+		return undefined;
+	}
+	let report: string | undefined;
+	for (const line of text.split("\n")) {
+		if (!line.includes('"SubagentHandback"')) continue;
+		let entry: { type?: unknown; message?: { content?: unknown } };
+		try {
+			entry = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (entry.type !== "assistant" || !Array.isArray(entry.message?.content)) continue;
+		for (const block of entry.message.content as Array<{ type?: unknown; name?: unknown; input?: { message?: unknown } }>) {
+			if (block?.type === "tool_use" && block.name === "SubagentHandback" && typeof block.input?.message === "string") report = block.input.message;
+		}
+	}
+	return report;
 }
 
 function stop(input: HookInput, env: HookEnv): HookResult {
