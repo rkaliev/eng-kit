@@ -576,4 +576,6 @@ test("token ledger: SubagentStop records the subagent's tokens and Stop the sess
 	spawnSync("git", ["init", "-q", "-b", "feat/o"], { cwd: other });
 	call({ hook_event_name: "SubagentStop", agent_type: "Explore", agent_id: "a3", agent_transcript_path: transcript(49), cwd: other });
 	assert.deepEqual(branchSummary(other, "feat/o", env.usageRoot), { byAgent: { Explore: 50 }, subagents: 50, total: 50 }, "work in another repository goes to that repository's ledger, where its status line reads it");
+	call({ hook_event_name: "Stop", transcript_path: transcript(29), cwd: other });
+	assert.equal(branchSummary(other, "feat/o", env.usageRoot).byAgent.main, 10, "the session moved to another repository: only what it added there");
 });
