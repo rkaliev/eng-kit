@@ -553,18 +553,23 @@ test("guard: the implementer's own-branch push asks; the main agent's passes", (
 	assert.match(String(reason), /implementer doesn't push; the coordinator does after review/);
 });
 
-test("token ledger: SubagentStop records the subagent's tokens and Stop the session's, by branch; a missing transcript changes nothing", () => {
+test("token ledger: SubagentStop records the subagent's tokens and Stop the session's, on the branch of the folder the work runs in", () => {
 	const { env, call, projectDir } = setup();
 	env.usageRoot = mkdtempSync(join(tmpdir(), "hooks-usage-"));
-	spawnSync("git", ["init", "-q", "-b", "feat/u"], { cwd: projectDir });
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" });
+	git("init", "-q", "-b", "feat/u");
+	git("-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x");
+	const wt = join(projectDir, ".worktrees", "w");
+	git("worktree", "add", "-q", "-b", "feat/w", wt);
 	const transcript = (input: number) => {
 		const path = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "t.jsonl");
 		writeFileSync(path, JSON.stringify({ type: "assistant", message: { id: "m1", model: "m", usage: { input_tokens: input, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } }));
 		return path;
 	};
-	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "Explore", agent_id: "a1", agent_transcript_path: transcript(99) }), {});
+	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:implementer", agent_id: "a1", agent_transcript_path: transcript(99) }), {});
 	call({ hook_event_name: "Stop", transcript_path: transcript(9) });
-	call({ hook_event_name: "Stop", transcript_path: transcript(19) });
+	call({ hook_event_name: "Stop", transcript_path: transcript(19), cwd: wt });
 	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "Explore", agent_id: "a2", agent_transcript_path: join(tmpdir(), "no-such.jsonl") }), {});
-	assert.deepEqual(branchSummary(projectDir, "feat/u", env.usageRoot), { byAgent: { Explore: 100, main: 20 }, subagents: 100, total: 120 });
+	assert.deepEqual(branchSummary(projectDir, "feat/u", env.usageRoot), { byAgent: { implementer: 100, main: 10 }, subagents: 100, total: 110 });
+	assert.deepEqual(branchSummary(projectDir, "feat/w", env.usageRoot), { byAgent: { main: 10 }, subagents: 0, total: 10 }, "work in a worktree counts on its branch, and only what it added");
 });

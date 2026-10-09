@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -45,13 +45,20 @@ test("the installer adds the status line to user settings, keeps other keys and 
 	assert.deepEqual(planStatusLine(theirs, ours, false), { status: "refused" });
 	assert.deepEqual(parsed(planStatusLine(theirs, ours, true)), { statusLine: { type: "command", command: ours }, theme: "dark" });
 	assert.deepEqual(planStatusLine("{ not json", ours, true), { status: "invalid" });
+	const padded = JSON.stringify({ statusLine: { type: "command", command: 'node "/x/plugins/cache/eng-kit/eng-kit/0.21.0/scripts/statusline.ts"', padding: 2 } });
+	assert.deepEqual(parsed(planStatusLine(padded, ours, false)).statusLine, { type: "command", command: ours, padding: 2 }, "updating ours keeps its other keys");
+	for (const other of [{ type: "command", command: `bash -c '${ours}; my-tool'` }, { type: "command" }]) {
+		assert.deepEqual(planStatusLine(JSON.stringify({ statusLine: other }), ours, false), { status: "refused" }, `someone else's: ${JSON.stringify(other)}`);
+	}
 });
 
 test("the status line points at the marketplace clone, which survives plugin updates", () => {
 	const home = mkdtempSync(join(tmpdir(), "statusline-home-"));
 	const cache = join(home, ".claude", "plugins", "cache", "eng-kit", "eng-kit", "0.22.0");
 	assert.equal(stableRoot(cache, home), cache, "no clone: keep the given root");
-	mkdirSync(join(home, ".claude", "plugins", "marketplaces", "eng-kit"), { recursive: true });
+	mkdirSync(join(home, ".claude", "plugins", "marketplaces", "eng-kit", "scripts"), { recursive: true });
+	assert.equal(stableRoot(cache, home), cache, "a marketplace clone without the script (the plugin lives elsewhere): keep the given root");
+	writeFileSync(join(home, ".claude", "plugins", "marketplaces", "eng-kit", "scripts", "statusline.ts"), "");
 	assert.equal(stableRoot(cache, home), join(home, ".claude", "plugins", "marketplaces", "eng-kit"));
 	assert.equal(stableRoot("/work/app/.claude/eng-kit", home), "/work/app/.claude/eng-kit", "a project install keeps its path");
 });

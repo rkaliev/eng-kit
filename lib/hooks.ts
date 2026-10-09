@@ -19,7 +19,7 @@ import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from 
 import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState } from "./state.ts";
-import { appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
+import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 
 export interface HookInput {
@@ -288,7 +288,7 @@ export function runsVerifyScript(shell: string): boolean {
  * A report without the verdict lines sends the reviewer back once to add them.
  */
 function subagentStop(input: HookInput, env: HookEnv): HookResult {
-	recordUsage(env, "subagent", input.agent_id, input.agent_transcript_path, input.agent_type);
+	recordUsage(env, input, "subagent");
 	if (!REVIEWER.test(input.agent_type ?? "")) return {};
 	const ids = { promptId: input.prompt_id || input.session_id || "none", run: input.agent_id || "none" };
 	const report = input.last_assistant_message ?? "";
@@ -322,8 +322,13 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 }
 
 function stop(input: HookInput, env: HookEnv): HookResult {
-	// The session's transcript so far: a later snapshot of the same session replaces this one.
-	recordUsage(env, "session", input.session_id, input.transcript_path);
+	const result = stopGates(input, env);
+	// After the gates, so a slow transcript read can't cost a reminder.
+	recordUsage(env, input, "session");
+	return result;
+}
+
+function stopGates(input: HookInput, env: HookEnv): HookResult {
 	if (input.stop_hook_active) return {};
 	const sessionId = input.session_id ?? "";
 	const state = loadState(env.stateDir, sessionId);
@@ -362,21 +367,24 @@ function stop(input: HookInput, env: HookEnv): HookResult {
 	return { output: { decision: "block", reason: reasons.join("\n\n") } };
 }
 
-/** Adds a transcript's tokens to the branch's ledger (lib/usage.ts). A convenience: it never fails the hook. */
-function recordUsage(env: HookEnv, kind: "subagent" | "session", id: string | undefined, path: string | undefined, agent = "subagent"): void {
+/**
+ * Adds a transcript's tokens to the ledger (lib/usage.ts), on the branch of the folder the work runs in: a subagent
+ * run as a whole, the session as what it added since its last snapshot. A convenience: it never fails the hook.
+ */
+function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session"): void {
 	try {
-		const branch = currentBranch(env.projectDir);
+		const id = kind === "session" ? input.session_id : input.agent_id;
+		const path = kind === "session" ? input.transcript_path : input.agent_transcript_path;
+		const branch = currentBranch(input.cwd ?? env.projectDir) ?? currentBranch(env.projectDir);
 		const used = path && id ? readTranscriptUsage(path) : [];
-		if (!branch || used.length === 0) return;
+		if (!branch || !id || used.length === 0) return;
 		const tokens: Tokens = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
 		for (const { tokens: t } of used) for (const key of Object.keys(tokens) as Array<keyof Tokens>) tokens[key] += t[key];
-		const at = Date.now();
-		if (kind === "session") appendUsage(env.projectDir, { kind, id: id!, tokens, branch, at }, env.usageRoot);
-		else {
-			// The model that used the most tokens names the run.
-			const model = used.reduce((a, b) => (total(b.tokens) > total(a.tokens) ? b : a)).model;
-			appendUsage(env.projectDir, { kind, id: id!, agent, model, tokens, branch, at }, env.usageRoot);
-		}
+		if (kind === "session") return appendSessionSnapshot(env.projectDir, id, tokens, branch, env.usageRoot);
+		// The model that used the most tokens names the run; a plugin's agent counts under its own name.
+		const model = used.reduce((a, b) => (total(b.tokens) > total(a.tokens) ? b : a)).model;
+		const agent = (input.agent_type || "subagent").replace(/^[^:]+:/, "");
+		appendUsage(env.projectDir, { kind, id, agent, model, tokens, branch, at: Date.now() }, env.usageRoot);
 	} catch {
 		// The ledger is optional; the hook's own work goes on.
 	}

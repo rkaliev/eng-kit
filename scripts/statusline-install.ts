@@ -5,9 +5,10 @@
  *
  * Prints the change first. Someone else's status line is replaced only with --force; other settings are kept.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { writeAtomic } from "../lib/reviews.ts";
 import { planStatusLine, stableRoot } from "../lib/statusline.ts";
 
 const args = new Set(process.argv.slice(2));
@@ -33,6 +34,8 @@ switch (plan.status) {
 		console.log(`${plan.status === "added" ? "Adding" : "Replacing"} statusLine in ${settingsPath}:\n  "statusLine": { "type": "command", "command": ${JSON.stringify(command)} }`);
 		if (args.has("--dry-run")) break;
 		mkdirSync(dirname(settingsPath), { recursive: true });
-		writeFileSync(settingsPath, plan.text!);
+		// Through a dotfiles symlink to the real file, and atomically, so a failed write never leaves it half written.
+		writeAtomic(existsSync(settingsPath) ? realpathSync(settingsPath) : settingsPath, plan.text!);
 		console.log("Done. The status line appears with the next message.");
+		if (/[\\/]plugins[\\/]cache[\\/]/.test(root)) console.warn("Note: this path is the plugin's versioned folder; re-run this command after each plugin update.");
 }

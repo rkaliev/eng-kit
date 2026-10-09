@@ -44,8 +44,8 @@ function clock(value: unknown): string | undefined {
 
 export type StatusLinePlan = { status: "added" | "same" | "replaced" | "refused" | "invalid"; text?: string };
 
-/** An eng-kit status line from any install or version: it may be updated without `--force`. */
-const OURS = /eng-kit.*scripts\/statusline\.ts/;
+/** Exactly the command this installer writes, from any eng-kit install or version: it may be updated without `--force`. */
+const OURS = /^node "[^"]*eng-kit[^"]*\/scripts\/statusline\.ts"$/;
 
 /**
  * The user's settings with the eng-kit status line, keeping every other key. Someone else's status line is
@@ -62,11 +62,14 @@ export function planStatusLine(settings: string | undefined, command: string, fo
 			return { status: "invalid" };
 		}
 	}
-	const current = (data.statusLine as { command?: unknown } | undefined)?.command;
-	if (current === command) return { status: "same" };
-	if (current !== undefined && !(typeof current === "string" && OURS.test(current)) && !force) return { status: "refused" };
-	const text = `${JSON.stringify({ ...data, statusLine: { type: "command", command } }, null, 2)}\n`;
-	return { status: current === undefined ? "added" : "replaced", text };
+	const existing = data.statusLine as Record<string, unknown> | undefined;
+	if (existing?.command === command) return { status: "same" };
+	const ours = typeof existing?.command === "string" && OURS.test(existing.command);
+	if (existing !== undefined && !ours && !force) return { status: "refused" };
+	// Updating ours keeps its other keys (padding, refreshInterval); someone else's is replaced whole.
+	const statusLine = { ...(ours ? existing : {}), type: "command", command };
+	const text = `${JSON.stringify({ ...data, statusLine }, null, 2)}\n`;
+	return { status: existing === undefined ? "added" : "replaced", text };
 }
 
 /**
@@ -76,5 +79,6 @@ export function planStatusLine(settings: string | undefined, command: string, fo
 export function stableRoot(kitRoot: string, home: string): string {
 	const market = /[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/][^\\/]+[\\/][^\\/]+[\\/]?$/.exec(kitRoot)?.[1];
 	const clone = market ? join(home, ".claude", "plugins", "marketplaces", market) : undefined;
-	return clone && existsSync(clone) ? clone : kitRoot;
+	// A marketplace that lists the plugin by another source has no copy of the script.
+	return clone && existsSync(join(clone, "scripts", "statusline.ts")) ? clone : kitRoot;
 }
