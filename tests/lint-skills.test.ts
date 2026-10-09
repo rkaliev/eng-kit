@@ -9,6 +9,9 @@ const agentsDir = join(root, "agents");
 const MAX_BODY_WORDS = 800;
 const MAX_DESCRIPTION = 400;
 
+/** Claude Code's effort levels; a model without one runs the highest it has below it. */
+const EFFORT = /^(low|medium|high|xhigh|max)$/;
+
 function frontmatter(text: string): { data: Record<string, string>; body: string } {
 	const match = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text);
 	assert.ok(match, "missing YAML frontmatter");
@@ -47,6 +50,7 @@ for (const name of skills) {
 		// Entry points run only via /name, so their description is a menu label, not a trigger list.
 		if (data["disable-model-invocation"] !== "true") assert.match(data.description!, /^Use (when|before|after)\b/, "description states triggers: 'Use when…'");
 		assert.ok(data.description!.length <= MAX_DESCRIPTION, `description is ${data.description!.length} chars`);
+		if (data.effort) assert.match(data.effort, EFFORT, "effort is one of Claude Code's levels");
 
 		const words = body.split(/\s+/).filter(Boolean).length;
 		assert.ok(words <= MAX_BODY_WORDS, `body is ${words} words; move reference material to references/`);
@@ -82,6 +86,7 @@ for (const file of readdirSync(agentsDir).filter((f) => f.endsWith(".md"))) {
 		assert.ok(data.description && data.description.length <= MAX_DESCRIPTION);
 		for (const key of ["hooks", "mcpServers", "permissionMode"]) assert.equal(data[key], undefined, `${key} is ignored for plugin agents`);
 		if (data.model) assert.match(data.model, /^(opus|sonnet|haiku|fable|inherit|claude-[\w.-]+)$/);
+		if (data.effort) assert.match(data.effort, EFFORT, "effort is one of Claude Code's levels");
 		assert.ok(body.trim().length > 0);
 	});
 }
