@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.24.0
+
+- **test-driven-development loads on a spec task.** using-skills' "Where to start" names it for settled requirements (a spec, task file or ticket), before any code. On a "implement this spec" eval the skill loaded in 5 of 11 runs before and 17 of 18 after; in every run where it loaded, the agent saw its test fail on an assertion against a stub before writing the code, and in the runs where it didn't, it took "module not found" as red or ran no test first. The red-flag row "I remember that skill" is gone: the rule above it already says so.
+- **Evals:** three new cases where the bare model falls short (`money-currency-exponent`, `db-required-column`, `legacy-change`). The order graders of `tdd-discount` and `bug-root-cause` are regular expressions over the whole trace, so a file written with `Write`, `Edit` or a heredoc counts alike, and a stub before the test no longer reads as code first. `docs/EVALS.md` records why trace judges are not used for order: a judge sees only the first ~45,000 characters of a trace.
+
 ## 0.23.1
 
 - **Background reviewers record their verdicts.** A reviewer running in the background hands its report back through a `SubagentHandback` tool call, and its last message (at most a short summary) has no verdict lines, so the review gate recorded nothing: every such review read as missing and the landing stayed denied. The SubagentStop hook now takes the report from the last hand-back of the reviewer's current run in the subagent transcript; a continued reviewer's earlier hand-backs don't count. A handed-back report is already delivered, so sending the reviewer back can no longer fix it: one without the three verdict lines counts as `Inconclusive` at once.
