@@ -131,10 +131,17 @@ test("verify gate: failed edits and masked exit codes prove nothing", () => {
 	assert.equal(runsVerifyScript("node /k/scripts/verify.ts | tee log"), true, "a pipe is fine: the script records its own result");
 });
 
-test("verify gate without configured commands asks how it was verified", () => {
+test("verify gate without commands notifies once and doesn't block", () => {
 	const { call } = setup({});
 	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: {} });
-	assert.match(String(call({ hook_event_name: "Stop" }).output!.reason), /No verification commands are configured/);
+	const first = call({ hook_event_name: "Stop" }).output!;
+	assert.equal(first.decision, undefined, "nothing to run, so the agent isn't sent back");
+	assert.match(String(first.systemMessage), /no verification commands/i);
+	assert.match(String(first.systemMessage), /kit-init/);
+	assert.match(String(first.systemMessage), /\.claude\/verify\.json/);
+	call({ hook_event_name: "UserPromptSubmit" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: {} });
+	assert.deepEqual(call({ hook_event_name: "Stop" }), {}, "once per session");
 });
 
 test("hook.ts end to end: stdin JSON in, hook JSON out", () => {
