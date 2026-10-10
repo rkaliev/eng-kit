@@ -4,8 +4,10 @@
  */
 import { execFileSync } from "node:child_process";
 import { statSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { isIgnored } from "./commands.ts";
+import { splitSegments, tokenize } from "./patterns.ts";
+import { blankQuoted, heredocs } from "./shell.ts";
 
 const GIT_TIMEOUT_MS = 3000;
 const MAX_BUFFER = 16 * 1024 * 1024;
@@ -59,4 +61,29 @@ export function treeFingerprint(projectDir: string, ignore: string[]): Record<st
 export function changedPaths(before: Record<string, string>, after: Record<string, string>): string[] {
 	const paths = new Set([...Object.keys(before), ...Object.keys(after)]);
 	return [...paths].filter((p) => before[p] !== after[p]).sort();
+}
+
+/**
+ * The project-relative files a command writes, read from its text: targets of `>`, `>>`, `>|`, `&>` and `&>>`
+ * (not `/dev/null` or an fd), `tee` operands and the file of `sed -i`. Heredoc bodies and quoted text are not
+ * commands. Only for when the working tree can't be compared: a script in another language is not seen.
+ */
+export function shellWriteTargets(command: string, cwd: string, projectDir: string): string[] {
+	const text = heredocs(command).text;
+	const found: string[] = [];
+	// Operators are found where quotes are blanked out; the target is read from the same place in the real text.
+	for (const m of blankQuoted(text).matchAll(/(&>>?|\d*>[>|&]?)[ \t]*/g)) {
+		const target = /^("[^"]*"|'[^']*'|[^\s;&|()<>]+)/.exec(text.slice(m.index + m[0].length))?.[1]?.replace(/^(["'])(.*)\1$/, "$2");
+		if (!target || target === "/dev/null" || (m[1]!.endsWith("&") && /^(\d+|-)$/.test(target))) continue;
+		found.push(target);
+	}
+	for (const seg of splitSegments(tokenize(text))) {
+		if (seg[0] === "tee") found.push(...seg.slice(1).filter((t) => !t.startsWith("-")));
+		if (seg[0] === "sed" && seg.some((t) => /^-i|^--in-place/.test(t)) && seg.length > 2) found.push(seg[seg.length - 1]!);
+	}
+	const inside = found
+		.map((t) => relative(projectDir, resolve(cwd, t)))
+		.filter((rel) => rel !== "" && !rel.startsWith("..") && !isAbsolute(rel))
+		.map((rel) => rel.replaceAll("\\", "/"));
+	return [...new Set(inside)];
 }

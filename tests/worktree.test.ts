@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { changedPaths, treeFingerprint } from "../lib/worktree.ts";
+import { changedPaths, shellWriteTargets, treeFingerprint } from "../lib/worktree.ts";
 
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "pipe" });
@@ -69,4 +69,19 @@ test("treeFingerprint: ignored files, excluded paths and paths outside the proje
 
 test("treeFingerprint: outside a git repository there is none", () => {
 	assert.equal(treeFingerprint(mkdtempSync(join(tmpdir(), "no-git-")), []), undefined);
+});
+
+test("shellWriteTargets: files a command writes inside the project", () => {
+	const project = mkdtempSync(join(tmpdir(), "no-git-"));
+	const targets = (command: string, cwd = project) => shellWriteTargets(command, cwd, project);
+	assert.deepEqual(targets("cat > src/a.ts <<'EOF'\nexport const a = 1;\nEOF"), ["src/a.ts"]);
+	assert.deepEqual(targets("echo x >> src/b.ts"), ["src/b.ts"]);
+	assert.deepEqual(targets("echo x | tee src/c.ts"), ["src/c.ts"]);
+	assert.deepEqual(targets("echo x | tee -a src/c.ts"), ["src/c.ts"]);
+	assert.deepEqual(targets("sed -i '' 's/a/b/' src/d.ts"), ["src/d.ts"]);
+	assert.deepEqual(targets("sed -i.bak 's/a/b/' src/d.ts"), ["src/d.ts"]);
+	assert.deepEqual(targets("echo x > a.ts", join(project, "src")), ["src/a.ts"], "relative to the command's folder");
+	for (const none of ["cat x > /tmp/y", "npm test 2>/dev/null", "npm test 2>&1", "cat src/a.ts", "echo > ../outside.ts", "sed 's/a/b/' src/d.ts"]) {
+		assert.deepEqual(targets(none), [], none);
+	}
 });
