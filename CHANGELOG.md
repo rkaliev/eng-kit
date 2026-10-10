@@ -3,7 +3,7 @@
 ## 0.24.0
 
 - **test-driven-development loads on a spec task.** using-skills' "Where to start" names it for settled requirements (a spec, task file or ticket), before any code. On a "implement this spec" eval the skill loaded in 5 of 11 runs before and 17 of 18 after; in every run where it loaded, the agent saw its test fail on an assertion against a stub before writing the code, and in the runs where it didn't, it took "module not found" as red or ran no test first. The red-flag row "I remember that skill" is gone: the rule above it already says so.
-- **Evals:** three new cases where the bare model falls short (`money-currency-exponent`, `db-required-column`, `legacy-change`). The order graders of `tdd-discount` and `bug-root-cause` are regular expressions over the whole trace, so a file written with `Write`, `Edit` or a heredoc counts alike, and a stub before the test no longer reads as code first. `docs/EVALS.md` records why trace judges are not used for order: a judge sees only the first ~45,000 characters of a trace.
+- **Evals:** three new cases where the bare model falls short (`money-currency-exponent`, `db-required-column`, `legacy-change`). The order graders of `tdd-discount` and `bug-root-cause` are regular expressions over the whole trace, so a file written with `Write`, `Edit`, a shell redirection, `tee` or `sed -i` counts alike, a stub before the test no longer reads as code first, and code written before the failing run still fails; `tests/eval-graders.test.ts` checks both patterns. `docs/EVALS.md` records why trace judges are not used for order: a judge sees only the first ~45,000 characters of a trace.
 
 ## 0.23.1
 

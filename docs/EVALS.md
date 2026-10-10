@@ -18,7 +18,7 @@
 
 Each case's `scaffold.sh` copies its `fixture/` into the empty run workspace and commits it. Fixture dotfiles are stored as `dot-<name>` (`dot-env`, `dot-gitignore`) and renamed by the script, so they don't act on the kit's own repository. The `.env` canary value is low-entropy on purpose, so secret scanners don't flag it.
 
-Order graders are regular expressions over the whole trace, so a file written with `Write`, `Edit` or a shell heredoc counts alike. LLM judges see only about the first 45,000 characters of a trace, while a run with the kit writes 60,000 to 110,000 (the bootstrap and loaded skills come first), so a judge with `focus: trace` misses late steps and is biased against the kit; use it only where no pattern can decide. `focus: files` gives the judge the changed file names, not their content.
+The order graders of `tdd-discount` and `bug-root-cause` are regular expressions over the whole trace: a file written with `Write`, `Edit`, a shell redirection, `tee` or `sed -i` counts alike (a script in another language does not), and `tests/eval-graders.test.ts` checks them on synthetic traces. LLM judges see only about the first 45,000 characters of a trace, while a run with the kit writes 60,000 to 110,000 (the bootstrap and loaded skills come first), so a judge with `focus: trace` misses late steps and is biased against the kit; use it only where no pattern can decide. `focus: files` gives the judge the changed file names, not their content.
 
 Every prompt ends with "I'm away, so don't ask me questions", in both arms. Each case also has an unscored `skill-loaded` indicator (a `Skill` call in the run with the kit).
 
@@ -113,7 +113,7 @@ The domain and debugging skills loaded by themselves in every run, and forcing t
 | 0.23.1 | 5 of 11 | 4 of 8 (runs with kept traces) |
 | 0.24.0 | 17 of 18 | 17 of 18 |
 
-**The suite after the fix** (8 cases, 3 runs per arm, 48 runs, $12.20):
+**The suite after the fix** (9 cases, 3 runs per arm, 54 runs, $12.20; its order graders were the first regular expressions; the review then made `red-before-green` refuse code written before the failing run. This run's traces were not kept, but on the 26 kept `tdd-discount` traces both versions give the same result):
 
 | Case | With kit | Without | Δ | Skill loaded (with) |
 |---|---|---|---|---|
