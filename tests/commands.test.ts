@@ -72,3 +72,14 @@ test("ignore globs: defaults cover docs, verify.json can override them", () => {
 	writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify({ commands: [], ignore: [] }));
 	assert.deepEqual(resolveIgnore(dir), []);
 });
+
+test("without configured commands they are detected from the project's manifests; configured ones still win", () => {
+	const dir = mkdtempSync(join(tmpdir(), "verify-"));
+	assert.deepEqual(resolveVerifyCommands(dir), { commands: [], source: "none" }, "an empty folder has none");
+	writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "node --test", lint: "eslint ." } }));
+	writeFileSync(join(dir, "package-lock.json"), "{}");
+	assert.deepEqual(resolveVerifyCommands(dir), { commands: ["npm run lint", "npm test"], source: "detected" });
+	mkdirSync(join(dir, ".claude"));
+	writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify({ commands: ["make check"] }));
+	assert.deepEqual(resolveVerifyCommands(dir), { commands: ["make check"], source: ".claude/verify.json" });
+});
