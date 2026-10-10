@@ -1,5 +1,5 @@
 ---
-type: tool_order
-before: { tool: Edit, input_match: 'amount\.test\.ts"' }
-after: { tool: Edit, input_match: 'amount\.ts"' }
+type: regex
+target: trace
+pattern: '^(?:(?!(?:"name":"(?:Edit|Write)","input":\{(?:"replace_all":(?:true|false),)?"file_path":"[^"]*/src/amount\.ts"|(?:>>?|\btee(?: -a)?) *(?:\\"|'')?[^\s"''|;&\\]*src/amount\.ts(?![\w.])|\bsed -i(?:(?!\\n)[^"|;&])*src/amount\.ts(?![\w.])))[\s\S])*?(?:AssertionError|ERR_ASSERTION|Missing expected exception|✖ (?!failing tests)(?![^\\"\n]*\.(?:test|spec)\.[cm]?[jt]sx?))'
 ---
