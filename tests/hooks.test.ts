@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -142,6 +142,85 @@ test("verify gate without commands notifies once and doesn't block", () => {
 	call({ hook_event_name: "UserPromptSubmit" });
 	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: {} });
 	assert.deepEqual(call({ hook_event_name: "Stop" }), {}, "once per session");
+});
+
+/** `setup` in a git repository with `src/a.ts` committed, so shell changes are found from the working tree. */
+function setupGit() {
+	const ctx = setup({ "CLAUDE.md": "## Commands\n- `npm test`\n- `npm run typecheck`\n", "src/a.ts": "export const a = 1;\n" });
+	const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: ctx.projectDir, stdio: "pipe" });
+	git("init", "-q", "-b", "main");
+	git("add", "-A");
+	git("commit", "-q", "-m", "initial");
+	const edit = (content: string) => writeFileSync(join(ctx.projectDir, "src/a.ts"), content);
+	const bash = (command: string, extra: Partial<HookInput> = {}) => ctx.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, ...extra });
+	return { ...ctx, edit, bash };
+}
+
+test("verify gate: a file changed from the shell marks the workspace, also when the command fails", () => {
+	const { call, edit, bash } = setupGit();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	edit("export const a = 2;\n");
+	bash("cat > src/a.ts <<'EOF'\nexport const a = 2;\nEOF");
+	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /Verify gate/);
+	assert.match(reason, /src\/a\.ts/);
+
+	call({ hook_event_name: "SessionStart", source: "startup", session_id: "s2" });
+	edit("export const a = 3;\n");
+	bash("python3 fix.py", { hook_event_name: "PostToolUseFailure", session_id: "s2" });
+	assert.equal(call({ hook_event_name: "Stop", session_id: "s2" }).output?.decision, "block");
+});
+
+test("verify gate: a shell command from another folder still has its project changes found", () => {
+	const { call, edit, bash } = setupGit();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	edit("export const a = 2;\n");
+	bash("node gen.js", { cwd: mkdtempSync(join(tmpdir(), "elsewhere-")) });
+	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
+});
+
+test("verify gate: a change no command reported is found at Stop", () => {
+	const { call, edit } = setupGit();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	edit("export const a = 2;\n");
+	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
+});
+
+test("verify gate: a verification run that changes files doesn't mark the workspace again", () => {
+	const { call, edit, bash } = setupGit();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	edit("export const a = 2;\n");
+	bash("sed -i '' 's/1/2/' src/a.ts");
+	bash("npm test");
+	edit("export const a = 3;\n");
+	bash("npm run typecheck");
+	assert.deepEqual(call({ hook_event_name: "Stop" }), {}, "the typecheck run's own change keeps npm test green");
+});
+
+test("verify gate: a session without a fingerprint takes one instead of counting an edit", () => {
+	const { call, edit, bash } = setupGit();
+	edit("export const a = 2;\n");
+	bash("ls");
+	assert.deepEqual(call({ hook_event_name: "Stop" }), {});
+});
+
+test("verify gate: outside git the command's text decides", () => {
+	const { call } = setup();
+	const bash = (command: string, session_id: string) => call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, session_id });
+	bash("echo x > src/a.ts", "w");
+	assert.equal(call({ hook_event_name: "Stop", session_id: "w" }).output?.decision, "block");
+	bash("echo x > /tmp/y", "t");
+	assert.deepEqual(call({ hook_event_name: "Stop", session_id: "t" }), {});
+});
+
+test("verify gate: the send-back asks for the complete final report", () => {
+	const { call } = setup();
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /complete final report/);
+	assert.match(reason, /what changed/);
+	assert.match(reason, /what the user must do next/);
+	assert.match(reason, /the checks you ran and their results/);
 });
 
 test("hook.ts end to end: stdin JSON in, hook JSON out", () => {

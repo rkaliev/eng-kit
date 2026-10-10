@@ -18,9 +18,10 @@ import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
-import { loadState, pruneStates, readRun, saveState } from "./state.ts";
+import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
+import { changedPaths, shellWriteTargets, treeFingerprint } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -93,7 +94,7 @@ export function respond(raw: string, makeEnv: (input: HookInput) => HookEnv, han
 export function handle(input: HookInput, env: HookEnv): HookResult {
 	switch (input.hook_event_name) {
 		case "SessionStart":
-			return sessionStart(env);
+			return sessionStart(input, env);
 		case "PreToolUse":
 			return preToolUse(input, env);
 		case "PostToolUse":
@@ -110,8 +111,11 @@ export function handle(input: HookInput, env: HookEnv): HookResult {
 	}
 }
 
-function sessionStart(env: HookEnv): HookResult {
+function sessionStart(input: HookInput, env: HookEnv): HookResult {
 	pruneStates(env.stateDir);
+	// The baseline the verify gate compares shell commands against.
+	const tree = treeFingerprint(env.projectDir, resolveIgnore(env.projectDir));
+	if (tree) saveState(env.stateDir, input.session_id ?? "", { ...loadState(env.stateDir, input.session_id ?? ""), tree });
 	// Plugin: <root>/skills. Project install: skills sit in .claude/skills next to .claude/eng-kit.
 	const file = [join(env.root, "skills"), join(env.root, "..", "skills")]
 		.map((dir) => join(dir, "using-skills", "SKILL.md"))
@@ -234,19 +238,28 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		}
 		const state = loadState(env.stateDir, sessionId);
 		const edited = [...state.edited.filter((e) => e !== label), label].slice(-MAX_LISTED);
-		saveState(env.stateDir, sessionId, { ...state, unverified: true, green: [], edited, editedAt: Date.now() });
+		const tree = treeFingerprint(env.projectDir, resolveIgnore(env.projectDir)) ?? state.tree;
+		saveState(env.stateDir, sessionId, { ...state, unverified: true, green: [], edited, editedAt: Date.now(), tree });
 		return {};
 	}
 	if (!SHELL_TOOLS.has(tool)) return {};
 	// A PR/MR the agent opened makes later pushes to its branch landings (review gate).
 	if (input.tool_use_id) settlePr(env.projectDir, input.tool_use_id, !failed, env.reviewsRoot);
+
+	const shell = String(args.command ?? "");
+	const { commands } = resolveVerifyCommands(env.projectDir);
+	// Files the command changed, whatever wrote them (a failed or background command may have written too); a
+	// verification run's own changes (a formatter, `lint --fix`) don't count against it.
+	let state = loadState(env.stateDir, sessionId);
+	const verifying = runsVerifyScript(shell) || commands.some((c) => commandMatches(shell, c));
+	const { tree, paths } = shellChanges(env, state, shell, input.cwd || env.projectDir);
+	if (!verifying && paths.length > 0) state = markEdited(state, paths);
+	if (tree || (!verifying && paths.length > 0)) saveState(env.stateDir, sessionId, { ...state, tree: tree ?? state.tree });
+	state = { ...state, tree: tree ?? state.tree };
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 
-	const state = loadState(env.stateDir, sessionId);
 	if (!state.unverified) return {};
-	const shell = String(args.command ?? "");
-	const { commands } = resolveVerifyCommands(env.projectDir);
 	const clear = () => saveState(env.stateDir, sessionId, { ...state, unverified: false, green: [...commands], edited: [] });
 
 	if (runsVerifyScript(shell)) {
@@ -272,6 +285,23 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 }
 
 const MAX_LISTED = 5;
+
+/**
+ * What changed in the project since the state's fingerprint: from the git working tree, or, outside git, from the
+ * files `command` writes. The first fingerprint of a session is a baseline, not a change.
+ */
+function shellChanges(env: HookEnv, state: SessionState, command?: string, cwd?: string): { tree?: Record<string, string>; paths: string[] } {
+	const ignore = resolveIgnore(env.projectDir);
+	const tree = treeFingerprint(env.projectDir, ignore);
+	if (tree) return { tree, paths: state.tree ? changedPaths(state.tree, tree) : [] };
+	if (command === undefined) return { paths: [] };
+	return { paths: shellWriteTargets(command, cwd ?? env.projectDir, env.projectDir).filter((p) => !isIgnored(p, ignore)) };
+}
+
+function markEdited(state: SessionState, paths: string[]): SessionState {
+	const edited = [...state.edited.filter((e) => !paths.includes(e)), ...paths].slice(-MAX_LISTED);
+	return { ...state, unverified: true, green: [], edited, editedAt: Date.now() };
+}
 const RUN_MAX_AGE_MS = 15 * 60 * 1000;
 
 function sameCommands(a: string[], b: string[]): boolean {
@@ -377,21 +407,31 @@ function stop(input: HookInput, env: HookEnv): HookResult {
 function stopGates(input: HookInput, env: HookEnv): HookResult {
 	if (input.stop_hook_active) return {};
 	const sessionId = input.session_id ?? "";
-	const state = loadState(env.stateDir, sessionId);
+	let state = loadState(env.stateDir, sessionId);
+	// A change no command reported (a background process, a subagent's script) is found here.
+	const { tree, paths } = shellChanges(env, state);
+	if (paths.length > 0) state = markEdited(state, paths);
+	const changedTree = tree !== undefined || paths.length > 0;
+	if (tree) state = { ...state, tree };
 	const reasons: string[] = [];
+	let systemMessage: string | undefined;
 	const next = { ...state };
 
 	if (state.unverified && !state.reminded) {
-		next.reminded = true;
 		const { commands } = resolveVerifyCommands(env.projectDir);
-		const changed = state.edited.length > 0 ? ` Changed since the last green run: ${state.edited.join(", ")}.` : "";
-		const how =
-			commands.length > 0
-				? `Run \`${verifyScriptCommand(env.root)}\` (its output is already short) or: ${commands.map((c) => `\`${c}\``).join(", ")}, and read the output.`
-				: "No verification commands are configured; state exactly how the change was verified, or that it was not.";
-		reasons.push(
-			`Verify gate: files changed since the last passing verification.${changed} ${how} Report only checks that actually ran in this session; if a check fails, fix the cause or say it is failing.`,
-		);
+		if (commands.length > 0) {
+			next.reminded = true;
+			const changed = state.edited.length > 0 ? ` Changed since the last green run: ${state.edited.join(", ")}.` : "";
+			const how = `Run \`${verifyScriptCommand(env.root)}\` (its output is already short) or: ${commands.map((c) => `\`${c}\``).join(", ")}, and read the output.`;
+			reasons.push(
+				`Verify gate: files changed since the last passing verification.${changed} ${how} Report only checks that actually ran in this session; if a check fails, fix the cause or say it is failing. Your next message is the last one the user reads: make it the complete final report (what changed, what the user must do next, the checks you ran and their results), not only the verification.`,
+			);
+		} else if (!state.notified) {
+			// Nothing to run, so sending the agent back would only repeat its report: tell the user once instead.
+			next.notified = true;
+			const kitInit = existsSync(join(env.root, "skills")) ? "/eng-kit:kit-init" : "/kit-init";
+			systemMessage = `eng-kit verify gate: no verification commands found, so edits in this session weren't checked. Run ${kitInit} or add .claude/verify.json ({"commands": ["npm test"]}).`;
+		}
 	}
 	const dirs = loadGuardConfig(env.projectDir).config.workDocs ?? WORK_DOC_DIRS;
 	if (!state.approvalReminded) {
@@ -408,9 +448,13 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 			reasons.push(workDocsReminder(files));
 		}
 	}
-	if (reasons.length === 0) return {};
+	if (reasons.length === 0 && !systemMessage) {
+		if (changedTree) saveState(env.stateDir, sessionId, next);
+		return {};
+	}
 	saveState(env.stateDir, sessionId, next);
-	return { output: { decision: "block", reason: reasons.join("\n\n") } };
+	if (reasons.length === 0) return { output: { systemMessage } };
+	return { output: { decision: "block", reason: reasons.join("\n\n"), ...(systemMessage ? { systemMessage } : {}) } };
 }
 
 /**
