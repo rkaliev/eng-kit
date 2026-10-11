@@ -130,3 +130,21 @@ The domain and debugging skills loaded by themselves in every run, and forcing t
 Graders that differ (with / without): red run before the code 3/0; reproduced before the fix 3/0; currency exponent 3/0; behavior pinned by tests 3/1 and pinned before the change 2/0 (a trace judge, see above); expand/contract migration 3/1; root cause fixed 0/1; integer money 2/3; **the final report explains how existing rows get a country 0/3 with the kit, 3/3 without.**
 
 That last one is a cost of the kit: in every run with it, the final message was a verification report ("Here is exactly what was and wasn't checked") that left out the rollout steps the user needed, which an earlier message had explained. It is a follow-up, not part of this change. Cost per run with the kit is 15 % to 100 % higher, most on the long legacy and migration cases.
+
+## The verify gate and the final report (2026-10-10..11, kit 0.24.0 → 0.25.0, Claude Code 2.1.296)
+
+**What was wrong.** In 0.24.0's suite, `db-required-column` lost its rollout steps with the kit (0 of 3, 3 of 3 without). Kept traces showed why: in a project with no configured verification commands every Edit or Write left the workspace unverified for good, so the Stop hook always sent the agent back ("state exactly how the change was verified"), and its answer, a verification-only note, became the last message. In 3 new runs where the agent wrote files with `cat > … <<EOF` instead, the gate never fired: it didn't see shell writes at all.
+
+**Fix (0.25.0).** Shell changes are found from the git working tree; commands are detected from the manifests when none are configured (the fixtures have `package.json`, so `npm test`); with none at all the user gets a notice instead of a send-back; a send-back asks for the complete final report again. Agent and judge `sonnet`, 3 runs per arm, $3.24:
+
+| Grader | With kit | Without |
+|---|---|---|
+| db-required-column: final report explains how existing rows get a country | 3/3 (the gate fired in all 3 runs) | 3/3 |
+| db-required-column: expand/contract migration | 3/3 | 2/3 |
+| db-required-column: down migrations, tests run | 3/3 | 3/3 |
+| tdd-discount: red run before the code | 1/3 | 0/3 |
+| tdd-discount: other graders | 3/3 | 3/3 |
+
+A live `claude -p` run that wrote a file only with a heredoc and ran no tests was sent back with the file named in the reason.
+
+**The tdd-discount dip.** The skill loaded in 1 of 3 runs, against 17 of 18 for 0.24.0 on 2026-10-10. Bootstrap with the "Settled requirements" row reached the agent in every run, so a control ran the same case on 0.24.0 (`main`) and on the branch, 5 runs each, the same day: the skill loaded and the red run came first in 4 of 5 on both. The dip is the model's variance on a small sample, not this change; the two control runs were sequential, so a shift during the day can't be fully ruled out.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.0
+
+- **The verify gate sees shell edits.** A file changed from the shell (a heredoc, `sed -i`, a script, a code generator, `npm install`) makes the workspace unverified like an Edit or Write. In a git repository the hook fingerprints the working tree (`git status` plus each changed file's size and time) at SessionStart, compares it after every shell command, failed or in the background, and once more at Stop; gitignored files and `ignore` globs don't count, nor do the changes a verification run makes itself. Outside git, the command's `>`, `>>`, `tee` and `sed -i` targets inside the project count. A log or output file written into the project and not gitignored counts too.
+- **Commands are detected when none are configured.** Without `.claude/verify.json` and a Commands section, the gate, the verify script and the review gate's "unverified edits" check use the commands kit-init would detect from the manifests (package.json scripts, turbo, gradle, cargo, go, dotnet, pytest, make).
+- **No commands at all: a notice, not a send-back.** The Stop hook no longer sends Claude back to "state how it was verified" when there is nothing to run; you get one notice per session to run kit-init or add `.claude/verify.json`.
+- **The send-back keeps the report whole.** When the gate sends Claude back, it asks for the complete final report again (what changed, what you must do next, the checks and their results), since that answer is the last message and all that `claude -p` and CI show. In the evals the rollout steps that 0.24.0 lost with the kit are kept in 3 of 3 runs.
+
 ## 0.24.0
 
 - **test-driven-development loads on a spec task.** using-skills' "Where to start" names it for settled requirements (a spec, task file or ticket), before any code. On a "implement this spec" eval the skill loaded in 5 of 11 runs before and 17 of 18 after; in every run where it loaded, the agent saw its test fail on an assertion against a stub before writing the code, and in the runs where it didn't, it took "module not found" as red or ran no test first. The red-flag row "I remember that skill" is gone: the rule above it already says so.
