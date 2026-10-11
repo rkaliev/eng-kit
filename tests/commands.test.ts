@@ -83,3 +83,10 @@ test("without configured commands they are detected from the project's manifests
 	writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify({ commands: ["make check"] }));
 	assert.deepEqual(resolveVerifyCommands(dir), { commands: ["make check"], source: ".claude/verify.json" });
 });
+
+test("an unreadable Makefile doesn't break command detection", () => {
+	const dir = mkdtempSync(join(tmpdir(), "verify-"));
+	mkdirSync(join(dir, "Makefile"));
+	assert.deepEqual(resolveVerifyCommands(dir), { commands: [], source: "none" });
+	assert.deepEqual(resolveVerifyCommands(dir, { detect: false }), { commands: [], source: "none" });
+});

@@ -24,6 +24,10 @@ export interface SessionState {
 	tree?: Tree;
 	/** The user was already told this session that there are no verification commands. */
 	notified: boolean;
+	/** git failed, timed out or listed too many files once: the command text decides for the rest of the session. */
+	gitOff: boolean;
+	/** The fingerprint taken before each running shell call, by `tool_use_id` (at most `MAX_PENDING`). */
+	pending: Record<string, Tree>;
 }
 
 /** What the verify script records about its own run, so a piped call still proves the result. */
@@ -33,7 +37,7 @@ export interface RunRecord {
 	finishedAt: number;
 }
 
-const EMPTY: SessionState = { unverified: false, green: [], reminded: false, approvalReminded: false, workDocsReminded: false, edited: [], editedAt: 0, notified: false };
+const EMPTY: SessionState = { unverified: false, green: [], reminded: false, approvalReminded: false, workDocsReminded: false, edited: [], editedAt: 0, notified: false, gitOff: false, pending: {} };
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** `$CLAUDE_PLUGIN_DATA` when running as a plugin, else a folder in the OS temp dir. */
@@ -58,9 +62,14 @@ export function loadState(dir: string, sessionId: string): SessionState {
 			editedAt: typeof raw.editedAt === "number" ? raw.editedAt : 0,
 			tree: isTree(raw.tree) ? raw.tree : undefined,
 			notified: raw.notified === true,
+			gitOff: raw.gitOff === true,
+			pending:
+				raw.pending && typeof raw.pending === "object"
+					? Object.fromEntries(Object.entries(raw.pending).filter((e): e is [string, Tree] => isTree(e[1])))
+					: {},
 		};
 	} catch {
-		return { ...EMPTY, green: [], edited: [] };
+		return { ...EMPTY, green: [], edited: [], pending: {} };
 	}
 }
 
