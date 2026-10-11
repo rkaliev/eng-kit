@@ -147,4 +147,6 @@ That last one is a cost of the kit: in every run with it, the final message was 
 
 A live `claude -p` run that wrote a file only with a heredoc and ran no tests was sent back with the file named in the reason.
 
+After review, changes are attributed per command (a snapshot before each shell call), staging and commits stopped counting as edits, and only a passing command made of checks keeps its own changes off the count. Re-run of `db-required-column` (3 runs per arm, $4.39): the final report 3/3 with the kit (the gate fired in all 3 runs) and 3/3 without; expand/contract 3/3 and 1/3.
+
 **The tdd-discount dip.** The skill loaded in 1 of 3 runs, against 17 of 18 for 0.24.0 on 2026-10-10. Bootstrap with the "Settled requirements" row reached the agent in every run, so a control ran the same case on 0.24.0 (`main`) and on the branch, 5 runs each, the same day: the skill loaded and the red run came first in 4 of 5 on both. The dip is the model's variance on a small sample, not this change; the two control runs were sequential, so a shift during the day can't be fully ruled out.

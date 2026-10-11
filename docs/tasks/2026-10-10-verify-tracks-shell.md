@@ -1,6 +1,6 @@
 # The verify gate sees shell edits and keeps the final report whole
 
-Status: in progress — review round 1 rework awaiting approval
+Status: in progress
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
 Base: d52179d66a0b8d59f34dbd03ef44ccf5a5f5715f (eng-kit) · 0cc4f39a58a5661bf92a6f9446c08fa355218b2a (pi)
 Links: docs/EVALS.md ("Do the skills load?", the rollout-reported finding); the pi edition's branch of the same name
@@ -204,26 +204,26 @@ Three reviews of b949de1 / 2972a49: With fixes, With fixes, No. Fixes, each RED 
 **Files:** Modify `lib/worktree.ts` (both editions, byte-identical) · Test `tests/worktree.test.ts` (both)
 **Interfaces:** `treeFingerprint(projectDir, ignore): Tree | undefined` with `Tree = { head: string; files: Record<string, string> }`; `changedPaths(before: Tree, after: Tree, projectDir: string): string[]`; `MAX_ENTRIES = 5000`
 
-- [ ] Failing tests: `staging and committing are not changes` (write, fingerprint, `git add -A`, `git commit` → `[]` each step); `checkout after a change is a change`; `an edit and a commit in one step show the file` (clean before, edit+commit → `["src/a.ts"]`); `a tree over the cap has no fingerprint` (5,001 untracked files → `undefined`)
-- [ ] Implement per decision 9; `HEAD` from `git rev-parse HEAD` (unborn → `""`), touched files from `git diff --name-only <old> <new> -- .` relative to the prefix
-- [ ] Run tests in both editions → PASS; commit `fix(verify): staging and commits aren't edits; an edit committed in one step is`
+- [x] Failing tests: `staging and committing are not changes` (write, fingerprint, `git add -A`, `git commit` → `[]` each step); `checkout after a change is a change`; `an edit and a commit in one step show the file` (clean before, edit+commit → `["src/a.ts"]`); `a tree over the cap has no fingerprint` (5,001 untracked files → `undefined`)
+- [x] Implement per decision 9; `HEAD` from `git rev-parse HEAD` (unborn → `""`), touched files from `git diff --name-only <old> <new> -- .` relative to the prefix
+- [x] Run tests in both editions → PASS; commit `fix(verify): staging and commits aren't edits; an edit committed in one step is`
 
 ### Task R2: Claude hooks
 
 **Files:** Modify `lib/hooks.ts`, `lib/state.ts`, `lib/commands.ts`, `skills/verify/SKILL.md`, `scripts/verify.ts` header · Test `tests/hooks.test.ts`, `tests/commands.test.ts`
 
-- [ ] Failing tests: green → `git add -A && git commit` → Stop `{}` and a following reviewer verdict counts; `npm test && sed -i …` → Stop blocks naming the file; `npm test; cat > src/a.ts <<EOF` → blocks; a failed `npm test` after an fs write → blocks; a heredoc body line `npm test` in `cat > Makefile <<EOF` doesn't exempt; the focus 1 and 3 tests follow the shell call with `bash("npm test")` and still block (duplicate test removed); broken `.claude/verify.json` → block naming the error; no detected command enters the reviewer's allowlist or the review gate's Inconclusive rule; an unreadable `Makefile` doesn't throw; SessionStart on `resume` with a tree compares instead of replacing; a session without a tree uses the command text; after a git timeout the session uses the command text
-- [ ] Implement per decisions 2, 7, 8, 10, 11: PreToolUse stores `pending[tool_use_id] = tree`; PostToolUse(+Failure) compares with it (and the gap since `state.tree`), marks, then credits; fingerprint taken before the state is loaded, merged so a refresh never clears `unverified`; `resolveVerifyCommands(cwd, { detect })`, `detect: false` for the review-gate callers; Makefile read in `try`; `gitOff` in state
-- [ ] Docs: `skills/verify/SKILL.md:7`, `lib/commands.ts` docstring, `scripts/verify.ts` header, README verify gate (attribution, review gate stays configured-only, broken verify.json)
-- [ ] Full suite + typecheck → PASS; commit `fix(verify): attribute changes per command, exempt only clean verification runs`
+- [x] Failing tests: green → `git add -A && git commit` → Stop `{}` and a following reviewer verdict counts; `npm test && sed -i …` → Stop blocks naming the file; `npm test; cat > src/a.ts <<EOF` → blocks; a failed `npm test` after an fs write → blocks; a heredoc body line `npm test` in `cat > Makefile <<EOF` doesn't exempt; the focus 1 and 3 tests follow the shell call with `bash("npm test")` and still block (duplicate test removed); broken `.claude/verify.json` → block naming the error; no detected command enters the reviewer's allowlist or the review gate's Inconclusive rule; an unreadable `Makefile` doesn't throw; SessionStart on `resume` with a tree compares instead of replacing; a session without a tree uses the command text; after a git timeout the session uses the command text
+- [x] Implement per decisions 2, 7, 8, 10, 11: PreToolUse stores `pending[tool_use_id] = tree`; PostToolUse(+Failure) compares with it (and the gap since `state.tree`), marks, then credits; fingerprint taken before the state is loaded, merged so a refresh never clears `unverified`; `resolveVerifyCommands(cwd, { detect })`, `detect: false` for the review-gate callers; Makefile read in `try`; `gitOff` in state
+- [x] Docs: `skills/verify/SKILL.md:7`, `lib/commands.ts` docstring, `scripts/verify.ts` header, README verify gate (attribution, review gate stays configured-only, broken verify.json)
+- [x] Full suite + typecheck → PASS; commit `fix(verify): attribute changes per command, exempt only clean verification runs`
 
 ### Task R3: pi verify extension
 
 **Files:** Modify `extensions/verify.ts`, `extensions/guard.ts` (configured-only callers), `extensions/lib/commands.ts` · Test `tests/extensions.test.ts`
 
-- [ ] Failing tests mirroring R2 (`tool_call` snapshot by `toolCallId`; commit after green → no follow-up and `verifyState.unverified` false; chained write and failed run mark; `run_verification` after an fs write with exec code 1 → follow-up names the file; its own writes don't; broken `.pi/verify.json` → follow-up naming the error; without a UI, changes between tool calls don't count)
-- [ ] Implement per decisions 2, 7, 8, 10, 11; header and `run_verification` description updated; README/CHANGELOG clauses (landing steps stay configured-only; no notice without a UI)
-- [ ] Full suite + typecheck → PASS; commit `fix(verify): pi attributes changes per tool call, exempts only clean verification runs`
+- [x] Failing tests mirroring R2 (`tool_call` snapshot by `toolCallId`; commit after green → no follow-up and `verifyState.unverified` false; chained write and failed run mark; `run_verification` after an fs write with exec code 1 → follow-up names the file; its own writes don't; broken `.pi/verify.json` → follow-up naming the error; without a UI, changes between tool calls don't count)
+- [x] Implement per decisions 2, 7, 8, 10, 11; header and `run_verification` description updated; README/CHANGELOG clauses (landing steps stay configured-only; no notice without a UI)
+- [x] Full suite + typecheck → PASS; commit `fix(verify): pi attributes changes per tool call, exempts only clean verification runs`
 
 Then: re-run the eval of Task 6 for `db-required-column` (criterion 9 again), update EVALS.md/CHANGELOG/ARCHITECTURE, delete this task file, re-review both branches with the round-1 findings.
 
@@ -241,3 +241,8 @@ Then: re-run the eval of Task 6 for `db-required-column` (criterion 9 again), up
 - Task 6: complete (60dc88f..87bca4d; pi aa613d5..2972a49; kit verify script → 4/4 PASS). Measurement ($3.24 + control $1.58): db-required-column rollout-reported 3/3 with the kit (gate fired in all 3) vs 3/3 without, expand-contract 3/3 vs 2/3; tdd-discount red-before-green 1/3 vs 0/3 with skill loaded 1/3. Stopped as the plan says and ran a control: 0.24.0 (`main`) and the branch, 5 runs each, both 4/5 loaded and 4/5 red; the user agreed to continue. Live smoke: a heredoc-only write without tests was sent back naming `src/a.ts`.
 - Ruling: using-skills' verification line keeps "A Stop hook returns you once if files changed since the last green run" (already true for shell changes) and says "runs the project's checks" instead of listing verify.json and CLAUDE.md, since commands can now be detected; the body is at the 800-word cap, so the plan's "(also from the shell)" would not fit — cost if wrong: an agent doesn't learn from the bootstrap that shell writes count (the gate still enforces it).
 - Ruling: GETTING-STARTED (both editions) also changed: its "no commands" troubleshooting entry described the old send-back.
+- Review round 1 (b949de1 / 2972a49): With fixes (correctness), With fixes (regression), No (pi). User rulings 2026-10-11: decisions 2, 7, 8 above; decisions 9–11 follow from the findings.
+- Task R1: complete (52fe9a5..ff09b96; pi 2972a49..7de69f4; 3 new worktree tests FAIL on assertions, then 9/9; both suites green). Ruling: `changedPaths` takes an optional `ignore` so commit-touched docs don't count — cost if wrong: none (defaults to all).
+- Task R2: complete (ff09b96..ba34e73: 7995635 + the shared-helper move; 6 new/strengthened hooks tests FAIL on assertions and the Makefile test on EISDIR, then 437/437; the commit-after-green test passed after R1 and is pinned by mutation; 5 mutations each failed their test).
+- Task R3: complete (7de69f4..a4953ef; 6 new pi tests FAIL, then 425/425; 5 mutations each failed their test; `worktree.ts` byte-identical). Ruling: `verificationOnly` lives in the shared `lib/worktree.ts` with an `isScript` predicate (Claude passes its verify-script check, pi none) instead of a copy in each edition.
+- Measurement after the fixes: db-required-column rollout-reported 3/3 with the kit (gate fired 3/3) vs 3/3 without, expand-contract 3/3 vs 1/3 ($4.39). Kit verify script → 4/4 PASS.
