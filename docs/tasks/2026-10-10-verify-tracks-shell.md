@@ -54,12 +54,12 @@ The tracker marks the workspace unverified only on Edit/Write/MultiEdit/Notebook
 3. A project without configured commands gets detected ones; if none are found, the gate only notifies, once per session. Chosen by the user; it relaxes the 0.24.0 behaviour for that case only.
 4. The send-back text asks for the complete final report again: costs one more report's tokens, keeps `-p`/CI output whole. Chosen by the user.
 5. Shared library files stay byte-identical between the editions (`lib/worktree.ts`, `lib/shell.ts`); `lib/commands.ts` keeps its per-edition file names.
+6. A Stop hook's JSON output with `systemMessage` and no `decision` shows the text to the user without blocking: verified live on Claude Code 2.1.296 (stream-json event `system/informational`, "Stop says: …"; one assistant turn).
 7. Detected commands drive the verify gate, the verify script and `run_verification` only; the review gate's "unverified edits" rule, the reviewer's shell allowlist and the read-only steps allowed before a landing keep using configured commands only, as in 0.24.0 (user, 2026-10-11): a project nobody configured doesn't get its PRs refused over a detected `npm run build` that needs secrets.
 8. A fingerprint over 5,000 entries, or a git call that times out, switches the session to the command-text fallback for good (user, 2026-10-11). Measured: 18–19 ms median (36 ms max) on the kit repositories (~300 files), 89 ms median (207 ms max) on a 7,646-file repository.
 9. The fingerprint holds content identity only (`"<size> <mtimeMs>"` or `"deleted"`) plus `HEAD`: staging and committing aren't changes; a path that left `git status` counts only if its size or time differ from the last entry; when `HEAD` moves, files the commits touched that were clean before count (an edit and a commit in one command).
 10. A command is a verification run only when it succeeded and every segment, after heredoc bodies are removed, is a configured or detected verification command or the verify-script call (optionally piped to `tail`, `head` or `grep`); otherwise its changes mark first and the commands it ran are credited after. pi's `run_verification` compares before it runs, so earlier changes mark, and only its own writes are exempt.
 11. A `verify.json` that fails to parse keeps 0.24.0's send-back and names the error.
-6. A Stop hook's JSON output with `systemMessage` and no `decision` shows the text to the user without blocking: verified live on Claude Code 2.1.296 (stream-json event `system/informational`, "Stop says: …"; one assistant turn).
 
 ## Design
 
