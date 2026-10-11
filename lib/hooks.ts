@@ -16,13 +16,12 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
-import { checkCommand, checkPath, ownBranchPush, splitSegments, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
+import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
-import { heredocs, stripRedirects } from "./shell.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { changedPaths, shellWriteTargets, treeFingerprint, type Tree } from "./worktree.ts";
+import { changedPaths, shellWriteTargets, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -254,7 +253,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const { commands } = resolveVerifyCommands(env.projectDir);
 	// Files this command changed, whatever wrote them (a failed or background command may have written too). Only a
 	// verification run that passed and did nothing else keeps its own changes (a formatter, `lint --fix`) off the count.
-	const exempt = !failed && verificationOnly(shell, commands);
+	const exempt = !failed && verificationOnly(shell, commands, (words) => words[0] === "node" && words.length === 2 && runsVerifyScript(words.join(" ")));
 	let state = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt });
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
@@ -313,24 +312,6 @@ function trackTree(env: HookEnv, sessionId: string, callId?: string, after?: { c
 	return state;
 }
 
-/**
- * A command that does nothing but verify: every segment, outside heredoc bodies and after redirections, is a
- * verification command or the kit's verify script, or `tail`, `head` or `grep` reading its output.
- */
-function verificationOnly(shell: string, commands: string[]): boolean {
-	const wanted = commands.map((c) => tokenize(stripRedirects(c)));
-	const segments = splitSegments(tokenize(stripRedirects(heredocs(shell).text)));
-	return (
-		segments.length > 0 &&
-		segments.some((seg) => !["tail", "head", "grep"].includes(seg[0] ?? "")) &&
-		segments.every(
-			(seg) =>
-				["tail", "head", "grep"].includes(seg[0] ?? "") ||
-				(seg[0] === "node" && seg.length === 2 && runsVerifyScript(seg.join(" "))) ||
-				wanted.some((w) => w.length === seg.length && w.every((t, i) => t === seg[i])),
-		)
-	);
-}
 
 function markEdited(state: SessionState, paths: string[]): SessionState {
 	const edited = [...state.edited.filter((e) => !paths.includes(e)), ...paths].slice(-MAX_LISTED);
