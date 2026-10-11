@@ -1,6 +1,6 @@
 # The verify gate sees shell edits and keeps the final report whole
 
-Status: plan approved (2026-10-10)
+Status: in progress
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
 Base: d52179d66a0b8d59f34dbd03ef44ccf5a5f5715f (eng-kit) · 0cc4f39a58a5661bf92a6f9446c08fa355218b2a (pi)
 Links: docs/EVALS.md ("Do the skills load?", the rollout-reported finding); the pi edition's branch of the same name
@@ -118,75 +118,86 @@ None: a plugin release (0.25.0 in both editions). Users update with `/plugin` (C
 **Files:** Create `src_claude/lib/worktree.ts` · Test `src_claude/tests/worktree.test.ts`
 **Interfaces:** Produces `treeFingerprint(projectDir: string, ignore: string[]): Record<string, string> | undefined` and `changedPaths(before: Record<string, string>, after: Record<string, string>): string[]`
 
-- [ ] Write failing tests in a temp git repo (`git init`, one committed `src/a.ts`, `.gitignore` with `dist/`), with stubs that return `{}` and `[]`:
+- [x] Write failing tests in a temp git repo (`git init`, one committed `src/a.ts`, `.gitignore` with `dist/`), with stubs that return `{}` and `[]`:
   - `a write through fs changes the fingerprint`: writing `src/a.ts` → `changedPaths(before, after)` equals `["src/a.ts"]`; a new `src/b.ts` → `["src/b.ts"]`;
   - `deletes and renames show`: `rm src/a.ts` → `["src/a.ts"]` with entry `"deleted"`; `git mv src/a.ts src/c.ts` → both paths;
   - `ignored, excluded and outside paths don't`: writes to `dist/x.js`, `docs/n.md` (with `ignore` `["docs/**"]`) and, with `projectDir` = `<repo>/pkg`, to `<repo>/other.ts` → `[]`;
   - `outside git it is undefined`: a temp folder without `.git` → `undefined`.
-- [ ] Run `node --test tests/worktree.test.ts` → expect FAIL: expected `["src/a.ts"]`, received `[]`
-- [ ] Implement in `lib/worktree.ts`: parse the `-z` output (status `XY` + path; for a rename the record is followed by the old path, both count), drop `isIgnored(path, ignore)` paths, map each to `` `${XY} ${size} ${mtimeMs}` `` or `"deleted"`; any thrown error or timeout → `undefined`. `changedPaths` is the sorted union of keys whose values differ.
-- [ ] Run `node --test tests/worktree.test.ts` → expect PASS, then `npm test`
-- [ ] Commit `feat(verify): fingerprint the git working tree`
+- [x] Run `node --test tests/worktree.test.ts` → expect FAIL: expected `["src/a.ts"]`, received `[]`
+- [x] Implement in `lib/worktree.ts`: parse the `-z` output (status `XY` + path; for a rename the record is followed by the old path, both count), drop `isIgnored(path, ignore)` paths, map each to `` `${XY} ${size} ${mtimeMs}` `` or `"deleted"`; any thrown error or timeout → `undefined`. `changedPaths` is the sorted union of keys whose values differ.
+- [x] Run `node --test tests/worktree.test.ts` → expect PASS, then `npm test`
+- [x] Commit `feat(verify): fingerprint the git working tree`
 
 ### Task 2: shell write targets outside git
 
 **Files:** Modify `src_claude/lib/worktree.ts` · Test `src_claude/tests/worktree.test.ts`
 **Interfaces:** Produces `shellWriteTargets(command: string, cwd: string, projectDir: string): string[]` (project-relative paths)
 
-- [ ] Write failing test `shell write targets inside the project` with a stub returning `[]`: `cat > src/a.ts <<'EOF'` → `["src/a.ts"]`; `echo x >> src/b.ts`, `tee src/c.ts`, `tee -a src/c.ts`, `sed -i '' 's/a/b/' src/d.ts`, `sed -i.bak 's/a/b/' src/d.ts` → that file; `cat x > /tmp/y`, `npm test 2>/dev/null`, `cat src/a.ts`, `echo > ../outside.ts` → `[]`; with `cwd` = `<project>/src`, `> a.ts` → `["src/a.ts"]`.
-- [ ] Run `node --test tests/worktree.test.ts` → expect FAIL: expected `["src/a.ts"]`, received `[]`
-- [ ] Implement: redirect targets from the same operator set as `writes()` in `lib/shell.ts` (`>`, `>>`, `>|`, `&>`, `&>>`), excluding `/dev/null` and fd duplications; `tee` operands after its options; for `sed` with an `-i` option, the last operand. Resolve against `cwd`, keep those inside `projectDir`.
-- [ ] Run `node --test tests/worktree.test.ts` → expect PASS, then `npm test`
-- [ ] Copy `lib/worktree.ts` to `src/extensions/lib/worktree.ts` and `tests/worktree.test.ts` to `src/tests/worktree.test.ts` (import path `../extensions/lib/worktree.ts`); run `npm test` in `src` → PASS
-- [ ] Commit in both repos `feat(verify): find shell write targets without git`
+- [x] Write failing test `shell write targets inside the project` with a stub returning `[]`: `cat > src/a.ts <<'EOF'` → `["src/a.ts"]`; `echo x >> src/b.ts`, `tee src/c.ts`, `tee -a src/c.ts`, `sed -i '' 's/a/b/' src/d.ts`, `sed -i.bak 's/a/b/' src/d.ts` → that file; `cat x > /tmp/y`, `npm test 2>/dev/null`, `cat src/a.ts`, `echo > ../outside.ts` → `[]`; with `cwd` = `<project>/src`, `> a.ts` → `["src/a.ts"]`.
+- [x] Run `node --test tests/worktree.test.ts` → expect FAIL: expected `["src/a.ts"]`, received `[]`
+- [x] Implement: redirect targets from the same operator set as `writes()` in `lib/shell.ts` (`>`, `>>`, `>|`, `&>`, `&>>`), excluding `/dev/null` and fd duplications; `tee` operands after its options; for `sed` with an `-i` option, the last operand. Resolve against `cwd`, keep those inside `projectDir`.
+- [x] Run `node --test tests/worktree.test.ts` → expect PASS, then `npm test`
+- [x] Copy `lib/worktree.ts` to `src/extensions/lib/worktree.ts` and `tests/worktree.test.ts` to `src/tests/worktree.test.ts` (import path `../extensions/lib/worktree.ts`); run `npm test` in `src` → PASS
+- [x] Commit in both repos `feat(verify): find shell write targets without git`
 
 ### Task 3: detected verification commands
 
 **Files:** Modify `lib/commands.ts`, `lib/init.ts` in both editions · Test `tests/commands.test.ts` in both
 **Interfaces:** Produces `manifestCommands(cwd: string): string[]`; `ResolvedCommands.source` gains `"detected"`
 
-- [ ] Write failing tests: `commands come from the manifests when nothing is configured`: a folder with `package.json` scripts `{ "test": "node --test", "lint": "eslint ." }` and `package-lock.json` → `resolveVerifyCommands` returns `{ commands: ["npm run lint", "npm test"], source: "detected" }`; `configured commands win`: the same folder plus `.claude/verify.json` (pi: `.pi/verify.json`) `{"commands":["make check"]}` → `["make check"]`, and plus a Commands section → those; `an empty folder has none`: `{ commands: [], source: "none" }`.
-- [ ] Run `node --test tests/commands.test.ts` → expect FAIL: expected source `"detected"`, received `"none"`
-- [ ] Move the manifest part of `detectVerifyCommands` (package manager, turbo, package.json scripts, gradlew, Cargo, go, dotnet, pytest, Makefile) and `safeList` from `lib/init.ts` to `lib/commands.ts` as `manifestCommands`; `resolveVerifyCommands` returns it as `"detected"` after the docs sources; `detectVerifyCommands` keeps its behaviour (docs, else `manifestCommands`). Same in pi.
-- [ ] Run `npm test` in both editions → PASS (the existing kit-init detection tests unchanged)
-- [ ] Commit in both repos `feat(verify): detect verification commands from the project's manifests`
+- [x] Write failing tests: `commands come from the manifests when nothing is configured`: a folder with `package.json` scripts `{ "test": "node --test", "lint": "eslint ." }` and `package-lock.json` → `resolveVerifyCommands` returns `{ commands: ["npm run lint", "npm test"], source: "detected" }`; `configured commands win`: the same folder plus `.claude/verify.json` (pi: `.pi/verify.json`) `{"commands":["make check"]}` → `["make check"]`, and plus a Commands section → those; `an empty folder has none`: `{ commands: [], source: "none" }`.
+- [x] Run `node --test tests/commands.test.ts` → expect FAIL: expected source `"detected"`, received `"none"`
+- [x] Move the manifest part of `detectVerifyCommands` (package manager, turbo, package.json scripts, gradlew, Cargo, go, dotnet, pytest, Makefile) and `safeList` from `lib/init.ts` to `lib/commands.ts` as `manifestCommands`; `resolveVerifyCommands` returns it as `"detected"` after the docs sources; `detectVerifyCommands` keeps its behaviour (docs, else `manifestCommands`). Same in pi.
+- [x] Run `npm test` in both editions → PASS (the existing kit-init detection tests unchanged)
+- [x] Commit in both repos `feat(verify): detect verification commands from the project's manifests`
 
 ### Task 4: Claude hooks
 
 **Files:** Modify `src_claude/lib/state.ts`, `src_claude/lib/hooks.ts` · Test `src_claude/tests/hooks.test.ts`
 **Interfaces:** Consumes Tasks 1–3. `SessionState` gains `tree?: Record<string, string>` and `notified: boolean`.
 
-- [ ] First commit, test only: change `verify gate without configured commands asks how it was verified` to `verify gate without commands notifies once and doesn't block`: `setup({})`, a Write, then Stop → no `decision`, `output.systemMessage` matches `/no verification commands/i` and names `kit-init` and `.claude/verify.json`; a second Write + Stop in the same session → `{}`. Run → expect FAIL (`decision` is `"block"`). Commit `test(verify): a project without commands gets a notice, not a send-back` (test-standard "Changing tests": the behaviour change the user approved).
-- [ ] Write failing tests (setup in a temp git repo with CLAUDE.md commands, committed):
+- [x] First commit, test only: change `verify gate without configured commands asks how it was verified` to `verify gate without commands notifies once and doesn't block`: `setup({})`, a Write, then Stop → no `decision`, `output.systemMessage` matches `/no verification commands/i` and names `kit-init` and `.claude/verify.json`; a second Write + Stop in the same session → `{}`. Run → expect FAIL (`decision` is `"block"`). Commit `test(verify): a project without commands gets a notice, not a send-back` (test-standard "Changing tests": the behaviour change the user approved).
+- [x] Write failing tests (setup in a temp git repo with CLAUDE.md commands, committed):
   - `a heredoc write marks the workspace`: SessionStart, write `src/a.ts` through fs, PostToolUse Bash `cat > src/a.ts <<'EOF'…` → Stop blocks and the reason contains `src/a.ts`; the same through PostToolUseFailure;
   - `a shell command from another folder is still seen`: `cwd` = a temp folder outside the project, same result;
   - `a verification run that writes doesn't re-mark`: a write + Bash marks; then PostToolUse Bash `npm test` that also changes `src/a.ts` and `npm run typecheck` → Stop returns `{}`;
   - `no fingerprint yet means a baseline, not an edit`: state without `tree`, a write + Bash → Stop `{}`;
   - `outside git the command text decides`: non-git project, Bash `echo x > src/a.ts` → Stop blocks; `echo x > /tmp/y` → `{}`;
   - `the send-back asks for the complete final report`: the reason matches `/complete final report/` and names "what changed", "what the user must do next" and the checks.
-- [ ] Run `node --test tests/hooks.test.ts` → expect FAIL on the first assertion of each new test
-- [ ] Implement: `sessionStart` saves `tree = treeFingerprint(projectDir, resolveIgnore(projectDir))` (skipping when undefined); `postToolUse` for shell tools, before the existing verify logic and also for failed and background calls: compare with `state.tree` → changed paths, or `shellWriteTargets` filtered by `isIgnored` when the fingerprint is undefined; if the command is a verification run (`runsVerifyScript` or `commandMatches` any command), only store the new tree; otherwise mark like an edit (`unverified`, `green: []`, `edited` += paths, `editedAt`) and store it; edit tools also store the new tree; `stopGates` compares once more the same way before deciding; with no commands it returns `{ output: { systemMessage } }` once per session (`notified`) instead of a reason; the reason text ends with: "Your next message is the last one the user reads: make it the complete final report (what changed, what the user must do next, the checks you ran and their results), not only the verification."
-- [ ] Run `node --test tests/hooks.test.ts` → expect PASS, then `npm test` and `npm run typecheck`
-- [ ] Commit `feat(verify): the Claude gate sees shell edits, notifies without commands, asks for the whole report`
+- [x] Run `node --test tests/hooks.test.ts` → expect FAIL on the first assertion of each new test
+- [x] Implement: `sessionStart` saves `tree = treeFingerprint(projectDir, resolveIgnore(projectDir))` (skipping when undefined); `postToolUse` for shell tools, before the existing verify logic and also for failed and background calls: compare with `state.tree` → changed paths, or `shellWriteTargets` filtered by `isIgnored` when the fingerprint is undefined; if the command is a verification run (`runsVerifyScript` or `commandMatches` any command), only store the new tree; otherwise mark like an edit (`unverified`, `green: []`, `edited` += paths, `editedAt`) and store it; edit tools also store the new tree; `stopGates` compares once more the same way before deciding; with no commands it returns `{ output: { systemMessage } }` once per session (`notified`) instead of a reason; the reason text ends with: "Your next message is the last one the user reads: make it the complete final report (what changed, what the user must do next, the checks you ran and their results), not only the verification."
+- [x] Run `node --test tests/hooks.test.ts` → expect PASS, then `npm test` and `npm run typecheck`
+- [x] Commit `feat(verify): the Claude gate sees shell edits, notifies without commands, asks for the whole report`
 
 ### Task 5: pi verify extension
 
 **Files:** Modify `src/extensions/verify.ts` · Test `src/tests/extensions.test.ts`
 **Interfaces:** Consumes Tasks 1–3 (pi copies)
 
-- [ ] Write failing tests with `fakePi` in a temp git repo: `a bash write marks the workspace` (`session_start`, fs write, `tool_result` bash `cat > src/a.ts …` with `isError` false and true → `agent_end` sends the follow-up naming `src/a.ts`); `a verification run that writes doesn't re-mark`; `outside git the command text decides`; `without commands: one notice, no follow-up` (`ui.notify` once per session with `/no verification commands/i`, `.pi/verify.json`, `kit-init`; no message sent); `the follow-up asks for the complete final report`. Change the existing pi test that expects a follow-up without commands, in its own commit first, as in Task 4.
-- [ ] Run `node --test tests/extensions.test.ts` → expect FAIL on the new assertions
-- [ ] Implement the Task 4 logic in `verify.ts`: `tree` kept next to `unverified`, set on `session_start`, compared in `tool_result` for bash/powershell and in `agent_end`; notice through `ctx.ui.notify(…, "warning")` when `ctx.hasUI`, once per session; the same closing sentence in the follow-up.
-- [ ] Run `npm test` and `npm run typecheck` in `src` → PASS
-- [ ] Commit `feat(verify): the pi gate sees shell edits, notifies without commands, asks for the whole report`
+- [x] Write failing tests with `fakePi` in a temp git repo: `a bash write marks the workspace` (`session_start`, fs write, `tool_result` bash `cat > src/a.ts …` with `isError` false and true → `agent_end` sends the follow-up naming `src/a.ts`); `a verification run that writes doesn't re-mark`; `outside git the command text decides`; `without commands: one notice, no follow-up` (`ui.notify` once per session with `/no verification commands/i`, `.pi/verify.json`, `kit-init`; no message sent); `the follow-up asks for the complete final report`. Change the existing pi test that expects a follow-up without commands, in its own commit first, as in Task 4.
+- [x] Run `node --test tests/extensions.test.ts` → expect FAIL on the new assertions
+- [x] Implement the Task 4 logic in `verify.ts`: `tree` kept next to `unverified`, set on `session_start`, compared in `tool_result` for bash/powershell and in `agent_end`; notice through `ctx.ui.notify(…, "warning")` when `ctx.hasUI`, once per session; the same closing sentence in the follow-up.
+- [x] Run `npm test` and `npm run typecheck` in `src` → PASS
+- [x] Commit `feat(verify): the pi gate sees shell edits, notifies without commands, asks for the whole report`
 
 ### Task 6: docs, version and the measurement
 
 **Files:** the Post-implementation list
-- [ ] Update the docs listed in Post-implementation; bump both editions to 0.25.0; run the kit verify script → all PASS
-- [ ] Measure: `claude plugin eval . --case 'db-required-column' --runs 3` and the same for `tdd-discount` (with and without the kit, `--keep-temp`), plus one kept run of a heredoc-only smoke prompt; criterion 9 holds when `rollout-reported` with the kit ≥ without and no other grader of the two cases drops; record the tables in `docs/EVALS.md`. If it doesn't hold, stop and report to the user.
-- [ ] Commit `docs: verify gate 0.25.0` in both repos; delete this task file before finishing (git-workflow)
+- [x] Update the docs listed in Post-implementation; bump both editions to 0.25.0; run the kit verify script → all PASS
+- [x] Measure: `claude plugin eval . --case 'db-required-column' --runs 3` and the same for `tdd-discount` (with and without the kit, `--keep-temp`), plus one kept run of a heredoc-only smoke prompt; criterion 9 holds when `rollout-reported` with the kit ≥ without and no other grader of the two cases drops; record the tables in `docs/EVALS.md`. If it doesn't hold, stop and report to the user.
+- [x] Commit `docs: verify gate 0.25.0` in both repos; delete this task file before finishing (git-workflow)
 
 ## Progress
 
-None yet
+- Execution: inline (user, 2026-10-10).
+- Drift: none (`git diff d52179d..HEAD -- lib tests` and `0cc4f39..HEAD` in pi are empty).
+- Pre-flight: Task 4 and 5 consume `treeFingerprint`, `changedPaths`, `shellWriteTargets` (Tasks 1–2) and `resolveVerifyCommands`/`"detected"` (Task 3) with the signatures as written; no conflicts.
+- Baseline: kit verify script → all 4 checks PASS (typecheck + test in src and src_claude).
+- Task 1: complete (d52179d..c46a65f, `node --test tests/worktree.test.ts` → 4 FAIL on assertions (stub `{}`/`[]`), then 4 PASS; `npm test` → 417 pass; typecheck clean). Porcelain paths are repo-relative, so the prefix comes from `git rev-parse --show-prefix`.
+- Task 2: complete (c46a65f..bff7099; pi 0cc4f39..42eec2f, `shellWriteTargets` test FAIL on assertion (stub `[]`), then PASS; `npm test` → 418 (eng-kit) and 408 (pi) pass; typecheck clean; `lib/worktree.ts` byte-identical). Ruling: operators are found on `blankQuoted` text and targets read at the same offset, because the tokenizer drops redirect operators — cost if wrong: a quoted `>` target with a space is missed outside git only.
+- Task 3: complete (bff7099..ff8a0e3; pi 42eec2f..ef863f1, the detection test FAIL on assertion (source `"none"`), then PASS; `npm test` → 419 / 409 pass; typecheck clean). The move left `readdirSync` unused in both `init.ts`: removed. Side effect, intended by the description: the review gate's "unverified edits" check, the verify script and pi's `run_verification` now also use detected commands.
+- Task 4: complete (ff8a0e3..60dc88f: test-only commit 2fa7d42 seen failing on `decision`, then 6 new tests FAIL on assertions, then 35/35 PASS; `npm test` → 426 pass; typecheck clean). The two over-marking guards (verification run that writes, no fingerprint yet) passed before the change: each was proven by mutation (exemption removed → FAIL; baseline rule removed → FAIL). The first guard was too weak (the writing run came first) and was strengthened before the commit. Ruling: Stop also re-compares and saves the tree even when it returns `{}` — the plan's "compares once more"; cost if wrong: one extra git status per stop.
+- Task 5: complete (pi ef863f1..aa613d5, 4 new tests FAIL on assertions, then 32/32 PASS in extensions.test.ts; `npm test` → 414 pass; typecheck clean; the over-marking guard proven by mutation). Ruling: pi had no test expecting a follow-up without commands, so there was no test to change in its own commit. Ruling: pi now lists the changed paths in the follow-up (as Claude does), since the new test names `src/a.ts`; `run_verification` refreshes the fingerprint so its checks' own writes don't count.
+- Task 6: complete (60dc88f..87bca4d; pi aa613d5..2972a49; kit verify script → 4/4 PASS). Measurement ($3.24 + control $1.58): db-required-column rollout-reported 3/3 with the kit (gate fired in all 3) vs 3/3 without, expand-contract 3/3 vs 2/3; tdd-discount red-before-green 1/3 vs 0/3 with skill loaded 1/3. Stopped as the plan says and ran a control: 0.24.0 (`main`) and the branch, 5 runs each, both 4/5 loaded and 4/5 red; the user agreed to continue. Live smoke: a heredoc-only write without tests was sent back naming `src/a.ts`.
+- Ruling: using-skills' verification line keeps "A Stop hook returns you once if files changed since the last green run" (already true for shell changes) and says "runs the project's checks" instead of listing verify.json and CLAUDE.md, since commands can now be detected; the body is at the 800-word cap, so the plan's "(also from the shell)" would not fit — cost if wrong: an agent doesn't learn from the bootstrap that shell writes count (the gate still enforces it).
+- Ruling: GETTING-STARTED (both editions) also changed: its "no commands" troubleshooting entry described the old send-back.
