@@ -21,7 +21,7 @@ import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordR
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { changedPaths, shellWriteTargets, treeFingerprint } from "./worktree.ts";
+import { changedPaths, shellWriteTargets, treeFingerprint, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -290,10 +290,10 @@ const MAX_LISTED = 5;
  * What changed in the project since the state's fingerprint: from the git working tree, or, outside git, from the
  * files `command` writes. The first fingerprint of a session is a baseline, not a change.
  */
-function shellChanges(env: HookEnv, state: SessionState, command?: string, cwd?: string): { tree?: Record<string, string>; paths: string[] } {
+function shellChanges(env: HookEnv, state: SessionState, command?: string, cwd?: string): { tree?: Tree; paths: string[] } {
 	const ignore = resolveIgnore(env.projectDir);
 	const tree = treeFingerprint(env.projectDir, ignore);
-	if (tree) return { tree, paths: state.tree ? changedPaths(state.tree, tree) : [] };
+	if (tree) return { tree, paths: state.tree ? changedPaths(state.tree, tree, env.projectDir, ignore) : [] };
 	if (command === undefined) return { paths: [] };
 	return { paths: shellWriteTargets(command, cwd ?? env.projectDir, env.projectDir).filter((p) => !isIgnored(p, ignore)) };
 }

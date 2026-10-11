@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import type { Tree } from "./worktree.ts";
 
 /** Verify-gate state for one Claude Code session. */
 export interface SessionState {
@@ -20,7 +21,7 @@ export interface SessionState {
 	/** When the last counted edit happened (ms since epoch). */
 	editedAt: number;
 	/** The last fingerprint of the project's git working tree (lib/worktree.ts); absent until the first one. */
-	tree?: Record<string, string>;
+	tree?: Tree;
 	/** The user was already told this session that there are no verification commands. */
 	notified: boolean;
 }
@@ -55,7 +56,7 @@ export function loadState(dir: string, sessionId: string): SessionState {
 			workDocsReminded: raw.workDocsReminded === true,
 			edited: Array.isArray(raw.edited) ? raw.edited.filter((c): c is string => typeof c === "string") : [],
 			editedAt: typeof raw.editedAt === "number" ? raw.editedAt : 0,
-			tree: raw.tree && typeof raw.tree === "object" && Object.values(raw.tree).every((v) => typeof v === "string") ? raw.tree : undefined,
+			tree: isTree(raw.tree) ? raw.tree : undefined,
 			notified: raw.notified === true,
 		};
 	} catch {
@@ -110,4 +111,10 @@ export function pruneStates(dir: string, now = Date.now()): void {
 			// raced with another session: ignore
 		}
 	}
+}
+
+function isTree(value: unknown): value is Tree {
+	if (!value || typeof value !== "object") return false;
+	const { head, files } = value as Partial<Tree>;
+	return typeof head === "string" && !!files && typeof files === "object" && Object.values(files).every((v) => typeof v === "string");
 }
