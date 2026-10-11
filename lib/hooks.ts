@@ -115,7 +115,7 @@ function sessionStart(input: HookInput, env: HookEnv): HookResult {
 	pruneStates(env.stateDir);
 	// The baseline the verify gate compares shell commands against; a resumed or compacted session first counts what
 	// changed since its last fingerprint.
-	trackTree(env, input.session_id ?? "");
+	bestEffort(() => trackTree(env, input.session_id ?? ""));
 	// Plugin: <root>/skills. Project install: skills sit in .claude/skills next to .claude/eng-kit.
 	const file = [join(env.root, "skills"), join(env.root, "..", "skills")]
 		.map((dir) => join(dir, "using-skills", "SKILL.md"))
@@ -149,8 +149,6 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		const command = String(args.command ?? "");
 		// Where the command starts decides a PR's branch; the result only confirms it (see postToolUse).
 		if (input.tool_use_id) notePr(env.projectDir, input.tool_use_id, command, cwd, env.reviewsRoot);
-		// The working tree before the command, so its result can name what this command changed.
-		trackTree(env, input.session_id ?? "", input.tool_use_id ?? "");
 		// Inside the kit reviewer the shell is for inspection only (Claude Code names the subagent in the input).
 		// PowerShell isn't parsed for it at all: the allowlist is written for a POSIX shell.
 		const reviewer = !REVIEWER.test(input.agent_type ?? "")
@@ -180,6 +178,9 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		return {};
 	}
 
+	// The working tree before a shell call that may run, so its result can name what this call changed. After the
+	// decision, so the snapshot can't delay or break it.
+	if (SHELL_TOOLS.has(tool) && decision.action !== "block") bestEffort(() => trackTree(env, input.session_id ?? "", input.tool_use_id ?? ""));
 	const warning = warnings.length > 0 ? warnings.join("\n") : undefined;
 	// No opinion on allowed calls: Claude Code's own permission rules still apply.
 	if (decision.action === "allow") return { warning };
@@ -242,7 +243,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		const edited = [...state.edited.filter((e) => e !== label), label].slice(-MAX_LISTED);
 		saveState(env.stateDir, sessionId, { ...state, unverified: true, green: [], edited, editedAt: Date.now() });
 		// The edit is counted; the next comparison starts after it.
-		trackTree(env, sessionId);
+		bestEffort(() => trackTree(env, sessionId));
 		return {};
 	}
 	if (!SHELL_TOOLS.has(tool)) return {};
@@ -253,10 +254,15 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const { commands } = resolveVerifyCommands(env.projectDir);
 	// Files this command changed, whatever wrote them (a failed or background command may have written too). Only a
 	// verification run that passed and did nothing else keeps its own changes (a formatter, `lint --fix`) off the count.
-	const exempt = !failed && verificationOnly(shell, commands, (words) => words[0] === "node" && words.length === 2 && runsVerifyScript(words.join(" ")));
-	let state = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt });
+	const scriptRun = readRun(env.projectDir, env.runsRoot);
+	const scriptPassed = !!scriptRun?.ok && Date.now() - scriptRun.finishedAt < RUN_MAX_AGE_MS;
+	const exempt =
+		!failed && verificationOnly(shell, commands, (words) => scriptPassed && words[0] === "node" && words.length === 2 && runsVerifyScript(words.join(" ")));
+	const { state, marked } = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt });
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
+	// A call that changed files proves nothing about them, whatever checks it also ran.
+	if (marked.length > 0) return {};
 
 	if (!state.unverified) return {};
 	const clear = () => saveState(env.stateDir, sessionId, { ...state, unverified: false, green: [...commands], edited: [] });
@@ -294,22 +300,40 @@ const MAX_PENDING = 8;
  * reads the files the command writes from its text. Taking the fingerprint before loading the state keeps a mark that
  * another hook process saved meanwhile.
  */
-function trackTree(env: HookEnv, sessionId: string, callId?: string, after?: { command: string; cwd: string; exempt: boolean }): SessionState {
+function trackTree(
+	env: HookEnv,
+	sessionId: string,
+	callId?: string,
+	after?: { command: string; cwd: string; exempt: boolean },
+): { state: SessionState; marked: string[] } {
 	const ignore = resolveIgnore(env.projectDir);
-	const tree = loadState(env.stateDir, sessionId).gitOff ? undefined : treeFingerprint(env.projectDir, ignore);
+	const why: { slow?: boolean } = {};
+	const tree = loadState(env.stateDir, sessionId).gitOff ? undefined : treeFingerprint(env.projectDir, ignore, why);
 	let state = loadState(env.stateDir, sessionId);
-	const before = after && callId !== undefined ? (state.pending[callId] ?? state.tree) : state.tree;
+	const own = after && callId !== undefined ? state.pending[callId] : undefined;
+	const before = own ?? state.tree;
 	let paths: string[] = [];
 	if (tree && before) paths = changedPaths(before, tree, env.projectDir, ignore);
 	else if (after) paths = shellWriteTargets(after.command, after.cwd, env.projectDir).filter((p) => !isIgnored(p, ignore));
-	if (paths.length > 0 && !after?.exempt) state = markEdited(state, paths);
+	// Only a call compared with its own snapshot can claim the changes as a verification run's own.
+	const marked = paths.length > 0 && !(after?.exempt && own) ? paths : [];
+	if (marked.length > 0) state = markEdited(state, marked);
 	const pending = { ...state.pending };
 	if (callId !== undefined) delete pending[callId];
 	if (callId !== undefined && !after && tree) pending[callId] = tree;
 	const kept = Object.fromEntries(Object.entries(pending).slice(-MAX_PENDING));
-	state = { ...state, tree: tree ?? state.tree, gitOff: state.gitOff || !tree, pending: kept };
+	state = { ...state, tree: tree ?? state.tree, gitOff: state.gitOff || why.slow === true, pending: kept };
 	saveState(env.stateDir, sessionId, state);
-	return state;
+	return { state, marked };
+}
+
+/** Change tracking is a best effort where it runs ahead of something that matters (the guard, the bootstrap). */
+function bestEffort(fn: () => unknown): void {
+	try {
+		fn();
+	} catch {
+		// the next comparison (the call's result, Stop) still runs
+	}
 }
 
 
@@ -423,7 +447,7 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 	if (input.stop_hook_active) return {};
 	const sessionId = input.session_id ?? "";
 	// A change no command reported (a background process, a subagent's script) is found here.
-	const state = trackTree(env, sessionId);
+	const { state } = trackTree(env, sessionId);
 	const reasons: string[] = [];
 	let systemMessage: string | undefined;
 	const next = { ...state };

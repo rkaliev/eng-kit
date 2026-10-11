@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -281,6 +281,102 @@ test("review gate: detected commands don't count for the reviewer or for review 
 	const review = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed BASE: x\nReviewed HEAD: y\nReady to merge: Yes", prompt_id: "p", agent_id: "r" });
 	assert.doesNotMatch(String(review.warning), /unverified/, "no configured commands, so no Inconclusive for unverified edits");
 	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block", "the verify gate does use them");
+});
+
+test("verify gate: in a project with one command, a write chained after it still marks", () => {
+	for (const command of ["npm test && sed -i '' 's/1/2/' src/a.ts", "npm test; cat > src/a.ts <<'EOF'\nexport const a = 2;\nEOF"]) {
+		const { call, bash, edit } = setupGit({ "package.json": '{"scripts":{"test":"node --test"}}', "package-lock.json": "{}" });
+		call({ hook_event_name: "SessionStart", source: "startup" });
+		bash("npm test");
+		bash(command, {}, () => edit("export const a = 2;\n"));
+		assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /src\/a\.ts/, command);
+	}
+});
+
+test("verify gate: readers that write, and a check whose failure a pipe hides, are not exempt", () => {
+	const cases: Array<[string, string]> = [
+		["npm test && grep -v x src/a.ts > src/b.ts", "src/b.ts"],
+		["npm test 2>&1 | tail -30", "src/a.ts"],
+	];
+	for (const [command, file] of cases) {
+		const { call, bash, projectDir } = setupGit();
+		call({ hook_event_name: "SessionStart", source: "startup" });
+		bash("npm test");
+		bash("npm run typecheck");
+		bash(command, {}, () => writeFileSync(join(projectDir, file), "changed\n"));
+		assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), new RegExp(file.replace(".", "\\.")), command);
+	}
+});
+
+test("verify gate: a change made before a check started is not the check's own", () => {
+	const { call, bash, edit, projectDir } = setupGit();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	bash("npm test");
+	bash("npm run typecheck");
+	edit("export const a = 2;\n");
+	bash("npm test");
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /src\/a\.ts/, "between calls");
+
+	const second = setupGit();
+	second.call({ hook_event_name: "SessionStart", source: "startup" });
+	second.bash("npm test");
+	second.bash("npm run typecheck");
+	const pre = (id: string, command: string) => second.call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id: id });
+	const post = (id: string, command: string) => second.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id: id });
+	pre("A", "npm test");
+	pre("B", "python3 fix.py");
+	second.edit("export const a = 2;\n");
+	post("A", "npm test");
+	post("B", "python3 fix.py");
+	assert.equal(second.call({ hook_event_name: "Stop" }).output?.decision, "block", "interleaved calls");
+
+	const third = setupGit();
+	third.call({ hook_event_name: "SessionStart", source: "startup" });
+	third.bash("npm test");
+	third.bash("npm run typecheck");
+	const call3 = (event: string, id: string, command: string) => third.call({ hook_event_name: event, tool_name: "Bash", tool_input: { command }, tool_use_id: id });
+	call3("PreToolUse", "old", "npm test");
+	for (let i = 0; i < 10; i++) call3("PreToolUse", `denied-${i}`, "ls");
+	third.edit("export const a = 2;\n");
+	call3("PostToolUse", "old", "npm test");
+	assert.equal(third.call({ hook_event_name: "Stop" }).output?.decision, "block", "a call whose snapshot was dropped isn't exempt");
+	void projectDir;
+});
+
+test("verify gate: git stash after a green run marks the workspace", () => {
+	const { call, bash, edit, git } = setupGit();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	bash("sed -i '' 's/1/2/' src/a.ts", {}, () => edit("export const a = 2;\n"));
+	bash("npm test");
+	bash("npm run typecheck");
+	bash("git stash", {}, () => git("stash", "-q"));
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /src\/a\.ts/);
+});
+
+test("verify gate: a folder that becomes a git repository mid-session is fingerprinted from then on", () => {
+	const ctx = setup({ "CLAUDE.md": "## Commands\n- `npm test`\n", "src/a.ts": "export const a = 1;\n" });
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: ctx.projectDir, stdio: "pipe" });
+	git("init", "-q", "-b", "main");
+	git("add", "-A");
+	git("commit", "-q", "-m", "initial");
+	ctx.call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "node gen.js" }, tool_use_id: "g" });
+	writeFileSync(join(ctx.projectDir, "src/a.ts"), "export const a = 2;\n");
+	ctx.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "node gen.js" }, tool_use_id: "g" });
+	assert.match(String(ctx.call({ hook_event_name: "Stop" }).output?.reason), /src\/a\.ts/, "only the fingerprint can see a script's write");
+});
+
+test("guard: a state folder that can't be written doesn't weaken a denial", () => {
+	const { env, projectDir } = setup();
+	chmodSync(env.stateDir, 0o500);
+	try {
+		const out = handle({ session_id: "s1", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push --force origin main" }, tool_use_id: "f" }, env);
+		assert.equal(decision(out), "deny");
+		const allowed = handle({ session_id: "s1", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, tool_use_id: "l" }, env);
+		assert.equal(decision(allowed), undefined, "an allowed call stays allowed, not asked");
+	} finally {
+		chmodSync(env.stateDir, 0o700);
+	}
 });
 
 test("verify gate: outside git the command's text decides", () => {
