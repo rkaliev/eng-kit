@@ -145,15 +145,22 @@ test("verify gate without commands notifies once and doesn't block", () => {
 });
 
 /** `setup` in a git repository with `src/a.ts` committed, so shell changes are found from the working tree. */
-function setupGit() {
-	const ctx = setup({ "CLAUDE.md": "## Commands\n- `npm test`\n- `npm run typecheck`\n", "src/a.ts": "export const a = 1;\n" });
+function setupGit(files: Record<string, string> = { "CLAUDE.md": "## Commands\n- `npm test`\n- `npm run typecheck`\n" }) {
+	const ctx = setup({ ...files, "src/a.ts": "export const a = 1;\n" });
 	const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: ctx.projectDir, stdio: "pipe" });
 	git("init", "-q", "-b", "main");
 	git("add", "-A");
 	git("commit", "-q", "-m", "initial");
 	const edit = (content: string) => writeFileSync(join(ctx.projectDir, "src/a.ts"), content);
-	const bash = (command: string, extra: Partial<HookInput> = {}) => ctx.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, ...extra });
-	return { ...ctx, edit, bash };
+	let calls = 0;
+	/** One shell call as Claude Code reports it: PreToolUse, the command running (`during`), then its result. */
+	const bash = (command: string, extra: Partial<HookInput> = {}, during = () => {}) => {
+		const tool_use_id = extra.tool_use_id ?? `toolu_${++calls}`;
+		ctx.call({ ...extra, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id });
+		during();
+		return ctx.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, ...extra, tool_use_id });
+	};
+	return { ...ctx, git, edit, bash };
 }
 
 test("verify gate: a file changed from the shell marks the workspace, also when the command fails", () => {
@@ -191,11 +198,9 @@ test("verify gate: a change no command reported is found at Stop", () => {
 test("verify gate: a verification run that changes files doesn't mark the workspace again", () => {
 	const { call, edit, bash } = setupGit();
 	call({ hook_event_name: "SessionStart", source: "startup" });
-	edit("export const a = 2;\n");
-	bash("sed -i '' 's/1/2/' src/a.ts");
+	bash("sed -i '' 's/1/2/' src/a.ts", {}, () => edit("export const a = 2;\n"));
 	bash("npm test");
-	edit("export const a = 3;\n");
-	bash("npm run typecheck");
+	bash("npm run typecheck", {}, () => edit("export const a = 3;\n"));
 	assert.deepEqual(call({ hook_event_name: "Stop" }), {}, "the typecheck run's own change keeps npm test green");
 });
 
@@ -247,8 +252,8 @@ test("verify gate: a resumed session compares with its fingerprint instead of re
 });
 
 test("verify gate: a session without a fingerprint, or with git given up, reads the command's text", () => {
-	const { call, bash } = setupGit();
-	bash("cat > src/a.ts <<'EOF'\nexport const a = 2;\nEOF");
+	const { call } = setupGit();
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "cat > src/a.ts <<'EOF'\nexport const a = 2;\nEOF" }, tool_use_id: "no-pre" });
 	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /src\/a\.ts/);
 
 	const big = setupGit();
