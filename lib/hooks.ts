@@ -264,7 +264,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const scriptRun = readRun(env.projectDir, env.runsRoot);
 	const scriptPassed = !!scriptRun?.ok && Date.now() - scriptRun.finishedAt < RUN_MAX_AGE_MS;
 	const exempt =
-		!failed && verificationOnly(shell, commands, (words) => scriptPassed && words[0] === "node" && words.length === 2 && runsVerifyScript(words.join(" ")));
+		!failed && verificationOnly(shell, commands, (words) => scriptPassed && words[0] === "node" && words.length === 2 && runsVerifyScript(words.join(" "), env.root, input.cwd || env.projectDir));
 	const { state, marked } = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt });
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
@@ -274,7 +274,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (!state.unverified) return {};
 	const clear = () => saveState(env.stateDir, sessionId, { ...state, unverified: false, green: [...commands], edited: [] });
 
-	if (runsVerifyScript(shell)) {
+	if (runsVerifyScript(shell, env.root, input.cwd || env.projectDir)) {
 		if (commands.length === 0) return {};
 		const run = readRun(env.projectDir, env.runsRoot);
 		if (run) {
@@ -355,7 +355,9 @@ function sameCommands(a: string[], b: string[]): boolean {
 }
 
 /** A run of the kit's verify script (piped or not: the script records its own result). */
-export function runsVerifyScript(shell: string): boolean {
+export function runsVerifyScript(shell: string, root: string, cwd: string): boolean {
+	void root;
+	void cwd;
 	return /scripts[\\/]verify\.ts\b/.test(shell);
 }
 

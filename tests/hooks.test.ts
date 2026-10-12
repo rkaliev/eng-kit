@@ -126,9 +126,9 @@ test("verify gate: failed edits and masked exit codes prove nothing", () => {
 	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: {} });
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "node scripts/verify.ts | tail -5" } });
 	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
-	assert.equal(runsVerifyScript('node "/k/scripts/verify.ts"'), true);
-	assert.equal(runsVerifyScript("node C:\\k\\scripts\\verify.ts"), true);
-	assert.equal(runsVerifyScript("node /k/scripts/verify.ts | tee log"), true, "a pipe is fine: the script records its own result");
+	assert.equal(runsVerifyScript('node "/k/scripts/verify.ts"', "/k", "/p"), true);
+	assert.equal(runsVerifyScript("node C:\\k\\scripts\\verify.ts", "C:\\k", "/p"), true);
+	assert.equal(runsVerifyScript("node /k/scripts/verify.ts | tee log", "/k", "/p"), true, "a pipe is fine: the script records its own result");
 });
 
 test("verify gate without commands notifies once and doesn't block", () => {
