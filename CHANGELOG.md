@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.25.1
+
+- **Only a real run of the verify script counts.** The verify gate used to treat any command that mentioned `scripts/verify.ts` as a run of the kit's verify script, so with no run record, `cat <kit>/scripts/verify.ts` after an edit cleared the workspace. Now only `node <kit root>/scripts/verify.ts`, as the session context names it and as the command's only step (optionally piped into `tail`, `head`, `grep` or `tee`), counts; reading or editing the file, a project's own `scripts/verify.ts` or a run after `cd` doesn't.
+
 ## 0.25.0
 
 - **The verify gate sees shell edits.** A file changed from the shell (a heredoc, `sed -i`, a script, a code generator, `npm install`) makes the workspace unverified like an Edit or Write. In a git repository the hooks fingerprint the working tree (`git status` plus each listed file's size and time, and `HEAD`) before and after every shell command, failed or in the background, and compare it once more at Stop and on resume; gitignored files and `ignore` globs don't count, staging or committing isn't an edit, and an edit committed in the same command is. A passing command made of checks joined by `&&`, with no redirection into a file (the verify script may be piped into `tail`, `head` or `grep`), keeps its own changes off the count; a write chained with a check (`npm test && sed -i …`), a check piped or followed by `;`, or a failed check's changes count, and a command that changed files credits none of its checks. `git stash` counts. Outside git, in a tree of more than 5,000 listed files, or once git times out in the session, the command's `>`, `>>`, `tee` and `sed -i` targets inside the project count instead. A log written into the project by any other command counts too.

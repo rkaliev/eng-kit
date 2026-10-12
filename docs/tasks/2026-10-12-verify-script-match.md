@@ -79,23 +79,26 @@ None: plugin release 0.25.1 (Claude edition only; pi skips it).
 
 **Files:** Test `tests/hooks.test.ts:129-131`
 
-- [ ] Change the calls to `runsVerifyScript(<same command>, "/k", "/p")` (Windows case: root `C:\k`), assertions unchanged; add a stub signature `runsVerifyScript(shell, root, cwd)` that ignores the new arguments
-- [ ] Run `node --test tests/hooks.test.ts` → PASS (no behaviour change)
-- [ ] Commit `test(verify): runsVerifyScript takes the kit root and the call's folder` (user agreed, 2026-10-12)
+- [x] Change the calls to `runsVerifyScript(<same command>, "/k", "/p")` (Windows case: root `C:\k`), assertions unchanged; add a stub signature `runsVerifyScript(shell, root, cwd)` that ignores the new arguments
+- [x] Run `node --test tests/hooks.test.ts` → PASS (no behaviour change)
+- [x] Commit `test(verify): runsVerifyScript takes the kit root and the call's folder` (user agreed, 2026-10-12)
 
 ### Task 2: only a real run counts
 
 **Files:** Modify `lib/hooks.ts` · Test `tests/hooks.test.ts`
 
-- [ ] Write failing tests: `runsVerifyScript recognises only a run of the kit's script` — true for `node "/k/scripts/verify.ts"`, `node /k/scripts/verify.ts 2>&1 | tail -30`, `node /k/scripts/verify.ts | tee log`, `node "/a b/scripts/verify.ts"` (root `/a b`), `node .claude/eng-kit/scripts/verify.ts` (root `/p/.claude/eng-kit`, cwd `/p`), the Windows case; false for `cat /k/scripts/verify.ts`, `grep x /k/scripts/verify.ts`, `sed -n 1p /k/scripts/verify.ts`, `node /p/scripts/verify.ts`, `cd x && node /k/scripts/verify.ts`, `cat > notes <<'EOF'⏎node /k/scripts/verify.ts⏎EOF`. And `verify gate: mentioning the verify script doesn't clear it` — after an Edit (no run record), each of criterion 1's commands → Stop `decision: "block"`.
-- [ ] Run `node --test tests/hooks.test.ts` → expect FAIL on the false cases (the regex returns true)
-- [ ] Implement per decisions 1–3; pass `env.root` and `input.cwd || env.projectDir` at both call sites
-- [ ] Run the full suite and typecheck → PASS; commit `fix(verify): only a run of the kit's verify script counts as one`
+- [x] Write failing tests: `runsVerifyScript recognises only a run of the kit's script` — true for `node "/k/scripts/verify.ts"`, `node /k/scripts/verify.ts 2>&1 | tail -30`, `node /k/scripts/verify.ts | tee log`, `node "/a b/scripts/verify.ts"` (root `/a b`), `node .claude/eng-kit/scripts/verify.ts` (root `/p/.claude/eng-kit`, cwd `/p`), the Windows case; false for `cat /k/scripts/verify.ts`, `grep x /k/scripts/verify.ts`, `sed -n 1p /k/scripts/verify.ts`, `node /p/scripts/verify.ts`, `cd x && node /k/scripts/verify.ts`, `cat > notes <<'EOF'⏎node /k/scripts/verify.ts⏎EOF`. And `verify gate: mentioning the verify script doesn't clear it` — after an Edit (no run record), each of criterion 1's commands → Stop `decision: "block"`.
+- [x] Run `node --test tests/hooks.test.ts` → expect FAIL on the false cases (the regex returns true)
+- [x] Implement per decisions 1–3; pass `env.root` and `input.cwd || env.projectDir` at both call sites
+- [x] Run the full suite and typecheck → PASS; commit `fix(verify): only a run of the kit's verify script counts as one`
 
 ### Task 3: docs and version
 
-- [ ] Post-implementation items; kit verify script → all PASS; commit `docs: 0.25.1`; delete this task file before finishing
+- [x] Post-implementation items; kit verify script → all PASS; commit `docs: 0.25.1`; delete this task file before finishing
 
 ## Progress
 
 - Description and plan approved by the user together (2026-10-12); execution inline.
+- Task 1: complete (64ac318..30e689d; three assertions' arguments only; 49/49).
+- Task 2: complete (30e689d..06daa69; both new tests FAIL on assertions, then PASS; mutations: path `endsWith` instead of equality → 2 tests fail; readers without a pipe → fails after adding `node …; tail -5 log`). Ruling: the recorded-run test used a made-up `/kit` path the loose match accepted; its command now uses the real kit path, assertions unchanged, own commit 9f8e2a7 (passes on the old code too) — cost if wrong: none. Ruling: backslashes read as `/` before tokenizing, so a PowerShell/cmd path counts; a bash escape misread only fails the match.
+- Task 3: complete (docs + 0.25.1; kit verify script → 4/4 PASS, eng-kit 448).
