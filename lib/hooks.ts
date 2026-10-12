@@ -12,12 +12,13 @@
  * - UserPromptSubmit: re-arms the gate for the new prompt.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
+import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
@@ -264,7 +265,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const scriptRun = readRun(env.projectDir, env.runsRoot);
 	const scriptPassed = !!scriptRun?.ok && Date.now() - scriptRun.finishedAt < RUN_MAX_AGE_MS;
 	const exempt =
-		!failed && verificationOnly(shell, commands, (words) => scriptPassed && words[0] === "node" && words.length === 2 && runsVerifyScript(words.join(" ")));
+		!failed && verificationOnly(shell, commands, (words) => scriptPassed && isKitScript(words, env.root, input.cwd || env.projectDir));
 	const { state, marked } = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt });
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
@@ -274,7 +275,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (!state.unverified) return {};
 	const clear = () => saveState(env.stateDir, sessionId, { ...state, unverified: false, green: [...commands], edited: [] });
 
-	if (runsVerifyScript(shell)) {
+	if (runsVerifyScript(shell, env.root, input.cwd || env.projectDir)) {
 		if (commands.length === 0) return {};
 		const run = readRun(env.projectDir, env.runsRoot);
 		if (run) {
@@ -354,9 +355,61 @@ function sameCommands(a: string[], b: string[]): boolean {
 	return a.length === b.length && a.every((c, i) => c === b[i]);
 }
 
-/** A run of the kit's verify script (piped or not: the script records its own result). */
-export function runsVerifyScript(shell: string): boolean {
-	return /scripts[\\/]verify\.ts\b/.test(shell);
+const SEPARATORS = new Set(["&&", "||", ";", "|", "|&", "&", "\n"]);
+/** What may read the script's output after a pipe: the script records its own result, so a pipe hides nothing. */
+const PIPE_READERS = new Set(["tail", "head", "grep", "tee", "select-object", "select", "select-string", "sls", "tee-object"]);
+
+/**
+ * A run of the kit's own verify script, the one the session context names: the command's only working segment is
+ * `node <kit root>/scripts/verify.ts`, optionally piped into a reader (`tail`, `head`, `grep`, `tee`, or PowerShell's
+ * `Select-Object`, `Select-String`, `Tee-Object`). A mention of the path (`cat`, `grep`, an editor, a heredoc body),
+ * another `scripts/verify.ts`, a run chained with `&&` or `;`, or one sent to the background with `&` is not.
+ */
+export function runsVerifyScript(shell: string, root: string, cwd: string): boolean {
+	const segments: Array<{ words: string[]; joinedBy: string }> = [];
+	let words: string[] = [];
+	let joinedBy = "";
+	let previous = "";
+	let background = false;
+	// Line continuations go first; then a backslash is a path separator, as in PowerShell and cmd paths.
+	const text = shell.replace(/\\\r?\n/g, " ").replaceAll("\\", "/");
+	for (const token of [...tokenize(stripRedirects(heredocs(text).text)), "\n"]) {
+		if (!SEPARATORS.has(token)) {
+			words.push(token);
+			continue;
+		}
+		if (words.length > 0) {
+			segments.push({ words, joinedBy });
+			words = [];
+			joinedBy = token;
+			if (token === "&") background = true;
+		} else if (token === "&" && previous === "|") {
+			// `|&` is a pipe of both streams; tokenize emits it as `|` then `&`.
+		} else if (token !== "\n") {
+			// A separator after another one keeps the first (`|⏎`), as the shell does; anything else is a chain. A
+			// leading one (PowerShell's call operator, `& node …`) only marks the first segment, which nothing checks.
+			joinedBy = token;
+		}
+		previous = token;
+	}
+	const [first, ...rest] = segments;
+	return (
+		!background &&
+		!!first &&
+		isKitScript(first.words, root, cwd) &&
+		rest.every((seg) => seg.joinedBy === "|" && PIPE_READERS.has((seg.words[0] ?? "").toLowerCase()))
+	);
+}
+
+/** `node <path>` where the path, resolved against `cwd` (a `\` read as `/`), is the kit's `scripts/verify.ts`. */
+function isKitScript(words: string[], root: string, cwd: string): boolean {
+	// The session context names a path without `..`; folding one away could hide what the shell actually runs.
+	if (words.length !== 2 || words[0] !== "node" || /(^|\/)\.\.(\/|$)/.test(words[1]!)) return false;
+	const absolute = (path: string) => {
+		const p = path.replaceAll("\\", "/");
+		return posix.normalize(/^([A-Za-z]:)?\//.test(p) ? p : resolve(cwd, p).replaceAll("\\", "/"));
+	};
+	return absolute(words[1]!) === absolute(join(root, "scripts", "verify.ts"));
 }
 
 /**

@@ -118,6 +118,63 @@ test("verify gate: an edit arms Stop once per prompt; green runs disarm it", () 
 	assert.equal(stop(), undefined, "a passing verify script run counts as fully green");
 });
 
+test("runsVerifyScript recognises only a run of the kit's own script", () => {
+	const runs: Array<[string, string, string]> = [
+		['node "/k/scripts/verify.ts"', "/k", "/p"],
+		["node /k/scripts/verify.ts 2>&1 | tail -30", "/k", "/p"],
+		["node /k/scripts/verify.ts | tee log", "/k", "/p"],
+		['node "/a b/scripts/verify.ts"', "/a b", "/p"],
+		["node .claude/eng-kit/scripts/verify.ts", "/p/.claude/eng-kit", "/p"],
+		["node C:\\k\\scripts\\verify.ts", "C:\\k", "/p"],
+		['node "/k/scripts/verify.ts" \\\n  2>&1 | tail -30', "/k", "/p"],
+		['node "C:\\k\\scripts\\verify.ts" 2>&1 | Select-Object -Last 30', "C:\\k", "/p"],
+		["node /k/scripts/verify.ts | select -Last 5", "/k", "/p"],
+		["node /k/scripts/verify.ts | Select-String FAIL", "/k", "/p"],
+		["node /k/scripts/verify.ts | sls FAIL", "/k", "/p"],
+		["node /k/scripts/verify.ts | Tee-Object log", "/k", "/p"],
+		["node /k/scripts/verify.ts |& tail -30", "/k", "/p"],
+		["node /k/scripts/verify.ts 2>&1 |\n  tail -30", "/k", "/p"],
+		['& node "C:\\k\\scripts\\verify.ts"', "C:\\k", "/p"],
+		["node /k/scripts/verify.ts;", "/k", "/p"],
+		['node "/R&D/kit/scripts/verify.ts"', "/R&D/kit", "/p"],
+		['node "C:\\Users\\O\'Brien\\kit\\scripts\\verify.ts"', "C:\\Users\\O'Brien\\kit", "/p"],
+	];
+	for (const [command, kit, cwd] of runs) assert.equal(runsVerifyScript(command, kit, cwd), true, command);
+	const mentions = [
+		"cat /k/scripts/verify.ts",
+		"grep x /k/scripts/verify.ts",
+		"sed -n 1p /k/scripts/verify.ts",
+		"node /p/scripts/verify.ts",
+		"cd x && node /k/scripts/verify.ts",
+		"node /k/scripts/verify.ts; tail -5 log",
+		"node /k/scripts/verify.ts &",
+		"node /k/scripts/verify.ts 2>&1 &",
+		'node /k/x\\"; exit 0; \\"/../../scripts/verify.ts',
+		"cat > notes <<'EOF'\nnode /k/scripts/verify.ts\nEOF",
+	];
+	for (const command of mentions) assert.equal(runsVerifyScript(command, "/k", "/p"), false, command);
+});
+
+test("verify gate: mentioning the verify script doesn't clear it", () => {
+	const script = join(root, "scripts", "verify.ts");
+	for (const command of [`cat ${script}`, `grep x ${script}`, `sed -n 1p ${script}`, "node scripts/verify.ts", `cd src && node ${script}`]) {
+		const { call, projectDir } = setup();
+		call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "src/a.ts") } });
+		call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });
+		assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block", command);
+	}
+});
+
+test("verify gate: without a run record, a piped or background run of the script doesn't clear it", () => {
+	const script = join(root, "scripts", "verify.ts");
+	for (const command of [`node "${script}" | tail -5`, `node "${script}" &`]) {
+		const { call, projectDir } = setup();
+		call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "src/a.ts") } });
+		call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });
+		assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block", command);
+	}
+});
+
 test("verify gate: failed edits and masked exit codes prove nothing", () => {
 	const { call } = setup();
 	call({ hook_event_name: "PostToolUseFailure", tool_name: "Edit", tool_input: {} });
@@ -126,9 +183,9 @@ test("verify gate: failed edits and masked exit codes prove nothing", () => {
 	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: {} });
 	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "node scripts/verify.ts | tail -5" } });
 	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
-	assert.equal(runsVerifyScript('node "/k/scripts/verify.ts"'), true);
-	assert.equal(runsVerifyScript("node C:\\k\\scripts\\verify.ts"), true);
-	assert.equal(runsVerifyScript("node /k/scripts/verify.ts | tee log"), true, "a pipe is fine: the script records its own result");
+	assert.equal(runsVerifyScript('node "/k/scripts/verify.ts"', "/k", "/p"), true);
+	assert.equal(runsVerifyScript("node C:\\k\\scripts\\verify.ts", "C:\\k", "/p"), true);
+	assert.equal(runsVerifyScript("node /k/scripts/verify.ts | tee log", "/k", "/p"), true, "a pipe is fine: the script records its own result");
 });
 
 test("verify gate without commands notifies once and doesn't block", () => {
@@ -460,7 +517,7 @@ test("verify.ts runs the commands and exits with their result", () => {
 test("verify gate: a piped verify run counts when the script recorded a passing run", () => {
 	const { call, run } = setup();
 	const edit = () => call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.go" } });
-	const verify = (command = 'node "/kit/scripts/verify.ts" 2>&1 | tail -30') => call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });
+	const verify = (command = `node "${join(root, "scripts", "verify.ts")}" 2>&1 | tail -30`) => call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });
 	const stop = () => call({ hook_event_name: "Stop" }).output;
 
 	edit();

@@ -2,7 +2,8 @@
  * Run the project's verification commands (.claude/verify.json, else the Commands section of
  * CLAUDE.md or AGENTS.md, else the ones its manifests imply) and print PASS/FAIL with the failing output tail.
  * Exits 0 only when every command passed. It also records the result for the verify gate, so the
- * run counts as green even when its output is piped.
+ * run counts as green even when its output is piped. The gate counts only the plain call below, as a
+ * command of its own (a pipe into tail/head/grep/tee is fine; `cd`, `&` or a project-dir argument is not).
  *
  *   node <kit>/scripts/verify.ts [project-dir]
  */
