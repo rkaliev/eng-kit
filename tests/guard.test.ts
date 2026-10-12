@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { checkCommand, checkPath, type GuardConfig } from "../lib/patterns.ts";
+import { shellText } from "../lib/shell.ts";
 
 const cwd = "/work/app";
 const none: GuardConfig = {};
@@ -757,4 +758,23 @@ test("one trailing 2>&1 does not stop the own-branch push from passing; other re
 	assert.equal(ask("git push -u origin feat/x > out", repo), "confirm");
 	assert.equal(ask("git push -u origin feat/x >/dev/null 2>&1", repo), "confirm");
 	assert.equal(ask("git push -u origin feat/x 2>&1 | tail", repo), "confirm");
+});
+
+test("shellText keeps what a shell will run and drops heredoc bodies fed to anything else", () => {
+	const has = (command: string, text: string) => shellText(command).includes(text);
+	assert.equal(has("cat > a <<'EOF'\nrm -r x\nEOF", "rm -r x"), false, "a quoted body is data");
+	assert.equal(has("cat > a <<EOF\nrm -r x\nEOF\nls", "rm -r x"), false, "an unquoted body is data too");
+	assert.equal(has("cat > a <<EOF\nrm -r x\nEOF\nls", "ls"), true, "lines after the delimiter stay");
+	assert.equal(has("cat > a <<EOF\nkeep $(rm -rf ~/x) out\nEOF", "rm -rf ~/x"), true, "its substitutions still run");
+	assert.equal(has("cat > a <<'EOF'\n$(rm -rf ~/x)\nEOF", "rm -rf ~/x"), false, "a quoted body runs no substitution");
+	for (const shell of ["bash <<EOF", "sh -s <<EOF", "sudo bash <<EOF", "env sh <<EOF", "ssh host <<EOF", "cat <<EOF | /bin/bash"]) {
+		assert.equal(has(`${shell}\nrm x\nEOF`, "rm x"), true, shell);
+	}
+	assert.equal(has('echo "<<EOF"\nrm x\nEOF', "rm x"), true, "a << in quotes opens nothing");
+	assert.equal(has("cat <<-EOF\n\trm x\n\tEOF\nls", "rm x"), false, "<<- ends at a tab-indented delimiter");
+	assert.equal(has("cat <<-EOF\n\trm x\n\tEOF\nls", "ls"), true);
+	assert.equal(has("cat <<A <<B\nrm a\nA\nrm b\nB\nls", "rm"), false, "two heredocs on one line");
+	assert.equal(has("cat <<EOF\nrm x", "rm x"), false, "an unterminated body runs to the end");
+	assert.equal(has("echo 'it\ncat <<EOF\nrm x\nEOF", "rm x"), true, "a quote still open hides nothing");
+	assert.equal(has("cat <<EOF 'x\nrm x\nEOF", "rm x"), true, "a line that ends inside a quote keeps its body");
 });
