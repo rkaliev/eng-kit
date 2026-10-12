@@ -460,7 +460,7 @@ test("verify.ts runs the commands and exits with their result", () => {
 test("verify gate: a piped verify run counts when the script recorded a passing run", () => {
 	const { call, run } = setup();
 	const edit = () => call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.go" } });
-	const verify = (command = 'node "/kit/scripts/verify.ts" 2>&1 | tail -30') => call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });
+	const verify = (command = `node "${join(root, "scripts", "verify.ts")}" 2>&1 | tail -30`) => call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });
 	const stop = () => call({ hook_event_name: "Stop" }).output;
 
 	edit();
