@@ -7,7 +7,7 @@ import test from "node:test";
 import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
 import { readReviews } from "../lib/reviews.ts";
 import { branchSummary } from "../lib/usage.ts";
-import { readRun, writeRun } from "../lib/state.ts";
+import { loadState, readRun, writeRun } from "../lib/state.ts";
 
 // Isolate git from the machine's own config (the guard's git calls inherit this process's environment).
 process.env.HOME = mkdtempSync(join(tmpdir(), "home-"));
@@ -343,6 +343,20 @@ test("verify gate: a change made before a check started is not the check's own",
 	void projectDir;
 });
 
+test("verify gate: a piped verify script keeps its own writes only while its record says it passed", () => {
+	for (const ok of [true, false]) {
+		const { call, bash, edit, run } = setupGit();
+		call({ hook_event_name: "SessionStart", source: "startup" });
+		bash("npm test");
+		bash("npm run typecheck");
+		run(ok);
+		bash(`node "${join(root, "scripts", "verify.ts")}" 2>&1 | tail -30`, {}, () => edit("export const a = 2;\n"));
+		const out = call({ hook_event_name: "Stop" });
+		if (ok) assert.deepEqual(out, {}, "a passing run's formatter writes are its own");
+		else assert.match(String(out.output?.reason), /src\/a\.ts/, "a failing run's writes count");
+	}
+});
+
 test("verify gate: git stash after a green run marks the workspace", () => {
 	const { call, bash, edit, git } = setupGit();
 	call({ hook_event_name: "SessionStart", source: "startup" });
@@ -364,6 +378,16 @@ test("verify gate: a folder that becomes a git repository mid-session is fingerp
 	writeFileSync(join(ctx.projectDir, "src/a.ts"), "export const a = 2;\n");
 	ctx.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "node gen.js" }, tool_use_id: "g" });
 	assert.match(String(ctx.call({ hook_event_name: "Stop" }).output?.reason), /src\/a\.ts/, "only the fingerprint can see a script's write");
+});
+
+test("verify gate: only a call the guard allows outright gets a snapshot", () => {
+	const { call, env } = setupGit();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "npm publish" }, tool_use_id: "asked" });
+	call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "npm test" }, tool_use_id: "allowed" });
+	const pending = loadState(env.stateDir, "s1").pending;
+	assert.equal("asked" in pending, false, "the snapshot can't delay a question");
+	assert.equal("allowed" in pending, true);
 });
 
 test("guard: a state folder that can't be written doesn't weaken a denial", () => {

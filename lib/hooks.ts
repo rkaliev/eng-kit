@@ -138,7 +138,11 @@ ${body}
 	return { output: { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext } } };
 }
 
+/** A PreToolUse that has already spent this long takes no snapshot: the decision must arrive within the hook timeout. */
+const SNAPSHOT_BUDGET_MS = 2000;
+
 function preToolUse(input: HookInput, env: HookEnv): HookResult {
+	const started = Date.now();
 	const { config, warnings } = loadGuardConfig(env.projectDir);
 	const tool = input.tool_name ?? "";
 	const args = input.tool_input ?? {};
@@ -178,9 +182,12 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		return {};
 	}
 
-	// The working tree before a shell call that may run, so its result can name what this call changed. After the
-	// decision, so the snapshot can't delay or break it.
-	if (SHELL_TOOLS.has(tool) && decision.action !== "block") bestEffort(() => trackTree(env, input.session_id ?? "", input.tool_use_id ?? ""));
+	// The working tree before a shell call the guard allows, so its result can name what this call changed. Only
+	// then, within a budget and never failing: a question or a denial must not wait for git. A call without a snapshot
+	// is compared with the last tree and is never exempt.
+	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && Date.now() - started < SNAPSHOT_BUDGET_MS) {
+		bestEffort(() => trackTree(env, input.session_id ?? "", input.tool_use_id ?? ""));
+	}
 	const warning = warnings.length > 0 ? warnings.join("\n") : undefined;
 	// No opinion on allowed calls: Claude Code's own permission rules still apply.
 	if (decision.action === "allow") return { warning };

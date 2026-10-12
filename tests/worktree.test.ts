@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { changedPaths, MAX_ENTRIES, shellWriteTargets, treeFingerprint } from "../lib/worktree.ts";
+import { changedPaths, MAX_ENTRIES, shellWriteTargets, treeFingerprint, verificationOnly } from "../lib/worktree.ts";
 
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "pipe" });
@@ -119,4 +119,22 @@ test("shellWriteTargets: files a command writes inside the project", () => {
 	for (const none of ["cat x > /tmp/y", "npm test 2>/dev/null", "npm test 2>&1", "cat src/a.ts", "echo > ../outside.ts", "sed 's/a/b/' src/d.ts"]) {
 		assert.deepEqual(targets(none), [], none);
 	}
+});
+
+test("verificationOnly: only checks joined by && with no file output, a script piped only into readers", () => {
+	const commands = ["npm test", "npm run typecheck"];
+	const script = (words: string[]) => words[0] === "node" && words[1] === "/kit/scripts/verify.ts";
+	const cases: Array<[string, boolean]> = [
+		["npm test && npm run typecheck", true],
+		["npm test 2>&1", true],
+		["node /kit/scripts/verify.ts 2>&1 | tail -30", true],
+		["npm test; npm run typecheck", false],
+		["npm test || npm run typecheck", false],
+		["npm test | tail -5", false],
+		["node /kit/scripts/verify.ts | tail -5 && npm test", false],
+		["npm test > out.log", false],
+		["npm test && grep -v x src/a.ts > src/b.ts", false],
+		["cat > Makefile <<'EOF'\nnpm test\nEOF", false],
+	];
+	for (const [command, exempt] of cases) assert.equal(verificationOnly(command, commands, script), exempt, command);
 });
