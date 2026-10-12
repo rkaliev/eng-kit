@@ -80,22 +80,25 @@ None: plugin release 0.25.2 in both editions (pi skips 0.25.1).
 
 ### Task 1: revert the first design
 
-- [ ] Restore `lib/shell.ts`, `lib/patterns.ts` and `tests/guard.test.ts` to the base in both editions (`git checkout <base> -- …`); run both suites → PASS (0.25.1 behaviour)
-- [ ] Commit `revert(guard): drop shellText — it failed open (review round 1)` in both repos
+- [x] Restore `lib/shell.ts`, `lib/patterns.ts` and `tests/guard.test.ts` to the base in both editions (`git checkout <base> -- …`); run both suites → PASS (0.25.1 behaviour)
+- [x] Commit `revert(guard): drop shellText — it failed open (review round 1)` in both repos
 
 ### Task 2: the two shapes
 
 **Files:** Modify `lib/patterns.ts` (both editions) · Test `tests/guard.test.ts` (both)
 
-- [ ] Failing tests for criteria 1–5 (exact actions: `allow`/`block`/`confirm`), including the Review focus cases
-- [ ] Run → FAIL on criteria 1 and 3 assertions (4–5 pass already: they pin 0.25.1 behaviour); implement decisions 1–3; run both suites → PASS, existing guard tests unchanged
-- [ ] Mutation: drop the `/dev/null` filter → criterion 1 fails; accept an unquoted delimiter, a line after the delimiter, or a `$` in the path → criterion 4 fails
-- [ ] Commit `fix(guard): /dev/null isn't a delete target; a whole-command quoted heredoc file write is judged by its first line` in both repos
+- [x] Failing tests for criteria 1–5 (exact actions: `allow`/`block`/`confirm`), including the Review focus cases
+- [x] Run → FAIL on criteria 1 and 3 assertions (4–5 pass already: they pin 0.25.1 behaviour); implement decisions 1–3; run both suites → PASS, existing guard tests unchanged
+- [x] Mutation: drop the `/dev/null` filter → criterion 1 fails; accept an unquoted delimiter, a line after the delimiter, or a `$` in the path → criterion 4 fails
+- [x] Commit `fix(guard): /dev/null isn't a delete target; a whole-command quoted heredoc file write is judged by its first line` in both repos
 
 ### Task 3: docs
 
-- [ ] README and CHANGELOG 0.25.2 in both editions; kit verify script → all PASS; commit `docs: 0.25.2`; delete this task file
+- [x] README and CHANGELOG 0.25.2 in both editions; kit verify script → all PASS; commit `docs: 0.25.2`; delete this task file
 
 ## Progress
 
 - Redesigned description and plan approved together by the user (2026-10-12); inline.
+- Task 1: complete (revert d4f2258 / pi 8e10c0b; suites 449 / 429 PASS; `lib/shell.ts` byte-identical with 0.25.1).
+- Task 2: complete (7bb1d6c / pi db71362; criteria 1 and 3 FAIL on assertions before, criteria 4–5 pass before by design; then 453 / 433 PASS; mutations: no /dev/null filter, unquoted delimiter, lines after the delimiter, `$` in the path — each fails its test; existing guard tests unchanged). Ruling: pi's patterns.ts has no `const TEMP_ROOTS` line, so the function is inserted before `checkSegment` there; the function text is identical.
+- Task 3: complete (README note and CHANGELOG 0.25.2 rewritten for the new design in both; kit verify script → 4/4 PASS).
