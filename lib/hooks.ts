@@ -355,36 +355,45 @@ function sameCommands(a: string[], b: string[]): boolean {
 	return a.length === b.length && a.every((c, i) => c === b[i]);
 }
 
-/** A run of the kit's verify script (piped or not: the script records its own result). */
 const SEPARATORS = new Set(["&&", "||", ";", "|", "|&", "&", "\n"]);
+/** What may read the script's output after a pipe: the script records its own result, so a pipe hides nothing. */
+const PIPE_READERS = new Set(["tail", "head", "grep", "tee", "select-object", "select", "select-string", "sls", "tee-object"]);
 
 /**
  * A run of the kit's own verify script, the one the session context names: the command's only working segment is
- * `node <kit root>/scripts/verify.ts`, optionally piped into `tail`, `head`, `grep` or `tee` (the script records its
- * own result). A mention of the path (`cat`, `grep`, an editor, a heredoc body) or another `scripts/verify.ts` is not.
+ * `node <kit root>/scripts/verify.ts`, optionally piped into a reader (`tail`, `head`, `grep`, `tee`, or PowerShell's
+ * `Select-Object`, `Select-String`, `Tee-Object`). A mention of the path (`cat`, `grep`, an editor, a heredoc body),
+ * another `scripts/verify.ts`, a run chained with `&&` or `;`, or one sent to the background with `&` is not.
  */
 export function runsVerifyScript(shell: string, root: string, cwd: string): boolean {
 	const segments: Array<{ words: string[]; joinedBy: string }> = [];
 	let words: string[] = [];
 	let joinedBy = "";
-	// A backslash is a path separator here, as in PowerShell and cmd; misreading a bash escape only makes a match fail.
-	for (const token of [...tokenize(stripRedirects(heredocs(shell.replaceAll("\\", "/")).text)), ";"]) {
+	let chained = false;
+	// Line continuations go first; then a backslash is a path separator, as in PowerShell and cmd paths.
+	const text = shell.replace(/\\\r?\n/g, " ").replaceAll("\\", "/");
+	for (const token of [...tokenize(stripRedirects(heredocs(text).text)), "\n"]) {
 		if (!SEPARATORS.has(token)) words.push(token);
-		else if (words.length > 0) {
-			segments.push({ words, joinedBy });
+		else {
+			if (token !== "|" && token !== "|&" && token !== "\n") chained = true;
+			if (words.length > 0) segments.push({ words, joinedBy });
 			words = [];
 			joinedBy = token;
 		}
 	}
 	const [first, ...rest] = segments;
 	return (
-		!!first && isKitScript(first.words, root, cwd) && rest.every((seg) => seg.joinedBy === "|" && ["tail", "head", "grep", "tee"].includes(seg.words[0] ?? ""))
+		!chained &&
+		!!first &&
+		isKitScript(first.words, root, cwd) &&
+		rest.every((seg) => seg.joinedBy.startsWith("|") && PIPE_READERS.has((seg.words[0] ?? "").toLowerCase()))
 	);
 }
 
 /** `node <path>` where the path, resolved against `cwd` (a `\` read as `/`), is the kit's `scripts/verify.ts`. */
 function isKitScript(words: string[], root: string, cwd: string): boolean {
-	if (words.length !== 2 || words[0] !== "node") return false;
+	// The session context names a plain path: shell punctuation or `..` in it means the shell would run something else.
+	if (words.length !== 2 || words[0] !== "node" || /[;&|"']|(^|\/)\.\.(\/|$)/.test(words[1]!)) return false;
 	const absolute = (path: string) => {
 		const p = path.replaceAll("\\", "/");
 		return posix.normalize(/^([A-Za-z]:)?\//.test(p) ? p : resolve(cwd, p).replaceAll("\\", "/"));

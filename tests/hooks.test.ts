@@ -126,6 +126,12 @@ test("runsVerifyScript recognises only a run of the kit's own script", () => {
 		['node "/a b/scripts/verify.ts"', "/a b", "/p"],
 		["node .claude/eng-kit/scripts/verify.ts", "/p/.claude/eng-kit", "/p"],
 		["node C:\\k\\scripts\\verify.ts", "C:\\k", "/p"],
+		['node "/k/scripts/verify.ts" \\\n  2>&1 | tail -30', "/k", "/p"],
+		['node "C:\\k\\scripts\\verify.ts" 2>&1 | Select-Object -Last 30', "C:\\k", "/p"],
+		["node /k/scripts/verify.ts | select -Last 5", "/k", "/p"],
+		["node /k/scripts/verify.ts | Select-String FAIL", "/k", "/p"],
+		["node /k/scripts/verify.ts | sls FAIL", "/k", "/p"],
+		["node /k/scripts/verify.ts | Tee-Object log", "/k", "/p"],
 	];
 	for (const [command, kit, cwd] of runs) assert.equal(runsVerifyScript(command, kit, cwd), true, command);
 	const mentions = [
@@ -135,6 +141,9 @@ test("runsVerifyScript recognises only a run of the kit's own script", () => {
 		"node /p/scripts/verify.ts",
 		"cd x && node /k/scripts/verify.ts",
 		"node /k/scripts/verify.ts; tail -5 log",
+		"node /k/scripts/verify.ts &",
+		"node /k/scripts/verify.ts 2>&1 &",
+		'node /k/x\\"; exit 0; \\"/../../scripts/verify.ts',
 		"cat > notes <<'EOF'\nnode /k/scripts/verify.ts\nEOF",
 	];
 	for (const command of mentions) assert.equal(runsVerifyScript(command, "/k", "/p"), false, command);
@@ -143,6 +152,16 @@ test("runsVerifyScript recognises only a run of the kit's own script", () => {
 test("verify gate: mentioning the verify script doesn't clear it", () => {
 	const script = join(root, "scripts", "verify.ts");
 	for (const command of [`cat ${script}`, `grep x ${script}`, `sed -n 1p ${script}`, "node scripts/verify.ts", `cd src && node ${script}`]) {
+		const { call, projectDir } = setup();
+		call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "src/a.ts") } });
+		call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });
+		assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block", command);
+	}
+});
+
+test("verify gate: without a run record, a piped or background run of the script doesn't clear it", () => {
+	const script = join(root, "scripts", "verify.ts");
+	for (const command of [`node "${script}" | tail -5`, `node "${script}" &`]) {
 		const { call, projectDir } = setup();
 		call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "src/a.ts") } });
 		call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });

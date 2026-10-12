@@ -2,7 +2,7 @@
 
 ## 0.25.1
 
-- **Only a real run of the verify script counts.** The verify gate used to treat any command that mentioned `scripts/verify.ts` as a run of the kit's verify script, so with no run record, `cat <kit>/scripts/verify.ts` after an edit cleared the workspace. Now only `node <kit root>/scripts/verify.ts`, as the session context names it and as the command's only step (optionally piped into `tail`, `head`, `grep` or `tee`), counts; reading or editing the file, a project's own `scripts/verify.ts` or a run after `cd` doesn't.
+- **Only a real run of the verify script counts.** The verify gate used to treat any command that mentioned `scripts/verify.ts` as a run of the kit's verify script, so with no run record, `cat <kit>/scripts/verify.ts` after an edit cleared the workspace. Now only `node <kit root>/scripts/verify.ts`, as the session context names it and as the command's only step (optionally piped into `tail`, `head`, `grep` or `tee`), counts, also piped into PowerShell's `Select-Object`, `Select-String` or `Tee-Object`; reading or editing the file, a project's own `scripts/verify.ts`, a run after `cd`, chained with `&&` or `;`, or sent to the background with `&` doesn't. The verify skill says to run it as a command of its own.
 
 ## 0.25.0
 
