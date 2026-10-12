@@ -51,7 +51,7 @@ When unsure, take the heavier path. If hidden complexity shows up mid-task, stop
 
 ## Tools in Claude Code
 
-- **Verification:** the kit verify script (named in the session context) runs `.claude/verify.json` or CLAUDE.md's Commands; prefer it as evidence. A Stop hook returns you once if files changed since the last green run.
+- **Verification:** the kit verify script (named in the session context) runs the project's checks; prefer it as evidence. A Stop hook returns you once if files changed since the last green run.
 - **Delegation:** the Agent tool: `Explore` to scout, `reviewer` to review, `implementer` for one plan task; independent ones in one message, each with a self-contained prompt.
 - **Tasks:** a todo for multi-step work; task files hold Plan and Progress.
 - **Guard:** a hook denies irreversible or secret-leaking calls and asks before outward-facing ones, except your own work branch's push. Never reword a denied command to get past it; ask.

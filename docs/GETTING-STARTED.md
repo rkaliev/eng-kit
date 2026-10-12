@@ -67,6 +67,7 @@ claude ─▶ SessionStart hook ─▶ into context: using-skills rules + paths 
    │        npm test           ─▶ no opinion (normal permissions decide)
    │
    ├─ Edit / Write ─▶ PostToolUse hook: "workspace unverified"
+   │  a shell write  ─▶ the same (found from git status)
    │  npm test ✓     ─▶ "verified"
    │
    ├─ review ─▶ agent eng-kit:reviewer (fresh context, opus) ─▶ report
@@ -260,7 +261,7 @@ claude
 
 - **I added the marketplace, but there are no skills.** The plugin isn't installed: `claude plugin install eng-kit@eng-kit`, then restart the session or `/reload-plugins`. To check, see section 3.
 - **Hooks don't fire.** Check `node --version` (≥ 22.18 required) and `/hooks`. Project hooks need folder trust. Debugging: `claude --debug`.
-- **The verify gate says there are no commands.** Fill in `.claude/verify.json` or the `## Commands` section in CLAUDE.md.
+- **The verify gate says there are no verification commands.** It found none in `.claude/verify.json`, CLAUDE.md or the project's manifests, so it can't check edits and doesn't send Claude back. Run `/eng-kit:kit-init`, or fill in `.claude/verify.json` or the `## Commands` section in CLAUDE.md.
 - **My branches aren't named `<type>/<kebab>` and every push asks.** Only `feat/x`, `fix/x`, `chore/x` and the other conventional types push silently. Add a narrow rule in `.claude/guard.json`: `"allow": ["^git push( -u)? origin (story|task)/[a-z0-9._-]+$"]`. This rule doesn't lift blocks (`--force`, `--no-verify`). `allow` skips all of the guard's questions for the matching command, so keep patterns anchored. The guard has limits: see "What the guard can't see" in ARCHITECTURE.md section 7.
 - **The guard denies `gh pr create` or a merge: "Review gate: …".** The branch's code has no reviewer `Yes`. Run `/eng-kit:requesting-code-review`, fix its findings and review the new range. Land in a command of its own, not chained after `git commit` or `git switch`. Any change after the review, docs included, needs a new one, so review last. The review's range starts at the merge-base with `origin/<base>`, or at the previous round's HEAD. Only you turn it off: `"reviewGate": false` in `.claude/guard.json`.
 - **My project keeps task files elsewhere, or in the repo for good.** The `workDocs` key in `.claude/guard.json` lists the task-file folders (default `["docs/tasks"]`); `[]` turns that rule off.

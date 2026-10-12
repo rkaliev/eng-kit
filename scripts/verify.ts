@@ -1,6 +1,6 @@
 /**
  * Run the project's verification commands (.claude/verify.json, else the Commands section of
- * CLAUDE.md or AGENTS.md) and print PASS/FAIL with the failing output tail.
+ * CLAUDE.md or AGENTS.md, else the ones its manifests imply) and print PASS/FAIL with the failing output tail.
  * Exits 0 only when every command passed. It also records the result for the verify gate, so the
  * run counts as green even when its output is piped.
  *
