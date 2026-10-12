@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.25.2
+
+- **The guard reads only what the shell will run.** A heredoc body fed to anything but a shell (`cat > file <<EOF`, `python3 - <<EOF`) is data, so writing a script that mentions `rm -r`, `git push --force` or `npm publish` is no longer refused or asked; a body fed to `bash`, `sh`, `ssh` and the like is still read as commands, and the substitutions of an unquoted body are still checked. A `<<` inside quotes opens nothing, and a line that ends inside a quote keeps everything after it. A redirection's target is no longer taken for a path to delete, so `rm -rf build 2>/dev/null` and `git rm -rq x 2>/dev/null` pass while `rm -rf ~/x 2>/dev/null` stays blocked. Your own guard.json patterns still match the whole command.
+
 ## 0.25.1
 
 - **Only a real run of the verify script counts.** The verify gate used to treat any command that mentioned `scripts/verify.ts` as a run of the kit's verify script, so with no run record, `cat <kit>/scripts/verify.ts` after an edit cleared the workspace. Now only `node <kit root>/scripts/verify.ts`, as the session context names it and as the command's only step (optionally piped into `tail`, `head`, `grep` or `tee`), counts, also piped into PowerShell's `Select-Object`, `Select-String` or `Tee-Object`; reading or editing the file, a project's own `scripts/verify.ts`, a run after `cd`, chained with `&&` or `;`, or sent to the background with `&` doesn't. The verify skill says to run it as a command of its own.

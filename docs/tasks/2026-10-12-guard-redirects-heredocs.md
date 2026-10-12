@@ -86,22 +86,25 @@ None.
 
 **Files:** Modify `src_claude/lib/shell.ts` (copied to `src/extensions/lib/shell.ts`) · Test `src_claude/tests/guard.test.ts` (copied to pi)
 
-- [ ] Failing tests `shellText keeps what a shell runs`: `cat > a <<'EOF'⏎rm -r x⏎EOF` → no `rm`; `cat > a <<EOF⏎$(rm -rf ~/x)⏎EOF` → contains `rm -rf ~/x`; `bash <<EOF⏎rm x⏎EOF` and `sudo bash <<EOF…`, `ssh h <<EOF…` → body kept; `echo "<<EOF"⏎rm x⏎EOF` → `rm x` kept; `cat <<-EOF⏎⇥rm x⏎⇥EOF⏎ls` → no `rm`, `ls` kept; unterminated `cat <<EOF⏎rm x` → no `rm`. Stub returns its input.
-- [ ] Run → FAIL on assertions; implement per decisions 1–2; run → PASS
-- [ ] Commit `feat(guard): shellText keeps only what the shell will run`
+- [x] Failing tests `shellText keeps what a shell runs`: `cat > a <<'EOF'⏎rm -r x⏎EOF` → no `rm`; `cat > a <<EOF⏎$(rm -rf ~/x)⏎EOF` → contains `rm -rf ~/x`; `bash <<EOF⏎rm x⏎EOF` and `sudo bash <<EOF…`, `ssh h <<EOF…` → body kept; `echo "<<EOF"⏎rm x⏎EOF` → `rm x` kept; `cat <<-EOF⏎⇥rm x⏎⇥EOF⏎ls` → no `rm`, `ls` kept; unterminated `cat <<EOF⏎rm x` → no `rm`. Stub returns its input.
+- [x] Run → FAIL on assertions; implement per decisions 1–2; run → PASS
+- [x] Commit `feat(guard): shellText keeps only what the shell will run`
 
 ### Task 2: `checkCommand` reads `shellText`; `rm -r` ignores redirect targets
 
 **Files:** Modify `src_claude/lib/patterns.ts`, `src/extensions/lib/patterns.ts` · Test `tests/guard.test.ts` (both)
 
-- [ ] Failing tests for criteria 1–6 through `checkCommand` (expected actions as in the table)
-- [ ] Run → FAIL; implement decisions 3–4; run the full suite in both editions → PASS with the existing guard tests unchanged (criterion 7)
-- [ ] Commit `fix(guard): redirect targets aren't delete paths; non-shell heredoc bodies are data` in both repos
+- [x] Failing tests for criteria 1–6 through `checkCommand` (expected actions as in the table)
+- [x] Run → FAIL; implement decisions 3–4; run the full suite in both editions → PASS with the existing guard tests unchanged (criterion 7)
+- [x] Commit `fix(guard): redirect targets aren't delete paths; non-shell heredoc bodies are data` in both repos
 
 ### Task 3: docs and version
 
-- [ ] Post-implementation items; kit verify script → all PASS; commit `docs: 0.25.2` in both; delete this task file
+- [x] Post-implementation items; kit verify script → all PASS; commit `docs: 0.25.2` in both; delete this task file
 
 ## Progress
 
 - Description and plan approved together by the user (2026-10-12); inline.
+- Task 1: complete (dbc43c7..1812b8d; shellText test FAIL on assertions with a stub, then PASS; mutations: the open-quote rule and quote tracking each fail a case — the open-quote case was added after the first mutation survived).
+- Task 2: complete (eng-kit 1812b8d..61d886a, pi 030fa7d..5b7ba67; the two checkCommand tests FAIL on assertions, then PASS; mutations: no shellText, no stripRedirects each fail; existing guard tests unchanged — only additions in tests/guard.test.ts). Ruling: the rm check moved to its own function over `tokenize(stripRedirects(text))` segments, the other built-in checks keep `checkSegment`. Ruling: pi's patterns.ts differs from Claude's beyond line 1, so the same edits were applied by anchors, not copied.
+- Task 3: complete (README guard note in both editions, CHANGELOG 0.25.2, versions; ARCHITECTURE doesn't describe the command guard's heredoc handling, unchanged; kit verify script → 4/4 PASS).
