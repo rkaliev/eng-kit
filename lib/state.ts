@@ -24,7 +24,7 @@ export interface SessionState {
 	tree?: Tree;
 	/** The user was already told this session that there are no verification commands. */
 	notified: boolean;
-	/** git failed, timed out or listed too many files once: the command text decides for the rest of the session. */
+	/** git timed out or listed too many files once: the command text decides for the rest of the session. */
 	gitOff: boolean;
 	/** The fingerprint taken before each running shell call, by `tool_use_id` (at most `MAX_PENDING`). */
 	pending: Record<string, Tree>;
