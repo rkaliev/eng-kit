@@ -778,3 +778,27 @@ test("shellText keeps what a shell will run and drops heredoc bodies fed to anyt
 	assert.equal(has("echo 'it\ncat <<EOF\nrm x\nEOF", "rm x"), true, "a quote still open hides nothing");
 	assert.equal(has("cat <<EOF 'x\nrm x\nEOF", "rm x"), true, "a line that ends inside a quote keeps its body");
 });
+
+test("guard: redirect targets aren't paths to delete", () => {
+	for (const command of ["rm -rf build 2>/dev/null", "rm -rf build >/dev/null 2>&1", "rm -rf build &>/dev/null", "git rm -rq x 2>/dev/null"]) {
+		assert.equal(action(command), "allow", command);
+	}
+	for (const command of ["rm -rf ~/x 2>/dev/null", "rm -rf ../x >/dev/null", "rm -rf /etc 2>&1"]) {
+		assert.equal(action(command), "block", command);
+	}
+});
+
+test("guard: a heredoc body fed to a non-shell command is data, one fed to a shell is commands", () => {
+	const bodies = ["rm -r ~/x", "git push --force origin main", "npm publish"];
+	for (const body of bodies) {
+		for (const head of ["cat > a.py <<'EOF'", "python3 - <<EOF"]) {
+			assert.equal(action(`${head}\n${body}\nEOF`), "allow", `${head} / ${body}`);
+		}
+		for (const head of ["bash <<EOF", "sh -s <<EOF", "ssh host <<EOF"]) {
+			assert.notEqual(action(`${head}\n${body}\nEOF`), "allow", `${head} / ${body}`);
+		}
+	}
+	assert.equal(action("cat > f <<EOF\n$(rm -rf ~/x)\nEOF"), "block", "an unquoted body runs its substitutions");
+	assert.equal(action("cat > f <<'EOF'\n$(rm -rf ~/x)\nEOF"), "allow", "a quoted body runs none");
+	assert.equal(action('echo "<<EOF"\nrm -rf ~/x\nEOF'), "block", "a << in quotes hides nothing");
+});
