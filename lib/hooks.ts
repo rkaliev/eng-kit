@@ -369,31 +369,42 @@ export function runsVerifyScript(shell: string, root: string, cwd: string): bool
 	const segments: Array<{ words: string[]; joinedBy: string }> = [];
 	let words: string[] = [];
 	let joinedBy = "";
-	let chained = false;
+	let previous = "";
+	let background = false;
 	// Line continuations go first; then a backslash is a path separator, as in PowerShell and cmd paths.
 	const text = shell.replace(/\\\r?\n/g, " ").replaceAll("\\", "/");
 	for (const token of [...tokenize(stripRedirects(heredocs(text).text)), "\n"]) {
-		if (!SEPARATORS.has(token)) words.push(token);
-		else {
-			if (token !== "|" && token !== "|&" && token !== "\n") chained = true;
-			if (words.length > 0) segments.push({ words, joinedBy });
+		if (!SEPARATORS.has(token)) {
+			words.push(token);
+			continue;
+		}
+		if (words.length > 0) {
+			segments.push({ words, joinedBy });
 			words = [];
 			joinedBy = token;
+			if (token === "&") background = true;
+		} else if (token === "&" && previous === "|") {
+			// `|&` is a pipe of both streams; tokenize emits it as `|` then `&`.
+		} else if (token !== "\n") {
+			// A separator after another one keeps the first (`|⏎`), as the shell does; anything else is a chain. A
+			// leading one (PowerShell's call operator, `& node …`) only marks the first segment, which nothing checks.
+			joinedBy = token;
 		}
+		previous = token;
 	}
 	const [first, ...rest] = segments;
 	return (
-		!chained &&
+		!background &&
 		!!first &&
 		isKitScript(first.words, root, cwd) &&
-		rest.every((seg) => seg.joinedBy.startsWith("|") && PIPE_READERS.has((seg.words[0] ?? "").toLowerCase()))
+		rest.every((seg) => seg.joinedBy === "|" && PIPE_READERS.has((seg.words[0] ?? "").toLowerCase()))
 	);
 }
 
 /** `node <path>` where the path, resolved against `cwd` (a `\` read as `/`), is the kit's `scripts/verify.ts`. */
 function isKitScript(words: string[], root: string, cwd: string): boolean {
-	// The session context names a plain path: shell punctuation or `..` in it means the shell would run something else.
-	if (words.length !== 2 || words[0] !== "node" || /[;&|"']|(^|\/)\.\.(\/|$)/.test(words[1]!)) return false;
+	// The session context names a path without `..`; folding one away could hide what the shell actually runs.
+	if (words.length !== 2 || words[0] !== "node" || /(^|\/)\.\.(\/|$)/.test(words[1]!)) return false;
 	const absolute = (path: string) => {
 		const p = path.replaceAll("\\", "/");
 		return posix.normalize(/^([A-Za-z]:)?\//.test(p) ? p : resolve(cwd, p).replaceAll("\\", "/"));

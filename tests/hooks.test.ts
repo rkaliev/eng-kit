@@ -132,6 +132,12 @@ test("runsVerifyScript recognises only a run of the kit's own script", () => {
 		["node /k/scripts/verify.ts | Select-String FAIL", "/k", "/p"],
 		["node /k/scripts/verify.ts | sls FAIL", "/k", "/p"],
 		["node /k/scripts/verify.ts | Tee-Object log", "/k", "/p"],
+		["node /k/scripts/verify.ts |& tail -30", "/k", "/p"],
+		["node /k/scripts/verify.ts 2>&1 |\n  tail -30", "/k", "/p"],
+		['& node "C:\\k\\scripts\\verify.ts"', "C:\\k", "/p"],
+		["node /k/scripts/verify.ts;", "/k", "/p"],
+		['node "/R&D/kit/scripts/verify.ts"', "/R&D/kit", "/p"],
+		['node "C:\\Users\\O\'Brien\\kit\\scripts\\verify.ts"', "C:\\Users\\O'Brien\\kit", "/p"],
 	];
 	for (const [command, kit, cwd] of runs) assert.equal(runsVerifyScript(command, kit, cwd), true, command);
 	const mentions = [
