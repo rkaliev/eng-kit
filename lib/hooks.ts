@@ -266,7 +266,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const scriptPassed = !!scriptRun?.ok && Date.now() - scriptRun.finishedAt < RUN_MAX_AGE_MS;
 	const exempt =
 		!failed && verificationOnly(shell, commands, (words) => scriptPassed && isKitScript(words, env.root, input.cwd || env.projectDir));
-	const { state, marked } = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt });
+	const { state, marked } = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt, powershell: tool === "PowerShell" });
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 	// A call that changed files proves nothing about them, whatever checks it also ran.
@@ -312,7 +312,7 @@ function trackTree(
 	env: HookEnv,
 	sessionId: string,
 	callId?: string,
-	after?: { command: string; cwd: string; exempt: boolean },
+	after?: { command: string; cwd: string; exempt: boolean; powershell?: boolean },
 ): { state: SessionState; marked: string[] } {
 	const ignore = resolveIgnore(env.projectDir);
 	const why: { slow?: boolean } = {};
@@ -322,7 +322,7 @@ function trackTree(
 	const before = own ?? state.tree;
 	let paths: string[] = [];
 	if (tree && before) paths = changedPaths(before, tree, env.projectDir, ignore);
-	else if (after) paths = shellWriteTargets(after.command, after.cwd, env.projectDir).filter((p) => !isIgnored(p, ignore));
+	else if (after) paths = shellWriteTargets(after.command, after.cwd, env.projectDir, process.env, after.powershell).filter((p) => !isIgnored(p, ignore));
 	// Only a call compared with its own snapshot can claim the changes as a verification run's own.
 	const marked = paths.length > 0 && !(after?.exempt && own) ? paths : [];
 	if (marked.length > 0) state = markEdited(state, marked);
