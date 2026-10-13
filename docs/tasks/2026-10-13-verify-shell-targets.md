@@ -63,7 +63,7 @@ None. Patch release 0.25.3 in both editions.
 
 ## Plan
 
-> Execute with the executing-plans skill. Only this section uses `- [ ]` checkboxes.
+> Execute with the executing-plans skill. Only this section uses `- [x]` checkboxes.
 
 **Goal:** `shellWriteTargets` expands `~` and known variables and drops targets that land outside the project.
 **Architecture:** One private helper in `lib/worktree.ts` (shared byte-for-byte with `src/extensions/lib/worktree.ts`), called on each found target before the in-project filter; `env` becomes an optional parameter. Callers (`lib/hooks.ts`, pi's verify extension) are unchanged.
@@ -87,20 +87,23 @@ None. Patch release 0.25.3 in both editions.
 **Files:** Modify `src_claude/lib/worktree.ts`, `src/extensions/lib/worktree.ts` · Test `src_claude/tests/worktree.test.ts`, `src/tests/worktree.test.ts`
 **Interfaces:** Produces `shellWriteTargets(command: string, cwd: string, projectDir: string, env?: NodeJS.ProcessEnv): string[]`
 
-- [ ] Append test `shellWriteTargets: home, environment and assigned variables are expanded` with the criterion 1–2 values (env `{ HOME: <tmp home outside project>, TMPDIR: "/tmp/t" }`), plus `OUT=x echo y > $OUT/a.ts` with env without OUT → `["$OUT/a.ts"]` (focus 4); and test `shellWriteTargets: a target that can't be expanded is judged by its literal start` with the criterion 3 values. Add the `env` parameter (unused) so the tests compile.
-- [ ] Run `node --test tests/worktree.test.ts` in each edition → expect FAIL on assertions (e.g. expected `[]`, received `["~/notes.txt"]`).
-- [ ] Implement the private `expandTarget` and assignment collection in `src_claude/lib/worktree.ts` as in Design; copy the file to `src/extensions/lib/worktree.ts`; `cmp` the two.
-- [ ] Run both suites → PASS; mutation-check: no `~`, no assignments, no env, no literal-start cut, prefix assignment honoured → each fails a test.
-- [ ] Commit `fix(verify): expand home and variables in shell write targets` in each repo.
+- [x] Append test `shellWriteTargets: home, environment and assigned variables are expanded` with the criterion 1–2 values (env `{ HOME: <tmp home outside project>, TMPDIR: "/tmp/t" }`), plus `OUT=x echo y > $OUT/a.ts` with env without OUT → `["$OUT/a.ts"]` (focus 4); and test `shellWriteTargets: a target that can't be expanded is judged by its literal start` with the criterion 3 values. Add the `env` parameter (unused) so the tests compile.
+- [x] Run `node --test tests/worktree.test.ts` in each edition → expect FAIL on assertions (e.g. expected `[]`, received `["~/notes.txt"]`).
+- [x] Implement the private `expandTarget` and assignment collection in `src_claude/lib/worktree.ts` as in Design; copy the file to `src/extensions/lib/worktree.ts`; `cmp` the two.
+- [x] Run both suites → PASS; mutation-check: no `~`, no assignments, no env, no literal-start cut, prefix assignment honoured → each fails a test.
+- [x] Commit `fix(verify): expand home and variables in shell write targets` in each repo.
 
 ### Task 2: docs and version 0.25.3 (both editions)
 
 **Files:** Modify `README.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md`, `package.json` (+ `.claude-plugin/plugin.json` in eng-kit) in each repo
 
-- [ ] Apply the Post-implementation edits; bump to 0.25.3.
-- [ ] Run the kit verify script from the workspace root → all PASS.
-- [ ] Commit `docs: 0.25.3`; delete this task file (`docs: remove the task file for the verify target fix`); then review both branches.
+- [x] Apply the Post-implementation edits; bump to 0.25.3.
+- [x] Run the kit verify script from the workspace root → all PASS.
+- [x] Commit `docs: 0.25.3`; delete this task file (`docs: remove the task file for the verify target fix`); then review both branches.
 
 ## Progress
 
-None yet
+- Baseline: kit verify script from the workspace root → 4/4 PASS. Drift: none.
+- Ruling: `placed` (cut at the first unknown part, drop an absolute folder neither inside nor above the project) replaced by `expanded` alone — a mutation of the "above the project" rule failed no test because the existing in-project filter already judges a partly expanded target by its literal start, which is criterion 3 — cost if wrong: none, criteria 1–4 pass and seven mutations fail a test.
+- Task 1: complete (fbb6c2f..6199521, pi 084a7e2..00c43fd; `node --test tests/worktree.test.ts` RED on `~/notes.txt` then GREEN; mutations: no `~`, no assignments, no env, prefix assignment honoured, no braces, unknown variable dropped, no expansion → each fails).
+- Task 2: complete (docs 0.25.3, lockfiles bumped as in earlier releases; kit verify script → 4/4 PASS).
