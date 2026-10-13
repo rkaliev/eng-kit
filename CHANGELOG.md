@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.25.2
+
+- **Two harmless shapes no longer trip the guard.** A recursive `rm` silenced with `2>/dev/null` (or `>/dev/null`, `&>/dev/null`) no longer counts `/dev/null` as a path outside the project, so `rm -rf build 2>/dev/null` and `git rm -rq x 2>/dev/null` pass while `rm -rf ~/x 2>/dev/null` stays blocked. A command that, as a whole, only writes a file through a quoted heredoc (`cat > file <<'EOF'`, `cat >> file`, `tee [-a] file`, then the body and the delimiter as the last line) into a file inside the project or a temp folder is judged by its first line, so writing a script that mentions `rm -r`, `git push --force` or `npm publish` is no longer refused or asked. Its target is judged as a Write to it would be: a write into `.git/` (such as `.git/hooks`) is blocked, and a CI pipeline, the guard config or a secret file asks. A write anywhere else, such as a shell startup file, and every other heredoc and command are judged exactly as before. Your own guard.json patterns still match the whole command.
+
 ## 0.25.1
 
 - **Only a real run of the verify script counts.** The verify gate used to treat any command that mentioned `scripts/verify.ts` as a run of the kit's verify script, so with no run record, `cat <kit>/scripts/verify.ts` after an edit cleared the workspace. Now only `node <kit root>/scripts/verify.ts`, as the session context names it and as the command's only step (optionally piped into `tail`, `head`, `grep` or `tee`), counts, also piped into PowerShell's `Select-Object`, `Select-String` or `Tee-Object`; reading or editing the file, a project's own `scripts/verify.ts`, a run after `cd`, chained with `&&` or `;`, or sent to the background with `&` doesn't. The verify skill says to run it as a command of its own.
