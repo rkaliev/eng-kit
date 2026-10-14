@@ -58,7 +58,7 @@ None. Patch release 0.25.4 in both editions.
 
 ## Plan
 
-> Execute with the executing-plans skill. Only this section uses `- [ ]` checkboxes.
+> Execute with the executing-plans skill. Only this section uses `- [x]` checkboxes.
 
 **Goal:** the block rules skip the body of a whole-command python/node quoted heredoc; asks still read it.
 **Architecture:** one recognizer in `lib/patterns.ts` for both heredoc kinds; `checkCommand` chooses the text `checkSegment` reads. Both editions carry the same function text.
@@ -80,24 +80,28 @@ None. Patch release 0.25.4 in both editions.
 
 **Files:** Test `tests/guard.test.ts` (both)
 
-- [ ] Remove `` `python3 - <<'EOF'\n${del}\nEOF`, `` from the "judged as before" list; run guard tests → PASS.
-- [ ] Commit `test(guard): stop pinning a python heredoc body as shell` (body: Decision 3, user agreement).
+- [x] Remove `` `python3 - <<'EOF'\n${del}\nEOF`, `` from the "judged as before" list; run guard tests → PASS.
+- [x] Commit `test(guard): stop pinning a python heredoc body as shell` (body: Decision 3, user agreement).
 
 ### Task 2: interpreter heredocs (both editions)
 
 **Files:** Modify `lib/patterns.ts` / `extensions/lib/patterns.ts` · Test `tests/guard.test.ts` (both)
 **Interfaces:** Produces internal `quotedHeredoc(command): { head: string; target?: string } | undefined`
 
-- [ ] Append the three tests of criteria 1–3.
-- [ ] Run guard tests → criterion 1 FAILS on assertions (block ≠ allow); criteria 2–3 pass (pins).
-- [ ] Implement as in Design; copy the function text to pi.
-- [ ] Run both suites → PASS; mutations: no interpreter heads, `node` with any flag, asks read only the head, `checkSegment` reads the whole command, control-character check off → each fails a test.
-- [ ] Commit `fix(guard): read a python or node heredoc body as code, not shell`.
+- [x] Append the three tests of criteria 1–3.
+- [x] Run guard tests → criterion 1 FAILS on assertions (block ≠ allow); criteria 2–3 pass (pins).
+- [x] Implement as in Design; copy the function text to pi.
+- [x] Run both suites → PASS; mutations: no interpreter heads, `node` with any flag, asks read only the head, `checkSegment` reads the whole command, control-character check off → each fails a test.
+- [x] Commit `fix(guard): read a python or node heredoc body as code, not shell`.
 
 ### Task 3: docs and 0.25.4
 
-- [ ] README, CHANGELOG, versions; kit verify script → PASS; commit `docs: 0.25.4`; delete this task file; review both branches.
+- [x] README, CHANGELOG, versions; kit verify script → PASS; commit `docs: 0.25.4`; delete this task file; review both branches.
 
 ## Progress
 
-None yet
+- Baseline: kit verify script → 4/4 PASS. Drift: none.
+- Task 1: complete (8102d26 / pi 79d3828; the 0.25.2 row removed with the user's agreement; guard tests PASS).
+- Task 2: complete (6d61e81 / pi 370ebf6; criterion 1 and the user-rule case RED on assertions, then GREEN; mutations: no interpreter heads, shells allowed, block rules read the whole command, asks read only the head, control characters, last delimiter → each fails; `node` with any one flag survived until `node --input-type=module <<'EOF'` and `python3 -i <<'EOF'` were added to criterion 3's list — a missing test, not dead code).
+- Ruling: the recognizer is one regex `INTERPRETER_HEAD`, not a list `INTERPRETER_HEADS` as Design named it — one form needs one pattern — cost if wrong: none.
+- Task 3: complete (README, CHANGELOG 0.25.4, versions and lockfiles; kit verify script → 4/4 PASS).
