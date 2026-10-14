@@ -469,6 +469,15 @@ test("verify gate: outside git the command's text decides", () => {
 	assert.deepEqual(call({ hook_event_name: "Stop", session_id: "t" }), {});
 });
 
+test("verify gate: outside git, $HOME is the shell's in Bash and PowerShell's own variable in PowerShell", () => {
+	const { call } = setup();
+	const run = (tool_name: string, session_id: string) => call({ hook_event_name: "PostToolUse", tool_name, tool_input: { command: "echo x > $HOME/a.ts" }, session_id });
+	run("Bash", "b");
+	assert.deepEqual(call({ hook_event_name: "Stop", session_id: "b" }), {}, "a write into the home folder");
+	run("PowerShell", "p");
+	assert.equal(call({ hook_event_name: "Stop", session_id: "p" }).output?.decision, "block", "a write the hook can't place");
+});
+
 test("verify gate: the send-back asks for the complete final report", () => {
 	const { call } = setup();
 	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
