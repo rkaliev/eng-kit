@@ -1,6 +1,6 @@
 # Symptom remedies are not fixes; every review item is closed in its channel
 
-Status: design approved (2026-10-15)
+Status: in progress
 Base: bc302e74866f73b9667d4a828144a9dd1a49cef6 (pi: 0f980bfb1bcccde370778db067ed7a5abfc6661e)
 Links: None
 
@@ -180,4 +180,5 @@ None: released with the usual CI tag after merge; users update the plugin.
 
 ## Progress
 
-None yet.
+- Plan approved 2026-10-15, inline execution.
+- Baseline: Claude `npm test` 466/466 pass; pi `npm test` 445/445 pass, `npm run typecheck` OK. Drift: none (branches cut from Base).
