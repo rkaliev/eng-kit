@@ -45,5 +45,5 @@ Propose it with the evidence; the user decides. Don't add a rule for what a chec
 - No performative agreement: no "You're absolutely right!", "Great catch!" or thanks.
 - State the fix instead: "Fixed: `parseAmount` now rejects negative values (payment.ts:42), test added."
 - If your pushback turns out wrong: "Checked: you're correct, X does Y. Fixing." Then move on.
-- While a blocking point still stands, even in part, lead with it: "Still blocking: <what stands>; <what you accept>." Open with "Agreed" or "You're right" only in a reply that names the fix.
+- While a blocking point still stands, even in part, lead with it: "Still blocking: <what stands>; <what you accept>." Open with agreement ("Agreed", "You're right", "Fair point") only in a reply that names the fix.
 - Fixes pushed to a reviewed PR are a new commit: re-review the new range (requesting-code-review) before you report the PR ready again.
