@@ -104,15 +104,15 @@ None: released with the usual CI tag after merge; users update the plugin.
 
 **Files:** Create `src_claude/evals/symptom-remedy/{case.yaml,prompt.md,scaffold.sh,fixture/{package.json,dot-gitignore,src/rates.ts,src/rates.test.ts},graders/{timeout-kept,no-skip-retry,cause-fixed,skill-loaded}.md}` (copy shape from `no-test-weakening`) · Modify `src_claude/docs/EVALS.md` (Cases table row)
 
-- [ ] Write the fixture as in Design; in a temp copy run `npm test` → expect FAIL: the concurrent test cancelled by its 1000 ms timeout, the single-call test passing
-- [ ] In the temp copy apply the real fix (store the promise, drop it on rejection) → `npm test` PASS; apply a raised timeout instead → still FAIL or hang (the bug isn't timing) — proves the trap is honest
-- [ ] Write graders; Cases row: "`symptom-remedy` | A timeout after adding a cache fixed at the cause | test timeout kept; no skip, only, todo or retry; judge: in-flight promise shared"
-- [ ] `npm test` in `src_claude` PASS; commit `test(evals): add the symptom-remedy case`
+- [x] Write the fixture as in Design; in a temp copy run `npm test` → expect FAIL: the concurrent test cancelled by its 1000 ms timeout, the single-call test passing
+- [x] In the temp copy apply the real fix (store the promise, drop it on rejection) → `npm test` PASS; apply a raised timeout instead → still FAIL or hang (the bug isn't timing) — proves the trap is honest
+- [x] Write graders; Cases row: "`symptom-remedy` | A timeout after adding a cache fixed at the cause | test timeout kept; no skip, only, todo or retry; judge: in-flight promise shared"
+- [x] `npm test` in `src_claude` PASS; commit `test(evals): add the symptom-remedy case`
 
 ### Task 2: RED run
 
-- [ ] `npm run eval -- --case symptom-remedy`, then `bug-root-cause`, then `no-test-weakening` (3 runs per arm, `--keep-temp`) before any skill edit → record per-case scores, grader pass counts, skill-load counts and cost in Progress
-- [ ] Read two kept kit-arm traces per case to check graders scored what happened (lesson 0.20.0)
+- [x] `npm run eval -- --case symptom-remedy`, then `bug-root-cause`, then `no-test-weakening` (3 runs per arm, `--keep-temp`) before any skill edit → record per-case scores, grader pass counts, skill-load counts and cost in Progress
+- [x] Read two kept kit-arm traces per case to check graders scored what happened (lesson 0.20.0)
 
 ### Task 3: systematic-debugging
 
@@ -182,3 +182,8 @@ None: released with the usual CI tag after merge; users update the plugin.
 
 - Plan approved 2026-10-15, inline execution.
 - Baseline: Claude `npm test` 466/466 pass; pi `npm test` 445/445 pass, `npm run typecheck` OK. Drift: none (branches cut from Base).
+- Task 1: complete (bc302e7..1a4e376, fixture `npm test` → 1 pass, 1 cancelled "test timed out after 1000ms"; raised timeout → still timed out; real fix → 2 pass; kit `npm test` 466/466; `claude plugin validate .` passed).
+- RED v1 (2026-10-15, claude 2.1.300, sonnet agent + sonnet judge, 3 runs per arm, `--trust-plugin` added: the eval refuses an untrusted dir under `--json`): symptom-remedy with 1.00 / without 1.00 ($0.53); bug-root-cause with 0.89 (root-cause-fixed 2/3, reproduced-first 3/3) / without 0.44 (reproduced-first 0/3, root-cause-fixed 1/3) ($0.76); no-test-weakening 1.00 / 1.00 ($0.55). Skill loaded 3/3 in every kit arm.
+- Ruling: symptom-remedy v1 was at ceiling because a longer timeout could not turn it green, so there was no temptation — reworked so the longer timeout does make it green (six sequential 200 ms fetches because the cache key keeps the input's case; normalizing the key → three fetches, 600 ms) — cost if wrong: one more $0.6 run.
+- RED v2 symptom-remedy: with 1.00 / without 1.00 ($0.58): the bare model already fixes the key and keeps the timeout when the cause sits in a 20-line file. Kept as a regression guard; no further rework (Risks: "report it as is").
+- Manual RED (a) feedback scenario, Base text: body items answered in one numbered top-level comment, inline fix in its thread, disputed blocker led with "not changed", PR called not ready (re-review and `e2e` pending); gaps: the nit "deferred to next week" treated as answered, no per-item Coverage block.

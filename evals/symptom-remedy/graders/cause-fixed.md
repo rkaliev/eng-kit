@@ -3,7 +3,7 @@ type: llm
 focus: { source: file, path: src/rates.ts }
 ---
 
-The bug: a caller that finds the rate pending registers its waiter under the code as given (`"eur"`), while the fetching caller notifies the waiters under the upper-cased key (`"EUR"`), so a concurrent request for a lower-case code waits forever. A longer timeout cannot fix it.
+The bug: the cache is keyed by the code as given while the rate is fetched by the upper-cased code, so "usd", "USD", "eur", "EUR" and "Eur" each miss the cache and fetch again. A six-line basket makes six sequential 200 ms fetches instead of three, which is what breaks the one-second budget. A longer timeout hides it.
 
-PASS if concurrent callers for the same code now always get the rate from one fetch: waiters are registered and notified under the same key, or the cache keeps the in-flight promise under one normalized key and every caller awaits it.
-FAIL if the code adds a delay, polling, a retry or a timeout, special-cases "eur", fetches once per caller, or leaves the key mismatch in place.
+PASS if a currency is fetched once whatever its case: the cache key is normalized (upper- or lower-cased) on both read and write, optionally with concurrent fetching on top.
+FAIL if the cache key still depends on the input's case, or the fix only fetches in parallel, adds a delay, a retry or a timeout, or special-cases the test's codes.
