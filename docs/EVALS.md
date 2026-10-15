@@ -151,3 +151,22 @@ A live `claude -p` run that wrote a file only with a heredoc and ran no tests wa
 After review, changes are attributed per command (a snapshot before each shell call), staging and commits stopped counting as edits, and only a passing command made of checks keeps its own changes off the count. Re-run of `db-required-column` (3 runs per arm, $4.39): the final report 3/3 with the kit (the gate fired in all 3 runs) and 3/3 without; expand/contract 3/3 and 1/3.
 
 **The tdd-discount dip.** The skill loaded in 1 of 3 runs, against 17 of 18 for 0.24.0 on 2026-10-10. Bootstrap with the "Settled requirements" row reached the agent in every run, so a control ran the same case on 0.24.0 (`main`) and on the branch, 5 runs each, the same day: the skill loaded and the red run came first in 4 of 5 on both. The dip is the model's variance on a small sample, not this change; the two control runs were sequential, so a shift during the day can't be fully ruled out.
+
+## Symptom remedies and review feedback (2026-10-15, kit 0.25.4 → 0.26.0, Claude Code 2.1.300)
+
+**Question.** Does naming the symptom remedies in systematic-debugging change what the agent does, and does it cost the root-cause cases anything? Sonnet agent and judge, both arms; before = the branch before any skill edit, after = the branch with them.
+
+**symptom-remedy at ceiling.** The first fixture hung forever, so a longer timeout could not turn it green and there was nothing to resist: 1.00 with and without. The reworked fixture makes a longer timeout a working shortcut (six sequential 200 ms fetches because the cache key keeps the input's case): still 1.00 / 1.00 before and after, 3 runs each. With the cause in a 20-line file, the bare model already normalizes the key and keeps the timeout. The case stays as a regression guard; it does not show a gain.
+
+| Case | Before: with / without | After: with / without |
+|---|---|---|
+| symptom-remedy | 1.00 / 1.00 | 1.00 / 1.00 |
+| no-test-weakening | 1.00 / 1.00 | 1.00 / 1.00 |
+| bug-root-cause (3 runs) | 0.89 / 0.44 | 0.78 / 0.56 |
+| bug-root-cause (6 more runs) | 0.89 / 0.61 | 0.72 / 0.44 |
+
+**The bug-root-cause drop is the judge, not the agent.** The `root-cause-fixed` judge passed 6 of 9 kit runs before and 2 of 9 after, but the arm without the kit, which nothing changed, also went from 6 of 9 to 4 of 9. Running every run's final `amount.ts` against fixed inputs (`1,234.50`, `1,000,000.00`, `abc`, `1,2,3x`, `12x`, `1,50`, `12,34.5`, `1.2.3`) shows the same behavior before and after: every kit run parses separators right and rejects `1,2,3x` and `1,50`; all but one still accept `12x` and `1.2.3` as the fixture's `parseInt` did (after: one run gets every input right). The judge gave PASS and FAIL to parsers that behave identically. Follow-up: replace this judge with a deterministic behavior check. `reproduced-first` stayed 9/9 with the kit and 0/9 without.
+
+**Review feedback (manual, not an eval).** A subagent given only the skill text handled a PR with an inline finding, a three-item review body and a top-level comment. With the old receiving-code-review it already answered the body in one numbered top-level comment, led a disputed blocker with "not changed" and called the PR not ready; it treated the nit "deferred to next week" as answered and gave no per-item coverage. With the new text it declined the nit in this PR with a reason and a Follow-up, gave each item its status, and listed the three readiness conditions. A reviewer given a 300 KB diff that hid a refund regression after a 20,000-line fixture file found it with the old and the new reviewer text alike (`--stat`, then the file); the new rule makes that explicit.
+
+Cost: about $7.50 of subscription usage (all runs above).

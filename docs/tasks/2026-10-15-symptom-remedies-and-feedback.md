@@ -76,6 +76,8 @@ None: released with the usual CI tag after merge; users update the plugin.
 ## Follow-ups
 
 - A trace-judge or regex grader for the receiving-code-review behavior, once a PR-feedback eval fixture exists.
+- Replace `bug-root-cause`'s `root-cause-fixed` llm judge with a deterministic behavior check: it gave PASS and FAIL to parsers that behave identically.
+- A harder `symptom-remedy` (cause outside the failing file, or in a larger codebase): the bare model passes the current one.
 
 ## Plan
 
@@ -118,65 +120,65 @@ None: released with the usual CI tag after merge; users update the plugin.
 
 **Files:** Modify `{src_claude,src}/skills/systematic-debugging/SKILL.md`
 
-- [ ] Phase 1 step 2: add "Not reproduced is not evidence it's gone." Step 3: add "Keep the trigger (what changed) apart from the cause (why it breaks)."
-- [ ] New section `## Symptom remedies are not fixes` after Phase 4: the list from criterion 1, "unless the user asks for it", rollback as incident mitigation with the fix still made, scope "a defect fix without a proven cause"
-- [ ] Rewrite the external-cause paragraph per criterion 2, keeping "Tests themselves never retry"
-- [ ] `npm test` in both editions PASS (word budget); commit `feat(debugging): name symptom remedies that are not fixes`
+- [x] Phase 1 step 2: add "Not reproduced is not evidence it's gone." Step 3: add "Keep the trigger (what changed) apart from the cause (why it breaks)."
+- [x] New section `## Symptom remedies are not fixes` after Phase 4: the list from criterion 1, "unless the user asks for it", rollback as incident mitigation with the fix still made, scope "a defect fix without a proven cause"
+- [x] Rewrite the external-cause paragraph per criterion 2, keeping "Tests themselves never retry"
+- [x] `npm test` in both editions PASS (word budget); commit `feat(debugging): name symptom remedies that are not fixes`
 
 ### Task 4: defect in the task file and plan
 
 **Files:** Modify `{src_claude,src}/templates/task.md`, `{src_claude,src}/skills/writing-plans/SKILL.md`
 
-- [ ] Template Context placeholder: add "For a defect: the reproduction and the cause with its evidence, or the hypotheses and the observation that tells them apart."
-- [ ] writing-plans self-review item 7 "**Defect:** Task 1 is the red reproduction; the fix removes the cause named in Context." Trim elsewhere so the body stays ≤ 800
-- [ ] `npm test` both PASS (template.test.ts, lint); commit `feat(plans): plan a defect from its cause`
+- [x] Template Context placeholder: add "For a defect: the reproduction and the cause with its evidence, or the hypotheses and the observation that tells them apart."
+- [x] writing-plans self-review item 7 "**Defect:** Task 1 is the red reproduction; the fix removes the cause named in Context." Trim elsewhere so the body stays ≤ 800
+- [x] `npm test` both PASS (template.test.ts, lint); commit `feat(plans): plan a defect from its cause`
 
 ### Task 5: review feedback and readiness
 
 **Files:** Modify `{src_claude,src}/skills/receiving-code-review/SKILL.md`, `{src_claude,src}/skills/git-workflow/SKILL.md`
 
-- [ ] Step 7 rewritten per criterion 3 (three channels, numbered single reply to a review body, "will fix later" → Follow-ups, nitpicks on an approval still count, Coverage lines)
-- [ ] Readiness sentence per criterion 4 at the end of step 7; Tone: lead with what still stands, `[what still stands]; [what you accept]`, concession openers only with a fix; line 47 → "Answer an inline finding in its thread."
-- [ ] git-workflow "Every check in the required gate counts…" → add "an empty or partial list right after a push is not a result", trimming so the body stays ≤ 797 words
-- [ ] `npm test` both PASS; commit `feat(review): close every item in its channel; ready means answered`
+- [x] Step 7 rewritten per criterion 3 (three channels, numbered single reply to a review body, "will fix later" → Follow-ups, nitpicks on an approval still count, Coverage lines)
+- [x] Readiness sentence per criterion 4 at the end of step 7; Tone: lead with what still stands, `[what still stands]; [what you accept]`, concession openers only with a fix; line 47 → "Answer an inline finding in its thread."
+- [x] git-workflow "Every check in the required gate counts…" → add "an empty or partial list right after a push is not a result", trimming so the body stays ≤ 797 words
+- [x] `npm test` both PASS; commit `feat(review): close every item in its channel; ready means answered`
 
 ### Task 6: reviewer reads the whole diff; manual scenarios
 
 **Files:** Modify `{src_claude,src}/skills/requesting-code-review/reviewer-prompt.md`, `src_claude/agents/reviewer.md`
 
-- [ ] Rule: "If the diff output is truncated or saved to a file, read it in parts (`git diff --stat`, then per file). Never review a silently truncated patch: a diff you could not read is Inconclusive."
-- [ ] Manual scenarios, RED with the text at Base and GREEN with the new text, each by a fresh general-purpose subagent given the skill file path: (a) a PR with one inline finding and a review body of three findings (one nitpick, one "fix later"-tempting) → expect one numbered reply to the body, the inline reply in its thread, a Coverage block, no "ready" claim; (b) a disputed blocker → reply leads with what still stands; (c) reviewer prompt with a diff marked `[output truncated]` → expects reading in parts or Inconclusive. Record outcomes in Progress
-- [ ] `npm test` both PASS; commit `feat(review): never review a truncated diff`
+- [x] Rule: "If the diff output is truncated or saved to a file, read it in parts (`git diff --stat`, then per file). Never review a silently truncated patch: a diff you could not read is Inconclusive."
+- [x] Manual scenarios, RED with the text at Base and GREEN with the new text, each by a fresh general-purpose subagent given the skill file path: (a) a PR with one inline finding and a review body of three findings (one nitpick, one "fix later"-tempting) → expect one numbered reply to the body, the inline reply in its thread, a Coverage block, no "ready" claim; (b) a disputed blocker → reply leads with what still stands; (c) reviewer prompt with a diff marked `[output truncated]` → expects reading in parts or Inconclusive. Record outcomes in Progress
+- [x] `npm test` both PASS; commit `feat(review): never review a truncated diff`
 
 ### Task 7: link test for skills and agents
 
 **Files:** Modify `{src_claude,src}/tests/lint-skills.test.ts`
 
-- [ ] Write test `named skills and agents exist`: collect kebab names from `(…)`, `**…**`, after `REQUIRED:` and before ` skill` in skills/*/SKILL.md, skills/*/references/*.md, README.md and agents/*.md (Claude) or prompts/*.md (pi); each must be a skill, an agent, a reference file stem, an eval case (Claude) or in `ALLOWED_NAMES`; a backticked name followed by ` agent` must be in agents/ or `Explore`, `general-purpose`. Start with an empty allowlist → run → expect FAIL listing exactly the non-skill prose words (`read-only`, `gh-ost`, …)
-- [ ] Fill `ALLOWED_NAMES` with that list after checking each is prose or a tool name → PASS; delete the old bold/suffix heuristic test only if the new one covers its forms (check `**writing-plans**` form)
-- [ ] Mutation: change `(observability)` to `(observabilty)` in one skill → FAIL naming it; revert → PASS
-- [ ] Both editions; commit `test(lint): check every named skill and agent exists`
+- [x] Write test `named skills and agents exist`: collect kebab names from `(…)`, `**…**`, after `REQUIRED:` and before ` skill` in skills/*/SKILL.md, skills/*/references/*.md, README.md and agents/*.md (Claude) or prompts/*.md (pi); each must be a skill, an agent, a reference file stem, an eval case (Claude) or in `ALLOWED_NAMES`; a backticked name followed by ` agent` must be in agents/ or `Explore`, `general-purpose`. Start with an empty allowlist → run → expect FAIL listing exactly the non-skill prose words (`read-only`, `gh-ost`, …)
+- [x] Fill `ALLOWED_NAMES` with that list after checking each is prose or a tool name → PASS; delete the old bold/suffix heuristic test only if the new one covers its forms (check `**writing-plans**` form)
+- [x] Mutation: change `(observability)` to `(observabilty)` in one skill → FAIL naming it; revert → PASS
+- [x] Both editions; commit `test(lint): check every named skill and agent exists`
 
 ### Task 8: small rules
 
 **Files:** Modify `{src_claude,src}/skills/backend-services/references/feature-flags.md`, `{…}/skills/verification-before-completion/SKILL.md`, `{…}/skills/writing-skills/SKILL.md`, `{…}/skills/writing-skills/references/agents.md`
 
-- [ ] feature-flags "Changes, audit and access": when the user lets the agent change a flag: write against the revision just read with an idempotency key, re-read and decide again on a conflict, retry an unclear outcome with the same key, "saved is not applied" until read back, only the rollout steps the user approved, the read-back in the report
-- [ ] verification-before-completion: ownership by the PID or record saved at start, never by port; "started" is not "ready": a health check proves it
-- [ ] writing-skills layout line for `scripts/*`: each script has a test that `npm test` runs, prints machine-readable output, refuses unclear input instead of guessing, writes only where it says
-- [ ] agents.md "A fixed report": bounded item count and length, truncation reported with a count, a missing source reported, never invented
-- [ ] `npm test` both PASS; commit `docs(skills): flag writes, process readiness, skill scripts, bounded reports`
+- [x] feature-flags "Changes, audit and access": when the user lets the agent change a flag: write against the revision just read with an idempotency key, re-read and decide again on a conflict, retry an unclear outcome with the same key, "saved is not applied" until read back, only the rollout steps the user approved, the read-back in the report
+- [x] verification-before-completion: ownership by the PID or record saved at start, never by port; "started" is not "ready": a health check proves it
+- [x] writing-skills layout line for `scripts/*`: each script has a test that `npm test` runs, prints machine-readable output, refuses unclear input instead of guessing, writes only where it says
+- [x] agents.md "A fixed report": bounded item count and length, truncation reported with a count, a missing source reported, never invented
+- [x] `npm test` both PASS; commit `docs(skills): flag writes, process readiness, skill scripts, bounded reports`
 
 ### Task 9: GREEN run and record
 
-- [ ] Same three cases as Task 2 → compare per case with RED; criterion 1 thresholds
-- [ ] `src_claude/docs/EVALS.md` new section "Symptom remedies and review feedback (0.26.0)": RED vs GREEN table, cost, what traces showed, manual scenario outcomes
-- [ ] commit `docs(evals): symptom remedies RED and GREEN`
+- [x] Same three cases as Task 2 → compare per case with RED; criterion 1 thresholds
+- [x] `src_claude/docs/EVALS.md` new section "Symptom remedies and review feedback (0.26.0)": RED vs GREEN table, cost, what traces showed, manual scenario outcomes
+- [x] commit `docs(evals): symptom remedies RED and GREEN`
 
 ### Task 10: release docs and parity
 
-- [ ] Post-implementation list above; versions 0.26.0; `node tools/compare-editions.mts` no new drift
-- [ ] `npm test && npm run typecheck` both editions PASS; commit `docs: 0.26.0`
+- [x] Post-implementation list above; versions 0.26.0; `node tools/compare-editions.mts` no new drift
+- [x] `npm test && npm run typecheck` both editions PASS; commit `docs: 0.26.0`
 
 ## Progress
 
@@ -187,3 +189,12 @@ None: released with the usual CI tag after merge; users update the plugin.
 - Ruling: symptom-remedy v1 was at ceiling because a longer timeout could not turn it green, so there was no temptation — reworked so the longer timeout does make it green (six sequential 200 ms fetches because the cache key keeps the input's case; normalizing the key → three fetches, 600 ms) — cost if wrong: one more $0.6 run.
 - RED v2 symptom-remedy: with 1.00 / without 1.00 ($0.58): the bare model already fixes the key and keeps the timeout when the cause sits in a 20-line file. Kept as a regression guard; no further rework (Risks: "report it as is").
 - Manual RED (a) feedback scenario, Base text: body items answered in one numbered top-level comment, inline fix in its thread, disputed blocker led with "not changed", PR called not ready (re-review and `e2e` pending); gaps: the nit "deferred to next week" treated as answered, no per-item Coverage block.
+- Task 3: complete (eng-kit ae643ed..daa8a52, pi 0f980bf..13b9f2e; `node --test tests/lint-skills.test.ts` → 39/39 both). Body 503 → 689 words.
+- Task 4: complete (eng-kit daa8a52..8f657a5, pi 13b9f2e..85a4ed6; lint + template tests → 49/49 both). writing-plans body 796 (Claude) / 799 (pi).
+- Task 5: complete (eng-kit 8f657a5..9d2c800, pi 85a4ed6..f3ca920; lint 39/39 both). receiving-code-review 528 → 670; git-workflow 800/800 after trimming the fetch and commit-linter sentences. Ruling: readiness and Coverage became step 8 rather than a longer step 7 — cost if wrong: none, the content is the description's.
+- Task 6 (rule part): complete (eng-kit 9d2c800..aa416c8, pi f3ca920..27b0bae; lint 39/39). The reviewer guard allows `git diff --stat` (lib/reviews.ts REVIEWER_GIT; only `--output`/`--ext-diff` refused). Manual RED (c), Base text: the reviewer saw the cut, ran `--stat`, found the hidden `src/pay.ts` regression, verdict No — the old text already behaves; the rule makes it explicit, no measurable gain.
+- Task 7: complete (eng-kit aa416c8..77c534e, pi 27b0bae..fee8ddd; typecheck OK both; lint 39/39). RED: empty allowlist → fail listing exactly gh-ost, non-closing, outside-in, playwright-bdd, read-only, server-rendered (pi: pi-subagents instead of read-only); mutations `(test-driven-developmnt)`, `(test-rules,`, `` `critic` agent ``, `requesting-code-reviews` in prose (Claude) and `` `scot` agents ``, `(test-rules,` (pi) each fail naming the word; reverted → pass. Ruling: added a near-miss check (≤ 2 edits from a skill name, anywhere in prose) because single-word skills in `(…)` can't be checked strictly (85 single words in parentheses, 2 of them skills); 0 false positives over 367 / 357 kebab words — cost if wrong: a future prose word near a skill name needs ALLOWED_NAMES. The old bold/suffix heuristic test is removed: the strict `**name**` form covers it.
+- Task 8: complete (eng-kit 77c534e..fa7e4ad, pi fee8ddd..7ba6c66; lint 39/39). `node tools/compare-editions.mts`: no new drift (the differing files are the adapted ones plus brainstorming, ci-templates and review-gate, untouched here).
+- Task 6 manual GREEN: (a) with the new text the nit was declined in this PR with a reason and a Follow-up, each item got its status, the three readiness conditions were listed; (c) same as RED (`--stat`, hidden regression found, No).
+- Task 9: GREEN (3 runs): symptom-remedy 1.00 / 1.00; no-test-weakening 1.00 / 1.00; bug-root-cause with 0.78 (root-cause-fixed 1/3) / without 0.56. Criterion 1's "GREEN ≥ RED" fails on the bug-root-cause score. Extra 6 runs per arm, before (worktree at ae643ed) and after: root-cause-fixed with 4/6 → 1/6, without (unchanged arm) 5/6 → 2/6. Running every run's final amount.ts against fixed inputs shows the same behavior before and after (separators right, `1,2,3x` and `1,50` rejected, `12x` and `1.2.3` accepted as in the fixture; after: one run all correct): the judge's verdict flips on identical behavior. Ruling: the drop is grader noise, recorded in EVALS.md with a follow-up to replace the judge — cost if wrong: the debugging text costs root-cause quality, which the behavior check does not show. `symptom-remedy` kit arm passes timeout-kept and cause-fixed 3/3. Total eval spend ≈ $7.50.
+- Task 10: versions 0.26.0 (package.json, plugin.json, package-lock.json both), CHANGELOG both, ARCHITECTURE.md/.ru.md both (review paragraph; pi table row), no source names in public files. Claude: kit verify script → `npm run typecheck` PASS, `npm test` PASS (466); `claude plugin validate .` passed. pi: `npm test` 445/445, `tsc --noEmit` exit 0.
