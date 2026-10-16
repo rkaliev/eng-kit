@@ -71,18 +71,21 @@ const KEBAB = "[a-z0-9]+(?:-[a-z0-9]+)+";
 const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** Words that take a naming form without naming a skill: prose, tools, packages and lint rules. */
 const ALLOWED_NAMES = [
-	"copy-pasted", "e-mail", "expect-expect", "gh-ost", "heavy-reasoning", "no-conditional-expect", "no-disabled-tests", "no-focused-tests",
-	"node-version-file", "non-closing", "osv-scanner", "outside-in", "pip-audit", "playwright-bdd", "pt-online-schema-change", "read-only", "server-rendered",
+	"append-only", "auto-detect", "cache-level", "content-heavy", "copy-pasted", "e-mail", "expect-expect", "feel-breaking", "gh-ost",
+	"heavy-reasoning", "merge-base", "no-conditional-expect", "no-disabled-tests", "no-focused-tests", "node-version-file",
+	"non-closing", "osv-scanner", "outside-in", "personal-data", "pip-audit", "playwright-bdd", "pt-online-schema-change", "re-fetch",
+	"re-run", "read-only", "schema-first", "server-rendered", "task-file", "transaction-scoped", "ts-monorepo", "type-only",
 ];
-/** Agents that come with Claude Code. */
-const BUILTIN_AGENTS = ["Explore", "Plan", "general-purpose"];
+/** Agents a name may refer to: the kit's own and those that come with Claude Code. */
+const AGENT_NAMES = [...readdirSync(agentsDir).filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, "")), "Explore", "Plan", "general-purpose"];
 
-/** The bare names in a span that may list several ("a, b and c", "a → b", "see a or b"). */
+/** The leading name of each item in a span that may list several ("a, b and c", "a → b", "see a or b", "label: a", "a for b"). */
 function listed(span: string): string[] {
 	return span
 		.split(/,|;|→|\s(?:and|or|then)\s/)
-		.map((s) => s.trim().replace(/^(?:see|the)\s+/i, "").replace(/\s+skills?$/, "").replace(/^`|`$/g, "").trim())
-		.filter((s) => NAME.test(s));
+		.map((item) => item.replace(/^.*:\s/, "").replace(/["“”'`*]/g, " ").trim().replace(/^(?:(?:and|or|then|see|the)\s+)+/i, ""))
+		.map((item) => /^([a-z0-9]+(?:-[a-z0-9]+)*)(?=[\s.)!?]|$)/.exec(item)?.[1])
+		.filter((name): name is string => name !== undefined);
 }
 
 /**
@@ -126,10 +129,40 @@ test("name extraction finds every form", () => {
 		["See mobile-development and pos-systems.", ["mobile-development", "pos-systems"]],
 		["the `writing-skills` skill", ["writing-skills"]],
 		["by test-standard's rules", ["test-standard"]],
-		["| Bounded | short design → test-driven-development → verify |", ["test-driven-development", "verify"]],
+		["| Bounded | Short design → test-driven-development → verify |", ["test-driven-development", "verify"]],
+		["| Web code | the platform skill: web-frontend, mobile-development |", ["web-frontend", "mobile-development"]],
+		['(\"REQUIRED: test-driven-development\")', ["test-driven-development"]],
+		["(then web-frontend)", ["web-frontend"]],
+		["(ui-motion for animation; the web-frontend references)", ["ui-motion", "web-frontend"]],
 	];
 	for (const [text, want] of rows) assert.deepEqual(namedIn(text, true), want, text);
 	assert.deepEqual(agentsIn("a fresh `implementer`, `reviewer` and `critic` agents"), ["implementer", "reviewer", "critic"]);
+});
+
+/** What is wrong with the names in one file's text: a name that doesn't exist, an unknown agent, a near miss of a skill. */
+function problemsIn(text: string, at: string, tables: boolean, known: Set<string>, agentNames: string[]): string[] {
+	const near = (name: string) => (known.has(name) ? undefined : skills.find((s) => (s.includes("-") || s.length >= 8) && editDistance(name, s) <= 2));
+	const problems: string[] = [];
+	for (const name of namedIn(text, tables)) {
+		// A hyphenated name must exist; a one-word one is usually prose, so only a near miss of a skill counts.
+		if (name.includes("-") ? !known.has(name) : near(name)) problems.push(`${at}: no skill, agent or reference "${name}"`);
+	}
+	for (const name of agentsIn(text)) if (!agentNames.includes(name)) problems.push(`${at}: no agent "${name}"`);
+	// Anywhere in the text, a hyphenated word one or two edits from a skill is a typo or a stale name.
+	for (const m of text.matchAll(new RegExp(`\\b${KEBAB}\\b`, "g"))) {
+		const skill = near(m[0]);
+		if (skill) problems.push(`${at}: "${m[0]}" looks like the skill ${skill}`);
+	}
+	return problems;
+}
+
+test("a wrong name is reported", () => {
+	const known = new Set([...skills, ...ALLOWED_NAMES]);
+	const found = (text: string) => problemsIn(text, "x.md", true, known, AGENT_NAMES);
+	assert.deepEqual(found("(see writing-plan)"), ['x.md: no skill, agent or reference "writing-plan"', 'x.md: "writing-plan" looks like the skill writing-plans']);
+	assert.deepEqual(found("(see observabilty)"), ['x.md: no skill, agent or reference "observabilty"']);
+	assert.deepEqual(found("the `critic` agent"), ['x.md: no agent "critic"']);
+	assert.deepEqual(found("(read-only, see writing-plans)"), []);
 });
 
 test("named skills and agents exist", () => {
@@ -137,26 +170,11 @@ test("named skills and agents exist", () => {
 	const stem = (file: string) => file.split(/[\\/]/).pop()!.replace(/\.\w+$/, "");
 	const skillDocs = walk(skillsDir).filter((f) => f.endsWith(".md"));
 	const agentDocs = readdirSync(agentsDir).filter((f) => f.endsWith(".md")).map((f) => join(agentsDir, f));
-	const agents = agentDocs.map(stem);
 	const evalCases = readdirSync(join(root, "evals"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
-	const known = new Set([...skills, ...agents, ...skillDocs.map(stem), ...evalCases, ...ALLOWED_NAMES]);
-	const near = (name: string) => (known.has(name) ? undefined : skills.find((s) => (s.includes("-") || s.length >= 8) && editDistance(name, s) <= 2));
-
-	const problems: string[] = [];
-	for (const file of [...skillDocs, ...agentDocs, join(root, "README.md")]) {
-		const text = readFileSync(file, "utf8");
-		const at = file.slice(root.length + 1);
-		for (const name of namedIn(text, file.endsWith("SKILL.md"))) {
-			// A hyphenated name must exist; a one-word one is usually prose, so only a near miss of a skill counts.
-			if (name.includes("-") ? !known.has(name) : near(name)) problems.push(`${at}: no skill, agent or reference "${name}"`);
-		}
-		for (const name of agentsIn(text)) if (!agents.includes(name) && !BUILTIN_AGENTS.includes(name)) problems.push(`${at}: no agent "${name}"`);
-		// Anywhere in the text, a hyphenated word one or two edits from a skill is a typo or a stale name.
-		for (const m of text.matchAll(new RegExp(`\\b${KEBAB}\\b`, "g"))) {
-			const skill = near(m[0]);
-			if (skill) problems.push(`${at}: "${m[0]}" looks like the skill ${skill}`);
-		}
-	}
+	const known = new Set([...skills, ...AGENT_NAMES, ...skillDocs.map(stem), ...evalCases, ...ALLOWED_NAMES]);
+	const problems = [...skillDocs, ...agentDocs, join(root, "README.md")].flatMap((file) =>
+		problemsIn(readFileSync(file, "utf8"), file.slice(root.length + 1), file.endsWith("SKILL.md"), known, AGENT_NAMES),
+	);
 	assert.deepEqual(problems, []);
 });
 
