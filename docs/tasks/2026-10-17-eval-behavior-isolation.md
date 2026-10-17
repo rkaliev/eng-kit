@@ -92,9 +92,10 @@ None.
 
 ### Task 2: docs and release
 
-- [ ] Replace the 107b069 wording in the header and EVALS.md with criterion 5's statement; CHANGELOG 0.27.1; versions; commit `docs: 0.27.1`
+- [x] Replace the 107b069 wording in the header and EVALS.md with criterion 5's statement; CHANGELOG 0.27.1; versions; commit `docs: 0.27.1`
 
 ## Progress
 
 - Plan approved 2026-10-17, inline. Baseline: kit verify script PASS both editions (eng-kit 477 tests).
 - Task 1: complete. RED: the new test got `env:s3cret`, `write:allowed`, `spawn:allowed`, `read:allowed`, and the flag row got an empty flag. First GREEN attempt failed every run with "Access to this API has been restricted": the check path was passed unresolved (`/var/…`) while the allowed path was resolved (`/private/var/…`). Ruling: pass realpath'd check, runner and temp dir to the child — cost if wrong: none, same files. GREEN 8/8 on Node 24.19 and on Node 22.18 (`npx node@22.18.0`, `--experimental-permission`, several `--allow-fs-read`); kit verify script PASS both editions.
+- Task 2: complete. Header and EVALS.md replace the 107b069 wording with what is and isn't isolated; CHANGELOG 0.27.1; versions 0.27.1 (package.json, plugin.json, package-lock.json); `node .github/release.ts check` → ok 0.27.1; kit verify script PASS both; `claude plugin validate .` passed.

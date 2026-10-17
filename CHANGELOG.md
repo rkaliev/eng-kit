@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.27.1
+
+- **The behavior check runs model-written code isolated.** `scripts/eval-behavior.ts` runs each run's final file outside the eval's sandbox, so the child process now gets no environment but `PATH` (your tokens stay out of reach) and Node's permission model (`--permission`, or `--experimental-permission` before Node 23.5): it may read only its own temp folder, the case's `behavior.ts` folder and the runner, and may not write files, start processes or load addons. The network is not restricted, since Node's permission model doesn't cover it on the supported versions.
+
 ## 0.27.0
 
 - **Opus at xhigh for reasoning, code and review.** The `implementer` agent now runs on `opus` at `effort: xhigh` (was `sonnet`), like the reviewer, and test-driven-development, executing-plans, implement, changing-legacy-code, requesting-code-review and receiving-code-review set `effort: xhigh`, joining brainstorming, writing-plans, systematic-debugging and security-review. Other skills run at the session's effort. Subagent-per-task execution costs more than before.

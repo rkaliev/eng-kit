@@ -5,8 +5,10 @@
  * process with a timeout, and print per arm how many runs had no violation. A run without that evidence,
  * a check that throws or one that never settles counts as failing.
  *
- * The child runs model-written code on this machine, with your rights and no sandbox: the same code the
- * agent already ran with `npm test` during the eval. Run it only on results of evals you ran yourself.
+ * The child runs model-written code outside the eval's sandbox, so it gets no environment but PATH (no tokens)
+ * and Node's permission model: it may read only its own folder, the case's check and the runner, and may not
+ * write files, start processes or load addons. The network is not restricted. Run it only on results of your
+ * own eval runs.
  *
  *   node scripts/eval-behavior.ts <results.json> [--timeout-ms 10000]
  *
