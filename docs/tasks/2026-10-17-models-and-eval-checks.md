@@ -115,8 +115,8 @@ None: released with the CI tag after merge. The implementer change raises the co
 
 **Files:** Create `src_claude/evals/bug-root-cause/behavior.ts`
 
-- [ ] Inputs and expectations from criterion 4; run `node scripts/eval-behavior.ts` on the kept 0.26.0 results (RED/GREEN JSONs in the session scratchpad) → expect the table recorded in EVALS.md (every kit run: separators right, `12x` and `1.2.3` accepted except one GREEN run)
-- [ ] Commit `feat(evals): bug-root-cause behavior check`
+- [x] Inputs and expectations from criterion 4; run `node scripts/eval-behavior.ts` on the kept 0.26.0 results (RED/GREEN JSONs in the session scratchpad) → expect the table recorded in EVALS.md (every kit run: separators right, `12x` and `1.2.3` accepted except one GREEN run)
+- [x] Commit `feat(evals): bug-root-cause behavior check`
 
 ### Task 4: spec-timeout case
 
@@ -144,3 +144,5 @@ None: released with the CI tag after merge. The implementer change raises the co
 - Baseline: kit verify script → typecheck and test PASS in both editions (eng-kit 469 tests, pi 448). Drift: none (branches cut from Base).
 - Task 1: complete (eng-kit a9bdcba..62680f9, pi c8096a5..b010ed0; lint 41/41 both). `^effort: xhigh` now in exactly 10 skills plus both agents. Ruling: pi README line 24 and the subagents line, the guides' `/implement` walkthrough ("switches to `fast`") and the ARCHITECTURE models row also said implement ran mid-tier; updated in the same commit (the `worker` in pi-subagents writes the code) — cost if wrong: none, docs only.
 - Task 2: complete (62680f9..HEAD; `node --test tests/eval-behavior.test.ts` RED on the stub: 3 fail, actual [] vs expected lines; GREEN 3/3; kit verify script PASS both editions). The runner keeps the event loop alive so a never-settling check is killed by the timeout instead of exiting with code 13. Folder install copies scripts by an allowlist (lib/install.ts:45), so the new scripts stay out of projects.
+- Ruling (criterion 4): the check covers the ticket's contract only — separators parse, misplaced separators and "abc" throw. "12x" and "1.2.3", which the fixture's original parseInt already accepted, were dropped: with them every arm scored about 0 and the check measured unrequested hardening, not the root cause — cost if wrong: a fix that newly accepts "12x" isn't flagged (the original accepted it too).
+- Task 3: complete (`node scripts/eval-behavior.ts` on the kept 0.26.0 results): kit arm 3/3 + 6/6 before, 3/3 + 6/6 after; without the kit 2/3 + 6/6 before, 3/3 + 5/6 after (the failing runs accept "1,2,3x", "1,50", "12,34.5"). With the wider input set first tried, the kit arm was 0/9 before and 1/9 after, matching the 0.26.0 manual table. The root-cause fix held in every kit run; the 0.26.0 judge drop was noise.
