@@ -98,18 +98,18 @@ None: released with the CI tag after merge. The implementer change raises the co
 
 **Files:** Modify `src_claude/agents/implementer.md`, `src_claude/skills/{test-driven-development,executing-plans,implement,changing-legacy-code,requesting-code-review,receiving-code-review}/SKILL.md`, `src/templates/model-routing.json`, `src/README.md`
 
-- [ ] implementer: `model: opus`, add `effort: xhigh`; add `effort: xhigh` after `description:` in the six skills
-- [ ] pi template and README example: `"implement": "deep"`
-- [ ] `node --test tests/lint-skills.test.ts` both PASS; `grep -l "^effort: xhigh" skills/*/SKILL.md` lists exactly the 10 agreed skills; commit `feat(models): opus at xhigh for code and review`
+- [x] implementer: `model: opus`, add `effort: xhigh`; add `effort: xhigh` after `description:` in the six skills
+- [x] pi template and README example: `"implement": "deep"`
+- [x] `node --test tests/lint-skills.test.ts` both PASS; `grep -l "^effort: xhigh" skills/*/SKILL.md` lists exactly the 10 agreed skills; commit `feat(models): opus at xhigh for code and review`
 
 ### Task 2: behavior-check script
 
 **Files:** Create `src_claude/scripts/eval-behavior.ts`, `src_claude/scripts/eval-behavior-runner.ts`, `src_claude/tests/eval-behavior.test.ts`
 
-- [ ] Write test `reports violations per run from the results file`: synthetic results JSON with one case `demo` (arms with/without, one run each with an llm grader `focus.path: src/a.ts` and evidence), a temp `evals/demo/behavior.ts` whose check expects `double(2) === 4`; with-run evidence correct, without-run returns 5 → expect `demo with: 1 of 1`, `demo without: 0 of 1` and violation `double(2) = 5`; stub `runBehavior` returns `[]` → FAIL on the counts
-- [ ] Add rows: a run with no evidence → `no evidence`, counted as not passing; a check that never settles → `timed out after 200 ms` with `--timeout-ms 200`
-- [ ] Implement `runBehavior(resultsPath, { evalsDir, timeoutMs }): Promise<Report>` and the CLI; the runner imports the behavior module and the file, prints violations as JSON
-- [ ] `npm test` PASS; commit `feat(evals): check final files by behavior after a run`
+- [x] Write test `reports violations per run from the results file`: synthetic results JSON with one case `demo` (arms with/without, one run each with an llm grader `focus.path: src/a.ts` and evidence), a temp `evals/demo/behavior.ts` whose check expects `double(2) === 4`; with-run evidence correct, without-run returns 5 → expect `demo with: 1 of 1`, `demo without: 0 of 1` and violation `double(2) = 5`; stub `runBehavior` returns `[]` → FAIL on the counts
+- [x] Add rows: a run with no evidence → `no evidence`, counted as not passing; a check that never settles → `timed out after 200 ms` with `--timeout-ms 200`
+- [x] Implement `runBehavior(resultsPath, { evalsDir, timeoutMs }): Promise<Report>` and the CLI; the runner imports the behavior module and the file, prints violations as JSON
+- [x] `npm test` PASS; commit `feat(evals): check final files by behavior after a run`
 
 ### Task 3: bug-root-cause behavior
 
@@ -142,3 +142,5 @@ None: released with the CI tag after merge. The implementer change raises the co
 
 - Plan approved 2026-10-17, inline execution.
 - Baseline: kit verify script → typecheck and test PASS in both editions (eng-kit 469 tests, pi 448). Drift: none (branches cut from Base).
+- Task 1: complete (eng-kit a9bdcba..62680f9, pi c8096a5..b010ed0; lint 41/41 both). `^effort: xhigh` now in exactly 10 skills plus both agents. Ruling: pi README line 24 and the subagents line, the guides' `/implement` walkthrough ("switches to `fast`") and the ARCHITECTURE models row also said implement ran mid-tier; updated in the same commit (the `worker` in pi-subagents writes the code) — cost if wrong: none, docs only.
+- Task 2: complete (62680f9..HEAD; `node --test tests/eval-behavior.test.ts` RED on the stub: 3 fail, actual [] vs expected lines; GREEN 3/3; kit verify script PASS both editions). The runner keeps the event loop alive so a never-settling check is killed by the timeout instead of exiting with code 13. Folder install copies scripts by an allowlist (lib/install.ts:45), so the new scripts stay out of projects.
