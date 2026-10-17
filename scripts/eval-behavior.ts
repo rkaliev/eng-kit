@@ -5,6 +5,9 @@
  * process with a timeout, and print per arm how many runs had no violation. A run without that evidence,
  * a check that throws or one that never settles counts as failing.
  *
+ * The child runs model-written code on this machine, with your rights and no sandbox: the same code the
+ * agent already ran with `npm test` during the eval. Run it only on results of evals you ran yourself.
+ *
  *   node scripts/eval-behavior.ts <results.json> [--timeout-ms 10000]
  *
  * `behavior.ts` default-exports `{ file: "src/x.ts", async check(mod) { return ["violation", …] } }`.
