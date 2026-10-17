@@ -6,9 +6,11 @@
  * a check that throws or one that never settles counts as failing.
  *
  * The child runs model-written code outside the eval's sandbox, so it gets no environment but PATH (no tokens)
- * and Node's permission model: it may read only its own folder, the case's check and the runner, and may not
- * write files, start processes or load addons. The network is not restricted. Run it only on results of your
- * own eval runs.
+ * and Node's permission model: it may read only its own folder, the case's folder and the runner, may not
+ * write files, start processes or load addons, and node:sqlite is off. Not covered: the network, including
+ * local sockets (a reachable daemon such as Docker can still touch your files for it), and signals to your
+ * processes. Node calls its permission model a seat belt, not a sandbox against code written to escape it:
+ * run this only on results of your own eval runs, and in a container or VM for results you don't trust.
  *
  *   node scripts/eval-behavior.ts <results.json> [--timeout-ms 10000]
  *
@@ -36,11 +38,6 @@ interface Case {
 	name: string;
 	graders?: Grader[];
 	arms?: Record<string, Run[]>;
-}
-
-/** Node's permission flag: `--permission`, or `--experimental-permission` before Node 23.5. */
-export function permissionFlag(): string {
-	return process.allowedNodeEnvironmentFlags.has("--permission") ? "--permission" : "--experimental-permission";
 }
 
 const RUNNER = join(dirname(fileURLToPath(import.meta.url)), "eval-behavior-runner.ts");
@@ -82,12 +79,13 @@ function check(behaviorPath: string, file: string, content: string, timeoutMs: n
 		const target = join(dir, file);
 		mkdirSync(dirname(target), { recursive: true });
 		writeFileSync(target, content);
-		// The run's code gets no environment but PATH, so no tokens, and Node's permission model: it may read only
-		// its own folder, the case's check and the runner, and may not write, start processes or load addons.
+		// The run's code gets no environment but PATH, so no tokens, and Node's permission model (stable since 22.13;
+		// the kit needs 22.18): it may read only its own folder, the case's folder and the runner, and may not write,
+		// start processes or load addons. node:sqlite is turned off, since it writes files past the permission model.
 		// The result comes on fd 3, apart from anything that code prints; SIGKILL, since it may handle SIGTERM.
 		const [checkPath, runner] = [realpathSync(behaviorPath), realpathSync(RUNNER)];
 		const readable = [dir, dirname(checkPath), runner].map((path) => `--allow-fs-read=${path}`);
-		const r = spawnSync(process.execPath, [permissionFlag(), ...readable, runner, checkPath, target], {
+		const r = spawnSync(process.execPath, ["--permission", "--no-experimental-sqlite", ...readable, runner, checkPath, target], {
 			encoding: "utf8",
 			env: { PATH: process.env.PATH ?? "" },
 			timeout: timeoutMs,
