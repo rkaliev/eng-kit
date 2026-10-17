@@ -1,6 +1,7 @@
 ---
 name: requesting-code-review
 description: Use when a task, feature or bugfix is implemented and verified, before merging or opening a PR, or when a user asks for a review of changes
+effort: xhigh
 ---
 
 # Requesting code review

@@ -1,6 +1,6 @@
 # Opus at xhigh for reasoning, code and review; evals judged by behavior
 
-Status: design approved (2026-10-17)
+Status: in progress
 Base: a9bdcba (pi: c8096a5)
 Links: None
 
@@ -140,4 +140,5 @@ None: released with the CI tag after merge. The implementer change raises the co
 
 ## Progress
 
-None yet.
+- Plan approved 2026-10-17, inline execution.
+- Baseline: kit verify script → typecheck and test PASS in both editions (eng-kit 469 tests, pi 448). Drift: none (branches cut from Base).

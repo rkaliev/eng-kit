@@ -1,6 +1,7 @@
 ---
 name: implement
 description: Implement a task file or a short request with tests and verified results
+effort: xhigh
 disable-model-invocation: true
 argument-hint: "<path to a task file, or a short request>"
 ---

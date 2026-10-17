@@ -1,6 +1,7 @@
 ---
 name: test-driven-development
 description: Use when implementing any feature, bugfix, refactor or behavior change, before writing the implementation code
+effort: xhigh
 ---
 
 # Test-driven development
