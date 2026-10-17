@@ -13,7 +13,7 @@
  * `behavior.ts` default-exports `{ file: "src/x.ts", async check(mod) { return ["violation", …] } }`.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -34,6 +34,11 @@ interface Case {
 	name: string;
 	graders?: Grader[];
 	arms?: Record<string, Run[]>;
+}
+
+/** Node's permission flag: `--permission`, or `--experimental-permission` before Node 23.5. */
+export function permissionFlag(): string {
+	return process.allowedNodeEnvironmentFlags.has("--permission") ? "--permission" : "--experimental-permission";
 }
 
 const RUNNER = join(dirname(fileURLToPath(import.meta.url)), "eval-behavior-runner.ts");
@@ -70,14 +75,19 @@ async function checkedFile(behaviorPath: string): Promise<string> {
 
 /** Runs the check on one run's copy of the file, in a temp folder, and returns its violations. */
 function check(behaviorPath: string, file: string, content: string, timeoutMs: number): string[] {
-	const dir = mkdtempSync(join(tmpdir(), "eval-behavior-run-"));
+	const dir = realpathSync(mkdtempSync(join(tmpdir(), "eval-behavior-run-")));
 	try {
 		const target = join(dir, file);
 		mkdirSync(dirname(target), { recursive: true });
 		writeFileSync(target, content);
-		// The result comes on fd 3, apart from anything the run's code prints; SIGKILL, since that code may handle SIGTERM.
-		const r = spawnSync(process.execPath, [RUNNER, behaviorPath, target], {
+		// The run's code gets no environment but PATH, so no tokens, and Node's permission model: it may read only
+		// its own folder, the case's check and the runner, and may not write, start processes or load addons.
+		// The result comes on fd 3, apart from anything that code prints; SIGKILL, since it may handle SIGTERM.
+		const [checkPath, runner] = [realpathSync(behaviorPath), realpathSync(RUNNER)];
+		const readable = [dir, dirname(checkPath), runner].map((path) => `--allow-fs-read=${path}`);
+		const r = spawnSync(process.execPath, [permissionFlag(), ...readable, runner, checkPath, target], {
 			encoding: "utf8",
+			env: { PATH: process.env.PATH ?? "" },
 			timeout: timeoutMs,
 			killSignal: "SIGKILL",
 			cwd: dir,

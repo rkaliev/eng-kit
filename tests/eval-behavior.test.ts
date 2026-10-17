@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test, { after } from "node:test";
-import { runBehavior } from "../scripts/eval-behavior.ts";
+import { permissionFlag, runBehavior } from "../scripts/eval-behavior.ts";
 
 const DOUBLE = (factor: number) => `export function double(n: number): number {\n\treturn n * ${factor};\n}\n`;
 
@@ -120,5 +120,35 @@ test("spec-timeout: no timeout or a 2000 that only sits in a comment fails, a cl
 		"  spec-timeout with run 1: a hung provider was still pending after 3000 ms",
 		"  spec-timeout with run 2: a hung provider was still pending after 3000 ms",
 	]);
+});
+
+test("the run's code sees no secrets and can't write, spawn or read outside", async () => {
+	const probe = `const fs = await import("node:fs");
+		const cp = await import("node:child_process");
+		const code = (f: () => unknown) => { try { f(); return "allowed"; } catch (error) { return (error as { code?: string }).code ?? "error"; } };
+		return [
+			"env:" + process.env.EVAL_BEHAVIOR_SECRET,
+			"write:" + code(() => fs.writeFileSync("/tmp/eval-behavior-probe", "x")),
+			"spawn:" + code(() => cp.execSync("true")),
+			"read:" + code(() => fs.readFileSync("/etc/hosts")),
+		];`;
+	const { resultsPath, evalsDir } = fixture({ with: [DOUBLE(2)] }, probe);
+	process.env.EVAL_BEHAVIOR_SECRET = "s3cret";
+	try {
+		const lines = (await runBehavior(resultsPath, { evalsDir })).lines;
+		assert.deepEqual(lines.slice(1), [
+			"  demo with run 1: env:undefined",
+			"  demo with run 1: write:ERR_ACCESS_DENIED",
+			"  demo with run 1: spawn:ERR_ACCESS_DENIED",
+			"  demo with run 1: read:ERR_ACCESS_DENIED",
+		]);
+	} finally {
+		delete process.env.EVAL_BEHAVIOR_SECRET;
+	}
+});
+
+test("the permission flag is the one this Node accepts", () => {
+	assert.ok(["--permission", "--experimental-permission"].includes(permissionFlag()));
+	assert.ok(process.allowedNodeEnvironmentFlags.has(permissionFlag()));
 });
 

@@ -1,6 +1,6 @@
 # The behavior check runs model-written code without secrets or write access
 
-Status: design approved (2026-10-17)
+Status: in progress
 Base: 12b9717
 Links: None
 
@@ -42,7 +42,7 @@ Running `scripts/eval-behavior.ts` can't leak the maintainer's tokens or change 
 ## Decisions
 
 1. Option 1: empty environment plus Node's permission model. (user, 2026-10-17)
-2. A Claude-edition-only patch release 0.27.1; pi stays at 0.27.0 (precedent: 0.25.1). **assumed**
+2. A Claude-edition-only patch release 0.27.1; pi stays at 0.27.0 (precedent: 0.25.1). (user, 2026-10-17)
 
 ## Design
 
@@ -85,10 +85,10 @@ None.
 
 **Files:** Modify `src_claude/scripts/eval-behavior.ts` · Test `src_claude/tests/eval-behavior.test.ts`
 
-- [ ] Write test `the run's code sees no secrets and can't write, spawn or read outside`: parent sets `EVAL_BEHAVIOR_SECRET=s3cret`; a check returns `["env:" + process.env.EVAL_BEHAVIOR_SECRET]` plus the error codes of `writeFileSync(<tmpdir>/eval-behavior-probe)`, `execSync("true")`, `readFileSync(<a file in the test's own temp root outside the run dir>)` → expect `env:undefined`, three `ERR_ACCESS_DENIED`
-- [ ] Run → expect FAIL (env:s3cret, writes allowed)
-- [ ] Implement `permissionFlag()` and the spawn options; row: `permissionFlag()` is one of the two flags and is accepted by `process.allowedNodeEnvironmentFlags`
-- [ ] Run the file → PASS, then the full suite; commit `fix(evals): run the behavior check without secrets or write access`
+- [x] Write test `the run's code sees no secrets and can't write, spawn or read outside`: parent sets `EVAL_BEHAVIOR_SECRET=s3cret`; a check returns `["env:" + process.env.EVAL_BEHAVIOR_SECRET]` plus the error codes of `writeFileSync(<tmpdir>/eval-behavior-probe)`, `execSync("true")`, `readFileSync(<a file in the test's own temp root outside the run dir>)` → expect `env:undefined`, three `ERR_ACCESS_DENIED`
+- [x] Run → expect FAIL (env:s3cret, writes allowed)
+- [x] Implement `permissionFlag()` and the spawn options; row: `permissionFlag()` is one of the two flags and is accepted by `process.allowedNodeEnvironmentFlags`
+- [x] Run the file → PASS, then the full suite; commit `fix(evals): run the behavior check without secrets or write access`
 
 ### Task 2: docs and release
 
@@ -96,4 +96,5 @@ None.
 
 ## Progress
 
-None yet.
+- Plan approved 2026-10-17, inline. Baseline: kit verify script PASS both editions (eng-kit 477 tests).
+- Task 1: complete. RED: the new test got `env:s3cret`, `write:allowed`, `spawn:allowed`, `read:allowed`, and the flag row got an empty flag. First GREEN attempt failed every run with "Access to this API has been restricted": the check path was passed unresolved (`/var/…`) while the allowed path was resolved (`/private/var/…`). Ruling: pass realpath'd check, runner and temp dir to the child — cost if wrong: none, same files. GREEN 8/8 on Node 24.19 and on Node 22.18 (`npx node@22.18.0`, `--experimental-permission`, several `--allow-fs-read`); kit verify script PASS both editions.
