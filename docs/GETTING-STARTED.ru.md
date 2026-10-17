@@ -36,7 +36,7 @@ eng-kit/
 ```
 
 - **Скилл** — это методичка. У каждого скилла есть описание вида «Use when…». Claude видит все описания и сам подгружает нужный скилл, когда ситуация совпадает (например, «баг» → `systematic-debugging`). Любой скилл можно вызвать и вручную: `/eng-kit:systematic-debugging`. Префикс `eng-kit:` — это namespace плагина, он защищает от конфликтов имён с другими плагинами.
-- **Агент** — исполнитель со свежим контекстом. Claude отдаёт ему задачу, а назад получает только результат. У нас их два: `reviewer` (ревьюер: только чтение, opus) и `implementer` (исполнитель одной задачи плана: sonnet).
+- **Агент** — исполнитель со свежим контекстом. Claude отдаёт ему задачу, а назад получает только результат. У нас их два: `reviewer` (ревьюер: только чтение, opus) и `implementer` (исполнитель одной задачи плана: opus).
 - **Хук** — это не текст, а программа. Модель не может её «забыть» или «переубедить»: Claude Code запускает её сам. У нас хуки делают три вещи: загружают правила в начале сессии, блокируют опасные команды и не дают закончить работу без прогона тестов.
 
 ### Куда ставится и где живёт
@@ -253,8 +253,8 @@ claude
 
 ## 7. Модели
 
-- **Агенты:** `reviewer` работает на `opus`, `implementer` — на `sonnet`. Всех сабагентов на одну модель переводят `CLAUDE_CODE_SUBAGENT_MODEL` и `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` в `env` настроек.
-- **Скиллы:** у скиллов с тяжёлыми рассуждениями (brainstorming, writing-plans, systematic-debugging, security-review) и у ревьюера стоит `effort: xhigh`; модель без `xhigh` работает с ним как с `high`, а `CLAUDE_CODE_EFFORT_LEVEL` перекрывает его.
+- **Агенты:** `reviewer` и `implementer` работают на `opus`. Всех сабагентов на одну модель переводят `CLAUDE_CODE_SUBAGENT_MODEL` и `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` в `env` настроек.
+- **Скиллы:** у скиллов рассуждения, написания кода и ревью (brainstorming, writing-plans, systematic-debugging, security-review, test-driven-development, executing-plans, implement, changing-legacy-code, requesting-code-review, receiving-code-review) и у обоих агентов стоит `effort: xhigh`; модель без `xhigh` работает с ним как с `high`, а `CLAUDE_CODE_EFFORT_LEVEL` перекрывает его.
 - **Основная сессия:** `/model`, `--model` — всё встроенное.
 
 ## 8. Частые вопросы

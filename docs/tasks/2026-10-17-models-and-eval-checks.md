@@ -136,7 +136,7 @@ None: released with the CI tag after merge. The implementer change raises the co
 
 ### Task 6: docs and release
 
-- [ ] Post-implementation list; versions 0.27.0; pins; `node .github/release.ts check` both → ok; `npm test && npm run typecheck` both PASS; commit `docs: 0.27.0`
+- [x] Post-implementation list; versions 0.27.0; pins; `node .github/release.ts check` both → ok; `npm test && npm run typecheck` both PASS; commit `docs: 0.27.0`
 
 ## Progress
 
@@ -148,3 +148,4 @@ None: released with the CI tag after merge. The implementer change raises the co
 - Task 3: complete (`node scripts/eval-behavior.ts` on the kept 0.26.0 results): kit arm 3/3 + 6/6 before, 3/3 + 6/6 after; without the kit 2/3 + 6/6 before, 3/3 + 5/6 after (the failing runs accept "1,2,3x", "1,50", "12,34.5"). With the wider input set first tried, the kit arm was 0/9 before and 1/9 after, matching the 0.26.0 manual table. The root-cause fix held in every kit run; the 0.26.0 judge drop was noise.
 - Task 4: complete (425aefa..2cd17da + eval). Fixture in a temp copy: hung-provider test cancelled at its own 5000 ms limit, the other two pass; reference fix (race with a cleared 2000 ms timer) → 3/3 pass, the hung case in 2001 ms. Behavior check: original file → "a hung provider was still pending after 3000 ms" (a 3 s guard inside the check, so it doesn't wait for the 10 s process timeout), fixed file → none. The timeout regex misses the original and matches the fix. `evals/*/behavior.ts` added to tsconfig so the checks are typechecked. Eval (claude 2.1.302, sonnet, 3 runs per arm, $0.57): with 1.00 / without 1.00, every grader 3/3 in both arms; behavior 3/3 in both. The kit does not over-apply the symptom-remedy rule to a timeout the spec requires; the case stays as that guard.
 - Task 5: complete (pi 5493589; eng-kit in the next commit): writing-plans 778 (pi) / 775 (Claude) words. Removed: "The task file … the guard blocks a PR or merge while it exists" (said in executing-plans and git-workflow), "if it is still a draft" → "for a draft", the recommendation sentence's three clauses → "weighing coupling, task count and the cost of a mistake". No rule removed.
+- Task 6: complete. Versions 0.27.0 (eng-kit package.json, plugin.json, package-lock.json; pi package.json, package-lock.json), pi pins @v0.27.0 in README, guides and settings template; `node .github/release.ts check` → ok 0.27.0 in both. Docs: Claude README (agents, Models), ARCHITECTURE.md/.ru.md (tree, agent table, principles line), GETTING-STARTED.md/.ru.md (agents, skills); EVALS.md (intro, "Behavior checks" section, spec-timeout row); CHANGELOG both. Kit verify script PASS both; `claude plugin validate .` passed; compare-editions: the same 13 adapted files as before, no new drift.

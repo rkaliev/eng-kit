@@ -36,7 +36,7 @@ eng-kit/
 ```
 
 - **A skill** is a playbook. Every skill has a description of the form "Use when…". Claude sees all descriptions and loads the right skill itself when the situation matches (for example, "bug" → `systematic-debugging`). You can also call any skill by hand: `/eng-kit:systematic-debugging`. The `eng-kit:` prefix is the plugin's namespace; it prevents name clashes with other plugins.
-- **An agent** is a worker with a fresh context. Claude hands it a task and gets back only the result. We have two: `reviewer` (reviewer: read-only, opus) and `implementer` (executes one plan task: sonnet).
+- **An agent** is a worker with a fresh context. Claude hands it a task and gets back only the result. We have two: `reviewer` (reviewer: read-only, opus) and `implementer` (executes one plan task: opus).
 - **A hook** is not text but a program. The model can't "forget" it or "talk it out of" anything: Claude Code runs it itself. Our hooks do three things: load the rules at session start, block dangerous commands, and don't let work finish without a test run.
 
 ### Where it's installed and where it lives
@@ -253,8 +253,8 @@ claude
 
 ## 7. Models
 
-- **Agents:** `reviewer` runs on `opus`, `implementer` on `sonnet`. To move all subagents to one model, set `CLAUDE_CODE_SUBAGENT_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` in the settings `env`.
-- **Skills:** skills with heavy reasoning (brainstorming, writing-plans, systematic-debugging, security-review) and the reviewer set `effort: xhigh`; a model without `xhigh` runs it as `high`, and `CLAUDE_CODE_EFFORT_LEVEL` overrides it.
+- **Agents:** `reviewer` and `implementer` run on `opus`. To move all subagents to one model, set `CLAUDE_CODE_SUBAGENT_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` in the settings `env`.
+- **Skills:** the skills for reasoning, writing code and review (brainstorming, writing-plans, systematic-debugging, security-review, test-driven-development, executing-plans, implement, changing-legacy-code, requesting-code-review, receiving-code-review) and both agents set `effort: xhigh`; a model without `xhigh` runs it as `high`, and `CLAUDE_CODE_EFFORT_LEVEL` overrides it.
 - **Main session:** `/model`, `--model`, all built in.
 
 ## 8. FAQ

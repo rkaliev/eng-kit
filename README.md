@@ -18,7 +18,7 @@ It contains:
   - **entry points:** `/implement`, `/finish`, `/new-task`, `/verify`, `/kit-init`, `/docs`.
 - **2 agents:**
   - `reviewer` is read-only, runs on opus and does fresh-context reviews;
-  - `implementer` runs on sonnet and executes one plan task at a time.
+  - `implementer` runs on opus at xhigh effort and executes one plan task at a time.
 - **Hooks:**
   - **bootstrap** (SessionStart) loads the skill rules into every session and brings them back after compaction.
   - **guard** (PreToolUse) denies irreversible or secret-leaking tool calls and PRs or merges that would carry task files to the base branch, and asks you before outward-facing ones.
@@ -145,7 +145,7 @@ Context use, the session's cost and the plan's 5-hour and 7-day limits come from
 
 ## Models
 
-- `reviewer` → `opus`, `implementer` → `sonnet`. The reviewer and the heavy-reasoning skills (brainstorming, writing-plans, systematic-debugging, security-review) set `effort: xhigh`; a model without `xhigh` runs it as `high`, and `CLAUDE_CODE_EFFORT_LEVEL` overrides it.
+- `reviewer` and `implementer` → `opus` at `effort: xhigh`, and so do the skills for reasoning, writing code and review (brainstorming, writing-plans, systematic-debugging, security-review, test-driven-development, executing-plans, implement, changing-legacy-code, requesting-code-review, receiving-code-review); the others run at the session's effort. A model without `xhigh` runs it as `high`, and `CLAUDE_CODE_EFFORT_LEVEL` overrides it.
 - Override everything with `/model`, or with `CLAUDE_CODE_SUBAGENT_MODEL` for subagents.
 
 ## Develop
