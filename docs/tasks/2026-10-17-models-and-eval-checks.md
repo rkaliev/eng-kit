@@ -122,17 +122,17 @@ None: released with the CI tag after merge. The implementer change raises the co
 
 **Files:** Create `src_claude/evals/spec-timeout/{case.yaml,prompt.md,scaffold.sh,behavior.ts,fixture/{package.json,dot-gitignore,docs/spec.md,src/quote.ts,src/quote.test.ts},graders/{timeout-2000,test-not-edited,test-not-written,timeout-implemented,skill-loaded}.md}`
 
-- [ ] Fixture as in criterion 5; in a temp copy `npm test` → expect the hung-provider test to FAIL (cancelled by its own 5 s limit), the fast-provider test PASS; apply the reference fix → both PASS; behavior.ts on the fixture's file → violation, on the fixed file → none
-- [ ] Graders: regex `2000|2_000|2 \* 1000` in `src/quote.ts` (contains), tool_used Edit/Write on `quote.test.ts` max 0, llm judge "rejects with QuoteTimeoutError when the provider takes longer than 2 s, clears the timer, no retry; FAIL on a changed test, a skipped test or a timeout other than 2 s"
-- [ ] `npm test`, `claude plugin validate .` PASS; EVALS.md Cases row; commit `test(evals): add the spec-timeout case`
-- [ ] `npm run eval -- --case spec-timeout --trust-plugin --keep-temp --json <scratch>` (3 runs per arm); `node scripts/eval-behavior.ts <json>`; record scores, behavior counts and cost in Progress
+- [x] Fixture as in criterion 5; in a temp copy `npm test` → expect the hung-provider test to FAIL (cancelled by its own 5 s limit), the fast-provider test PASS; apply the reference fix → both PASS; behavior.ts on the fixture's file → violation, on the fixed file → none
+- [x] Graders: regex `2000|2_000|2 \* 1000` in `src/quote.ts` (contains), tool_used Edit/Write on `quote.test.ts` max 0, llm judge "rejects with QuoteTimeoutError when the provider takes longer than 2 s, clears the timer, no retry; FAIL on a changed test, a skipped test or a timeout other than 2 s"
+- [x] `npm test`, `claude plugin validate .` PASS; EVALS.md Cases row; commit `test(evals): add the spec-timeout case`
+- [x] `npm run eval -- --case spec-timeout --trust-plugin --keep-temp --json <scratch>` (3 runs per arm); `node scripts/eval-behavior.ts <json>`; record scores, behavior counts and cost in Progress
 
 ### Task 5: writing-plans trim
 
 **Files:** Modify `{src_claude,src}/skills/writing-plans/SKILL.md`
 
-- [ ] Trim to ≤ 780 body words in both, same text; list the removed phrases in Progress
-- [ ] Lint both PASS; commit `docs(plans): room under the word budget`
+- [x] Trim to ≤ 780 body words in both, same text; list the removed phrases in Progress
+- [x] Lint both PASS; commit `docs(plans): room under the word budget`
 
 ### Task 6: docs and release
 
@@ -146,3 +146,5 @@ None: released with the CI tag after merge. The implementer change raises the co
 - Task 2: complete (62680f9..HEAD; `node --test tests/eval-behavior.test.ts` RED on the stub: 3 fail, actual [] vs expected lines; GREEN 3/3; kit verify script PASS both editions). The runner keeps the event loop alive so a never-settling check is killed by the timeout instead of exiting with code 13. Folder install copies scripts by an allowlist (lib/install.ts:45), so the new scripts stay out of projects.
 - Ruling (criterion 4): the check covers the ticket's contract only — separators parse, misplaced separators and "abc" throw. "12x" and "1.2.3", which the fixture's original parseInt already accepted, were dropped: with them every arm scored about 0 and the check measured unrequested hardening, not the root cause — cost if wrong: a fix that newly accepts "12x" isn't flagged (the original accepted it too).
 - Task 3: complete (`node scripts/eval-behavior.ts` on the kept 0.26.0 results): kit arm 3/3 + 6/6 before, 3/3 + 6/6 after; without the kit 2/3 + 6/6 before, 3/3 + 5/6 after (the failing runs accept "1,2,3x", "1,50", "12,34.5"). With the wider input set first tried, the kit arm was 0/9 before and 1/9 after, matching the 0.26.0 manual table. The root-cause fix held in every kit run; the 0.26.0 judge drop was noise.
+- Task 4: complete (425aefa..2cd17da + eval). Fixture in a temp copy: hung-provider test cancelled at its own 5000 ms limit, the other two pass; reference fix (race with a cleared 2000 ms timer) → 3/3 pass, the hung case in 2001 ms. Behavior check: original file → "a hung provider was still pending after 3000 ms" (a 3 s guard inside the check, so it doesn't wait for the 10 s process timeout), fixed file → none. The timeout regex misses the original and matches the fix. `evals/*/behavior.ts` added to tsconfig so the checks are typechecked. Eval (claude 2.1.302, sonnet, 3 runs per arm, $0.57): with 1.00 / without 1.00, every grader 3/3 in both arms; behavior 3/3 in both. The kit does not over-apply the symptom-remedy rule to a timeout the spec requires; the case stays as that guard.
+- Task 5: complete (pi 5493589; eng-kit in the next commit): writing-plans 778 (pi) / 775 (Claude) words. Removed: "The task file … the guard blocks a PR or merge while it exists" (said in executing-plans and git-workflow), "if it is still a draft" → "for a draft", the recommendation sentence's three clauses → "weighing coupling, task count and the cost of a mistake". No rule removed.
