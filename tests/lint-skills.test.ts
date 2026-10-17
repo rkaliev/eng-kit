@@ -200,3 +200,12 @@ test("plugin manifest, marketplace and package agree", () => {
 	assert.equal(market.plugins[0].name, plugin.name, "entry name = manifest name, or installs by name fail");
 	assert.equal(market.plugins[0].source, "./");
 });
+
+test("effort xhigh is set exactly on the skills for reasoning, writing code and review", () => {
+	const xhigh = skills.filter((name) => frontmatter(readFileSync(join(skillsDir, name, "SKILL.md"), "utf8")).data.effort === "xhigh").sort();
+	assert.deepEqual(xhigh, [
+		"brainstorming", "changing-legacy-code", "executing-plans", "implement", "receiving-code-review", "requesting-code-review",
+		"security-review", "systematic-debugging", "test-driven-development", "writing-plans",
+	]);
+});
+

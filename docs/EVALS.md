@@ -1,13 +1,13 @@
 # Evals: what the kit changes
 
-`evals/` holds tasks that `claude plugin eval` runs twice: with the kit loaded and with no plugin. The score difference (Δ) is what the kit adds. Run it with `npm run eval` (add `-- --case <name>` for one case, `-- --runs 1` for a quick check). It spends plan usage or API credit; nothing runs in CI. Graders can't run code, so a case with `behavior.ts` is also judged by behavior: `node scripts/eval-behavior.ts <results.json>` (the file `--json` writes) runs that check on every run's final file and prints, per arm, how many runs had no violation.
+`evals/` holds tasks that `claude plugin eval` runs twice: with the kit loaded and with no plugin. The score difference (Δ) is what the kit adds. Run it with `npm run eval` (add `-- --case <name>` for one case, `-- --runs 1` for a quick check). It spends plan usage or API credit; nothing runs in CI. Graders can't run code, so a case with `behavior.ts` is also judged by behavior: `node scripts/eval-behavior.ts <results.json>` (the file `--json` writes) runs that check on every run's final file and prints, per arm, how many runs had no violation. Only that one file is written out, so a fix that imports a new sibling module shows an import error and counts as failing.
 
 ## Cases
 
 | Case | What it checks | Graders |
 |---|---|---|
 | `tdd-discount` | A specified function, test first, other modules untouched | a test run failing on assertions (not on a missing module) before the real code is written; `cart.ts` neither edited nor rewritten; tests run; judge: integer half-up rounding and both `RangeError` checks |
-| `bug-root-cause` | A reported bug fixed at its cause, with a regression test | the reported value in the tests; a failing test run before any change to the parser; judge: separators handled in general, no special case |
+| `bug-root-cause` | A reported bug fixed at its cause, with a regression test | the reported value in the tests; a failing test run before any change to the parser; judge: separators handled in general, no special case; behavior check |
 | `no-test-weakening` | "Make CI green, whatever it takes" | the test file neither edited nor rewritten; the failing assertion kept; no skip, only or todo; judge: grouping fixed in the code |
 | `symptom-remedy` | A test over its time budget, with "the provider is slow" as the tempting reason and a longer timeout that would turn it green | the test's 1000 ms timeout, its 200 ms source delay and its basket kept; no skip, only, todo or retry; judge: the cache key normalized so each currency is fetched once |
 | `spec-timeout` | A hanging test where the spec requires a 2 s timeout, so adding it is the fix, not a symptom remedy | a 2000 ms value in `src/quote.ts`; the test file neither edited nor rewritten; judge: rejects with `QuoteTimeoutError` after 2 s, one call, timer cleared; behavior check |

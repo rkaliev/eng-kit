@@ -58,3 +58,10 @@ test("reproduced-first: a failing run before any edit of the parser", () => {
 	assert.doesNotMatch(trace(bash(`cat > "src/amount.ts" <<'EOF'\nx\nEOF`), result(RED)), re);
 	assert.doesNotMatch(trace(edit("src/amount.test.ts"), result(NO_MODULE.replaceAll("discount", "amount"))), re);
 });
+
+test("spec-timeout: the timeout grader wants 2 s exactly", () => {
+	const g = grader("spec-timeout/graders/timeout-2000.md");
+	for (const yes of ["setTimeout(fail, 2000)", "const TIMEOUT_MS = 2_000;", "2 * 1000", "AbortSignal.timeout(2e3)"]) assert.match(yes, g, yes);
+	for (const no of ["setTimeout(fail, 20000)", "12000", "12 * 1000", "2000ms"]) assert.doesNotMatch(no, g, no);
+});
+

@@ -72,11 +72,28 @@ function check(behaviorPath: string, file: string, content: string, timeoutMs: n
 		const target = join(dir, file);
 		mkdirSync(dirname(target), { recursive: true });
 		writeFileSync(target, content);
-		const r = spawnSync(process.execPath, [RUNNER, behaviorPath, target], { encoding: "utf8", timeout: timeoutMs, cwd: dir });
+		// The result comes on fd 3, apart from anything the run's code prints; SIGKILL, since that code may handle SIGTERM.
+		const r = spawnSync(process.execPath, [RUNNER, behaviorPath, target], {
+			encoding: "utf8",
+			timeout: timeoutMs,
+			killSignal: "SIGKILL",
+			cwd: dir,
+			stdio: ["ignore", "pipe", "pipe", "pipe"],
+		});
 		if (r.error && (r.error as NodeJS.ErrnoException).code === "ETIMEDOUT") return [`timed out after ${timeoutMs} ms`];
-		if (r.status !== 0) return [`error: ${(r.stderr.split("\n").find((l) => /Error/.test(l)) ?? r.stderr.trim().split("\n")[0] ?? "exit " + r.status).trim()}`];
-		const violations = JSON.parse(r.stdout) as unknown;
-		return Array.isArray(violations) ? violations.map(String) : [`error: the check returned ${r.stdout}`];
+		if (r.status !== 0) {
+			const stderr = r.stderr ?? "";
+			const line = stderr.split("\n").find((l) => /Error/.test(l)) ?? stderr.trim().split("\n")[0];
+			return [`error: ${line?.trim() || `exit ${r.status ?? r.signal}`}`];
+		}
+		const result = String(r.output[3] ?? "");
+		if (!result) return ["error: the check gave no result"];
+		try {
+			const violations = JSON.parse(result) as unknown;
+			return Array.isArray(violations) ? violations.map(String) : [`error: the check returned ${result}`];
+		} catch {
+			return [`error: unreadable check result ${result.slice(0, 80)}`];
+		}
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
