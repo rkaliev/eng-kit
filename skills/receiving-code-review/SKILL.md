@@ -1,6 +1,7 @@
 ---
 name: receiving-code-review
 description: Use when receiving code review feedback from a person, a reviewer agent or a PR, or when the user corrects your work, before implementing any suggestion, especially if it seems unclear or technically questionable
+effort: xhigh
 ---
 
 # Receiving code review

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.27.0
+
+- **Opus at xhigh for reasoning, code and review.** The `implementer` agent now runs on `opus` at `effort: xhigh` (was `sonnet`), like the reviewer, and test-driven-development, executing-plans, implement, changing-legacy-code, requesting-code-review and receiving-code-review set `effort: xhigh`, joining brainstorming, writing-plans, systematic-debugging and security-review. Other skills run at the session's effort. Subagent-per-task execution costs more than before.
+- **Evals judged by behavior.** `scripts/eval-behavior.ts <results.json>` runs a case's `behavior.ts` on every run's final file (taken from the results of `claude plugin eval --json`) in a child process with a timeout, and prints per arm how many runs had no violation. `bug-root-cause` has one: on the 0.26.0 runs the kit fixed the root cause in 9 of 9 runs before and after, so that release's judge drop was noise.
+- **A new eval, `spec-timeout`:** a hanging test where the spec requires a 2 s timeout. Both arms add it (1.00, behavior 3 of 3): the symptom-remedy rule doesn't stop a timeout the requirements set.
+- **writing-plans has room under its word budget** (775 words, was 796); no rule removed.
+
 ## 0.26.0
 
 - **Symptom remedies are not fixes.** systematic-debugging names what makes a defect's symptom go away without a proven cause: a raised timeout or an added retry, wait or sleep; a rollback, downgrade or pinned version; a skipped, quarantined or re-run test or a weaker assertion; an error caught and dropped or filtered out of logs; a looser validation, type or lint rule. Each is allowed only when the user asks for it (reported as a remedy, with the unproven cause in Follow-ups) or when a rollback, confirmed by whoever owns the release, mitigates a live incident and the defect is still fixed on the current version; a timeout the requirements set is a requirement, not a remedy. Phase 1 now keeps the trigger (what changed) apart from the cause, and says a failure that no longer reproduces is not evidence it's gone. An external cause is handled at the boundary on the current version, with a narrow, removable workaround that links the upstream report (a pin to the last good release counts when that report proves the regression).

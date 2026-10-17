@@ -39,7 +39,7 @@ This document describes how the plugin works and why it works that way. What plu
 │   Stop              verify, approval, working-docs gates              │
 │   UserPromptSubmit  re-arms the gates                                 │
 │ skills/   34 skills: 28 methodology + 6 entry points                  │
-│ agents/   reviewer (opus, read-only), implementer (sonnet)            │
+│ agents/   reviewer (opus, read-only), implementer (opus)              │
 │ scripts/  verify.ts, init.ts, install-project.ts, test-hygiene.ts, …  │
 │ templates/ CLAUDE.md, task.md, verify.json, ts-monorepo/, …           │
 └───────────────────────────────────────────────────────────────────────┘
@@ -146,7 +146,7 @@ Entry points are thin wrappers. The other skills can also be called as `/name`, 
 | Agent | Model | Tools | Why |
 |---|---|---|---|
 | `reviewer` | opus, effort xhigh | Read, Grep, Glob, Bash. Edits are forbidden through `disallowedTools` | The final review is the main quality decision, and it's worth spending on. A fresh context sees what the author's context hides. It reads the project's rules (CLAUDE.md or AGENTS.md, matching `.claude/rules/`, decision records the diff touches or cites). It reads them at the merge-base with the remote base (`{RULES_BASE}`) in every round. In a repeat round it reads the previous round's findings with `scripts/review-log.ts`. The guard limits its shell to git's read-only subcommands, a few read-only commands, worktrees at an absolute temp path, the verification commands and review-log, and refuses anything its parser might misread; it reads files with Read and Grep. The report ends with the `Reviewed BASE:`, `Reviewed HEAD:` and `Ready to merge:` lines, which the review gate reads |
-| `implementer` | sonnet | all | One plan task with TDD. Status DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED. The report is checked, not taken on trust |
+| `implementer` | opus, effort xhigh | all | One plan task with TDD. Status DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED. The report is checked, not taken on trust |
 
 Claude Code ignores the `hooks`, `mcpServers` and `permissionMode` fields for plugin agents, so they aren't used. The linter checks this. The model is overridden through `CLAUDE_CODE_SUBAGENT_MODEL` or at call time.
 
@@ -264,7 +264,7 @@ The plan names the test for each criterion, and the PR body says how each new te
 
 1. Three process paths instead of one heavy one, so small tasks don't drown in bureaucracy.
 2. Methodology in skills, mechanics in hooks, thin entry points. The rules for done live in one place.
-3. Built-in features aren't duplicated. `Explore` is there for exploration. Models are set through frontmatter (`model:` for agents, `effort: xhigh` for the reviewer and heavy skills); there's no custom routing config. The team pin is the native `--scope project`.
+3. Built-in features aren't duplicated. `Explore` is there for exploration. Models are set through frontmatter (`model:` for agents, `effort: xhigh` for both agents and the skills for reasoning, writing code and review); there's no custom routing config. The team pin is the native `--scope project`.
 4. No narrow vendor skills. Project specifics go into the project's CLAUDE.md.
 5. The agent pushes its own convention-named work branch without a question; every other push asks, and merging, pushing to the base and rewriting pushed history stay yours. A project with another branch convention adds a narrow `allow` in `.claude/guard.json`, for example `^git push( -u)? origin (story|task)/[a-z0-9._-]+$`. `allow` skips all of the guard's questions for the matching command, so keep patterns anchored.
 6. Skills are in English: triggering is more precise that way. Documentation is in English, with a Russian version of each file (`*.ru.md`).

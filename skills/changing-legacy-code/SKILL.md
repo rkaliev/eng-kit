@@ -1,6 +1,7 @@
 ---
 name: changing-legacy-code
 description: Use when modifying existing code that has few or no tests, unclear behavior, old dependencies or tangled structure, or code written before agentic development
+effort: xhigh
 ---
 
 # Changing legacy code

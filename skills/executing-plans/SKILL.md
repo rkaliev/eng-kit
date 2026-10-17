@@ -1,6 +1,7 @@
 ---
 name: executing-plans
 description: Use when you have an approved implementation plan to carry out, inline in this session or by dispatching a subagent per task
+effort: xhigh
 ---
 
 # Executing plans

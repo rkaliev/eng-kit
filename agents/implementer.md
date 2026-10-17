@@ -1,7 +1,8 @@
 ---
 name: implementer
 description: Implements exactly one well-specified task (usually one plan task) with test-driven development in the current worktree, then reports with evidence. Use for subagent-per-task plan execution or a bounded, fully specified change.
-model: sonnet
+model: opus
+effort: xhigh
 color: green
 ---
 
