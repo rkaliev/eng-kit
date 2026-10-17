@@ -152,7 +152,7 @@ Context use, the session's cost and the plan's 5-hour and 7-day limits come from
 
 ```bash
 npm install
-npm test                  # hook handlers, hook e2e over stdin, init, install, test-hygiene, skill/agent linter
+npm test                  # hook handlers, hook e2e over stdin, init, install, test-hygiene, release check, skill/agent linter (incl. named skills and agents)
 npm run typecheck
 claude plugin validate .
 npm run eval -- --case <name>   # with-kit vs no-plugin eval (docs/EVALS.md); uses plan usage
