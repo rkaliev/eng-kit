@@ -203,7 +203,7 @@ node eng-kit/scripts/install-project.ts <папка проекта> --yes    # �
 ```
 
 Что появится:
-- `.claude/skills/*` — 34 скилла;
+- `.claude/skills/*` — 35 скиллов;
 - `.claude/agents/reviewer.md`, `implementer.md`;
 - `.claude/eng-kit/` — код хуков, скрипты, шаблоны, `manifest.json`;
 - `.claude/settings.json` — хуки и deny-правила на секреты;

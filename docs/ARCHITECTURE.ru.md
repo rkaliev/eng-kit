@@ -38,7 +38,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 │   SubagentStop      вердикт ревью из отчёта reviewer            │
 │   Stop              гейты verify, approval, working-docs        │
 │   UserPromptSubmit  снова взводит гейты                         │
-│ skills/   34 скилла: 28 методических + 6 точек входа            │
+│ skills/   35 скиллов: 29 методических + 6 точек входа           │
 │ agents/   reviewer (opus, read-only), implementer (opus)        │
 │ scripts/  verify.ts, init.ts, install-project.ts,               │
 │           test-hygiene.ts, scaffold-template.ts, …              │
@@ -108,7 +108,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 ## 5. Скиллы
 
-**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, ci-quality-gates, writing-documentation, updating-dependencies, writing-skills.
+**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, ci-quality-gates, writing-documentation, publishing-documents, updating-dependencies, writing-skills.
 
 **Старт: новый или существующий код:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
@@ -131,6 +131,8 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 **Диаграммы.** Там, где по тексту читателю пришлось бы рисовать картинку в голове (вызовы между компонентами, пути отказов, состояния), в документе стоит диаграмма Mermaid с именами как в коде и одним предложением с главным выводом (`writing-documentation/references/diagrams.md`). Без этого правила агент описал поток вебхука шагами и таблицами, но без диаграммы; с ним — диаграммой последовательности со всеми ветками отказов.
 
 **Сайт документации.** Сайт — это вид `docs/`, а не вторая копия: текст остаётся в Markdown, меню строится из файлов глав, сборка строгая, а в CI её дополняют lychee по результату и проверка `mmdc` (`writing-documentation/references/docs-site.md`). VitePress для JS/TS-проектов, Zensical для остальных стеков. Без этого агент вписал меню в конфиг руками и не проверял диаграммы; с ним меню строилось из файлов, а CI запускал четыре проверки.
+
+**Публикуемые документы.** PDF или HTML одним файлом для читателя вне репозитория — это вид Markdown из репозитория: выбранные главы `docs/` (не копия), документ в `docs/publish/` или версия из CHANGELOG (`publishing-documents`). Одна команда, `scripts/publish.mts` в этом скилле, проверяет pandoc, Typst и mermaid-cli и все ссылки до записи, затем собирает оба файла в теме проекта. Агент убирает то, что этому читателю видеть нельзя, перечисляет пробелы без догадок и смотрит каждую страницу; отправляет пользователь. Без скилла агент убрал внутренние главы, но собрал простой PDF из правленой вручную копии и проверил одну страницу; со скиллом выбрал главы, собрал оба файла в теме и посмотрел каждую страницу.
 
 **Два вида документов.**
 - **Рабочие** — файл задачи (`docs/tasks/`) и карта легаси. Файл задачи заполняется по ходу работы (`brainstorming` пишет описание, `writing-plans` — Plan, `executing-plans` — Progress) и записывает намерение и прогресс. Он живёт только в рабочей ветке.
@@ -285,6 +287,7 @@ Push своей ветки из сабагента `implementer` спрашив�
   - `hook.ts` через stdin/stdout, включая нечитаемый ввод (код 1); `respond()` с падающим обработчиком (PreToolUse спрашивает, остальные события выходят с кодом 1);
   - `verify.ts`;
   - `test-hygiene.ts` (правила на 7 языках, храповик с переименованиями, нет merge base, только JUnit-отчёты, конфиг, CLI);
+  - `publish.mts` из publishing-documents (преобразования дерева pandoc, разделы CHANGELOG, проверка инструментов и отказы, которым инструменты не нужны); тесты сборки идут только там, где установлены pandoc, Typst и mermaid-cli, поэтому в CI кита пропускаются;
   - `kit-init` (в том числе пункт test-hygiene: предложен, копируется с `--test-hygiene`, старая копия видна в отчёте и заменяется по флагу, CI без него виден в том же прогоне);
   - `install-project` (установка, обновление, конфликты, хуки без дублей);
   - линтер скиллов и агентов, согласованность манифестов.
