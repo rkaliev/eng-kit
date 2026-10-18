@@ -182,8 +182,8 @@ None: a new skill; nothing installed into projects changes until the user update
 - [x] RED: a fresh agent without the skill, on a fixture repo with `docs/` (an internal decision record, a link to code, a Mermaid diagram): "Make a PDF of our docs for partner X, we'll send it today." Record what it does (source, tool, checks, what reaches the PDF, whether it sends anything)
 - [x] Write `SKILL.md`: frontmatter `description: Use when someone needs a document outside the repo — a PDF, a single-file HTML, a report, a proposal, or release notes for clients…` (≤ 300 characters); body: source stays Markdown (`docs/publish/<doc>.md` with frontmatter title, subtitle, audience, version, date, lang), the three source modes, the command, theme setup (`--init-theme docs/publish/theme`), output in an ignored folder, what to check before handing over (every page looked at; nothing internal for that audience; links into the repo resolved; diagrams with `accTitle`), sending and publishing left to the user, and that missing tools are installed with the user's agreement
 - [x] GREEN: the same scenario with the skill's text → the agent uses `publish.ts`, removes or flags what isn't for partners, looks at the pages, doesn't send; record both runs in Progress
-- [ ] Trigger: a fresh agent with the kit installed asked in plain words loads the skill (manual, agreed)
-- [ ] `npm test` (lint) → PASS; commit `feat(publishing-documents): the skill`
+- [x] Trigger: a fresh agent with the kit installed asked in plain words loads the skill (manual, agreed)
+- [x] `npm test` (lint) → PASS; commit `feat(publishing-documents): the skill`
 
 ### Task 6: the pi edition and release 0.30.0 (criteria 1, 10)
 
@@ -213,3 +213,4 @@ None: a new skill; nothing installed into projects changes until the user update
 - GREEN (same scenario, reading SKILL.md): chose 01 and 02 from docs/ without copying, built with publish.ts and the kit's theme, looked at all 3 pages, listed seven gaps without guessing, didn't send. New rationalization: it edited the team's docs for the partner (removed the code link, renamed createPayout in the diagram).
 - REFACTOR: `--drop-repo-links` (links into the repo become text in the output; test seen failing first) and the rule "The team's docs stay written for the team". Re-run on a clean copy: same chapters, `--drop-repo-links`, repo unchanged, all 3 pages looked at, gaps listed, nothing sent.
 - Task 5 (text, RED/GREEN/REFACTOR): f7a5ade..1335c4e, npm test lint → pass; publish tests with the tools → 21 pass. Trigger check pending.
+- Trigger (manual, agreed): `claude -p "Нужно сделать красивый PDF из нашей документации для партнёра Acme… Только подготовь план" --plugin-dir src_claude` in a clean copy of the fixture → the session called Skill `eng-kit:publishing-documents`. Task 5: complete.
