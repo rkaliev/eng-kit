@@ -125,7 +125,9 @@ The hook code is the same in both modes. The kit root is the parent folder of `h
 1. the rule in `writing-documentation`: docs in the same change and about the current state;
 2. the "Post-implementation" block in every plan and the docs update step in `/implement` and `executing-plans`, plus a Docs line in the final report;
 3. in review, stale docs are Important, not Minor;
-4. mechanical checks (links, markdownlint, doc-comment linters, API reference generation): `writing-documentation/references/checks.md` suggests adding them to the project's verify and CI.
+4. mechanical checks (links, markdownlint, doc-comment linters, API reference generation, diagrams that render): `writing-documentation/references/checks.md` suggests adding them to the project's verify and CI.
+
+**Diagrams.** Where prose would make the reader draw the picture (calls between components, failure paths, states), the doc carries a Mermaid diagram named as the code is, with one sentence stating its takeaway (`writing-documentation/references/diagrams.md`). Without this rule, an agent documenting a webhook flow wrote steps and tables but no diagram; with it, a sequence diagram with every failure branch.
 
 **Two kinds of documents.**
 - **Working** documents: the task file (`docs/tasks/`) and the legacy map. The task file is filled as work goes on (`brainstorming` writes the description, `writing-plans` the Plan, `executing-plans` the Progress) and records intent and progress. It lives only on the work branch.

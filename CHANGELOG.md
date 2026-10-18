@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.28.0
+
+- **Diagrams in documentation.** writing-documentation says to draw what prose can't show plainly (calls between components, failure paths, states) and points to `references/diagrams.md`: Mermaid in the Markdown by default (a plain-text drawing only where Mermaid doesn't render, images only generated from a committed source), which diagram type for which question, names as in the code, one idea and about 12 nodes per diagram, labelled arrows, failure paths, one sentence with the takeaway, updated in the same change as the code. `references/checks.md` adds a render check (`mmdc`). An agent documenting a webhook flow without the rule wrote steps and tables but no diagram; with it, a sequence diagram with every failure branch.
+
 ## 0.27.2
 
 - **A new eval, `review-feedback`:** PR feedback in an inline thread, a review body and a top-level comment. With the kit every run answers the review body in one numbered reply, opens no reply with praise and closes every item (1.00); without it 0.71 (no run without praise in the opening, one numbered reply in 1 of 3). Its fix is also checked by behavior, and two graders check that the claimed changes exist. The grader tests read a regex grader's `flags`.
