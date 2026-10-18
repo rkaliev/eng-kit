@@ -1,8 +1,8 @@
 # Publishable HTML/PDF documents from the repo's Markdown
 
-Status: design approved (2026-10-18)
+Status: plan approved (2026-10-18)
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
-Base: 1f8adc3b
+Base: 0bb6af7771fa21741489461a1c7dcc6a0398c0fb
 Links: None
 
 <details><summary>Original request</summary>
@@ -80,7 +80,119 @@ None: a new skill; nothing installed into projects changes until the user update
 
 ## Plan
 
-None yet
+> Execute with the executing-plans skill. Only this section uses `- [ ]` checkboxes.
+
+**Goal:** a `publishing-documents` skill with a tested `publish.ts` that turns the repo's Markdown into a branded single-file HTML and a PDF, in both editions.
+**Architecture:** one skill folder (`SKILL.md`, `scripts/publish.ts`, `templates/brand.typ`, `templates/brand.css`) copied byte for byte into both editions. `publish.ts` exports pure helpers (tested directly) and a `main(argv)` that collects sources, checks tools and links, pre-renders Mermaid per source file, writes one combined Markdown into a temp build dir, then runs pandoc twice (HTML, PDF via Typst).
+**Stack / constraints:** Node ≥ 22.18 running `.ts` directly, no npm dependencies (only `node:` modules); pandoc ≥ 3.8 (the version the theme was tested on: 3.8.3), Typst on PATH (tested 0.15.1), `@mermaid-js/mermaid-cli` (`mmdc`) only when a source has a Mermaid block. Exit codes: 0 built, 1 a check failed (every finding on stderr, one per line, nothing written to `--out`), 2 usage error. Stdout on success: `{"html":"<abs path>","pdf":"<abs path>"}`. Skip reason for the integration tests: `mode: needs pandoc and typst`. Code style: tabs, as in `scripts/test-hygiene.ts`.
+**Verification:** from the workspace root, `node "<kit root>/scripts/verify.ts"` (typecheck and tests of `src` and `src_claude`); in each repo `node .github/release.ts check`; `node tools/compare-editions.mts` at the workspace root.
+
+### Review focus
+1. Two chapters with the same heading (`## Overview`): a cross-chapter `NN-x.md#overview` link must not land in the wrong chapter → such links go to the chapter anchor and drop the fragment (test in Task 2).
+2. Source paths with spaces and Cyrillic (`docs/01-обзор.md`) → test in Task 2 and in the integration test of Task 4.
+3. CHANGELOG with CRLF line endings and `## [1.2.0] - 2026-10-01` headings → test in Task 1.
+4. `docs/README.md` that links no chapter → exit 1 `no chapters linked in docs/README.md` (test in Task 4).
+5. A relative image (`![x](img/a.png)`) must survive into both outputs although pandoc and Typst run in a temp dir → test in Task 4.
+
+### Post-implementation
+- `CHANGELOG.md` (both): `## 0.30.0` entry.
+- `docs/ARCHITECTURE.md` and `.ru.md` (both): the new skill and why (Claude edition: a paragraph after "Docs site"; pi: a table row).
+- `README.md` (both): skill count 34 → 35 (Claude) and 28 → 29 (pi), and "publishing documents" in the process core list.
+- Versions 0.30.0 (Claude: `package.json`, `package-lock.json`, `.claude-plugin/plugin.json`; pi: `package.json`, `package-lock.json`, `@v0.30.0` pins in `README.md`, `docs/GETTING-STARTED(.ru).md`, `templates/settings.json`).
+- No topic chapter: the kit documents itself in ARCHITECTURE. No decision record: the decisions are in the CHANGELOG entry and the private FRAMEWORK-SOURCES §11.42.
+
+### Files
+
+| File | Responsibility |
+|---|---|
+| `skills/publishing-documents/SKILL.md` | when to publish, the workflow, the checks before handing a file over |
+| `skills/publishing-documents/scripts/publish.ts` | the build: helpers + `main` |
+| `skills/publishing-documents/templates/brand.typ` | the kit's PDF theme: `conf(...)` for pandoc's Typst template |
+| `skills/publishing-documents/templates/brand.css` | the kit's HTML theme |
+| `tests/publish.test.ts` | unit tests for the helpers, integration tests for `main` |
+| `tsconfig.json` | add `"skills/**/*.ts"` to `include` (both editions) |
+
+### Task 1: sources (index, CHANGELOG section, chapter anchors)
+
+**Files:** Create `skills/publishing-documents/scripts/publish.ts` · Modify `tsconfig.json` · Test `tests/publish.test.ts`
+**Interfaces:** Produces `parseIndex(readme: string): string[]` · `extractChangelog(text: string, version: string): string | null` · `chapterAnchor(file: string): string`
+
+- [ ] Add `"skills/**/*.ts"` to `tsconfig.json` `include`; create `publish.ts` with the three exports returning `[]`, `null`, `""`
+- [ ] Write failing tests:
+  - `parseIndex keeps the index order and only chapter links`: input with a table linking `[02](02-flow.md)`, `[01](./01-setup.md)`, `[d](decisions/README.md)`, `[x](https://e.com/03-x.md)`, `[02 again](02-flow.md)` → `["02-flow.md","01-setup.md"]`
+  - `extractChangelog returns one version's section`: `## 0.2.0\n\n- b\n\n## 0.1.0\n\n- a\n` with `"0.2.0"` → `"- b"`; with `"[1.2.0] - 2026-10-01"` style heading and CRLF → the section text with `\n` line endings; unknown `"9.9.9"` → `null`
+  - `chapterAnchor is stable and ASCII-safe`: `"02-flow.md"` → `"ch-02-flow"`; `"01-обзор.md"` → `"ch-01"` followed by a hex hash of the name (same input → same output, two names → two anchors)
+- [ ] Run `npm test -- tests/publish.test.ts` → expect FAIL: `[]` vs `["02-flow.md","01-setup.md"]`, `null` vs `"- b"`, `""` vs `"ch-02-flow"`
+- [ ] Implement: chapter link = relative href (optional `./`) matching `^\d+-[^/]+\.md$`, first occurrence wins; a CHANGELOG heading matches `^## \[?<version>\]?(\s|$)`; anchor = `ch-` + the name without `.md` when it is `[a-z0-9-]+`, else `ch-<leading digits>-<first 8 hex of sha1(name)>`
+- [ ] Run `npm test -- tests/publish.test.ts` → PASS, then `npm test` → all pass
+- [ ] Commit `feat(publishing-documents): sources from the docs index and the changelog`
+
+### Task 2: link checks and rewriting
+
+**Files:** Modify `publish.ts` · Test `tests/publish.test.ts`
+**Interfaces:** Consumes `chapterAnchor` · Produces `rewriteLinks(md: string, o: { from: string; chapters: Map<string, string>; repoDir: string; repoUrl?: string }): { text: string; outside: string[]; images: string[] }` (`from` and map keys are absolute paths; `images` are the absolute paths of local images, in order)
+
+- [ ] Stub returning `{ text: md, outside: [], images: [] }`; write failing tests:
+  - `a link to another chapter becomes its anchor`: `[f](02-flow.md)` and `[f](02-flow.md#overview)` from `docs/01-setup.md` with `02-flow.md` in `chapters` → `[f](#ch-02-flow)` both times (review focus 1)
+  - `a link into the repo outside the document is reported`: `[c](../src/a.ts)` → `outside` is `["docs/01-setup.md: ../src/a.ts"]`, text unchanged
+  - `with repoUrl it is rewritten instead`: `repoUrl` `https://git.example/r/blob/main` → `[c](https://git.example/r/blob/main/src/a.ts)`, `outside` empty; a `#frag` is kept
+  - `external links, anchors and mailto are left alone`
+  - `local images are collected and rewritten to assets/`: `![x](img/a b.png)` → `![x](assets/<n>-a b.png)`, `images` holds its absolute path (review focus 2: also a Cyrillic file name)
+- [ ] Run `npm test -- tests/publish.test.ts` → FAIL on each of those assertions
+- [ ] Implement with one inline-link regex for `[text](href)` and `![alt](src)` (no reference-style links; the skill says so); resolve with `node:path`, report paths relative to `repoDir` with `/`
+- [ ] Run the file's tests → PASS, then `npm test`
+- [ ] Commit `feat(publishing-documents): check and rewrite links for a standalone document`
+
+### Task 3: tool check
+
+**Files:** Modify `publish.ts` · Test `tests/publish.test.ts`
+**Interfaces:** Produces `checkTools(o: { mermaid: boolean }, run?: (cmd: string, args: string[]) => { status: number | null; stdout: string }): string[]` (empty when all present; default `run` is `spawnSync`)
+
+- [ ] Stub returning `[]`; write failing tests with a fake `run`:
+  - `missing pandoc is named with how to install it`: `run` returns `status: null` for `pandoc` → one finding starting `pandoc not found`
+  - `old pandoc is rejected`: `pandoc 3.7.0` → finding `pandoc 3.7.0 is older than 3.8`
+  - `typst is required`; `mmdc is required only with diagrams`: `{ mermaid: false }` never calls `mmdc`
+- [ ] Run → FAIL; implement (`pandoc --version` first line, `typst --version`, `mmdc --version`); run → PASS, then `npm test`
+- [ ] Commit `feat(publishing-documents): check the build tools before writing anything`
+
+### Task 4: theme and build (`main`)
+
+**Files:** Create `templates/brand.typ`, `templates/brand.css` · Modify `publish.ts` · Test `tests/publish.test.ts`
+**Interfaces:** Consumes Tasks 1–3 · Produces `main(argv: string[]): number` and the CLI `node publish.ts (<file.md> | --docs [<dir>] | --changelog <version> [<file>]) --out <dir> [--theme <dir>] [--repo-url <url>] [--title …] [--subtitle …] [--audience …] [--version …] [--date …] [--lang …]` and `node publish.ts --init-theme <dir>`
+
+- [ ] `brand.typ`: `#let accent = rgb("#1f4e79")`, fonts `("Libertinus Serif",)` and code `("DejaVu Sans Mono",)` at the top; `conf(title, subtitle, authors, keywords, date, lang, region, paper: "a4", font, fontsize, pagenumbering, cols, ..rest, doc)`: a cover page (title, subtitle, authors, each keyword on its own line, date), then a page break, a header with the title in `accent` and page numbers `1 / N` in the footer from page 2; `brand.css`: the same accent and fonts for pandoc's HTML
+- [ ] Integration tests (each `t.skip("mode: needs pandoc and typst")` when `checkTools({ mermaid: true })` isn't empty), in a temp repo:
+  - `builds HTML and PDF from one file`: exit 0, stdout JSON with both paths, the HTML has no `src="` or `href="` to a local file (criterion 2)
+  - `--docs follows the index and links chapters inside the document`: chapters 02 then 01 in the index → the HTML has `id="ch-02-flow"` before `id="ch-01-setup"` and `href="#ch-02-flow"` (criterion 3); an index without chapters → exit 1 `no chapters linked in docs/README.md` (review focus 4)
+  - `--changelog builds one version and rejects an unknown one`: exit 0 for `0.2.0`; exit 1 with `version 9.9.9 not found in CHANGELOG.md` (criterion 4)
+  - `diagrams become SVG without a caption; a broken one fails`: the HTML contains `<svg` and no `Figure 1`; alt text from `accTitle`; a broken diagram → exit 1 naming the source file, `--out` empty (criterion 5)
+  - `a link into the repo fails the build unless --repo-url`: exit 1 listing it; with `--repo-url` exit 0 (criterion 6)
+  - `a relative image reaches both outputs` (review focus 5) and a Cyrillic chapter name builds (review focus 2)
+  - `themes: default, project, init`: `--init-theme <dir>` writes `brand.typ` and `brand.css` equal to the kit's; `--theme <dir>` with a changed accent shows it in the HTML (criterion 8)
+- [ ] Run `npm test -- tests/publish.test.ts` → expect FAIL (main returns 2 for every call while stubbed)
+- [ ] Implement `main`: parse args (unknown flag → 2); collect sources; metadata from frontmatter, then flags (`--docs` title defaults to the index's `# ` heading, `--changelog` title to `Release notes <version>`, date to today in ISO, lang to `en`); audience and version go to pandoc as `keywords` (`Audience: …`, `Version: …`), the only list pandoc's Typst template forwards to `conf`; check tools; per source: mmdc into the build dir when it has a Mermaid block, then `rewriteLinks`; collect every finding before failing; copy images to `assets/`; write `doc.md`; run `pandoc doc.md -f markdown-implicit_figures -s --toc --embed-resources --css brand.css -o <name>.html` and `pandoc doc.md -f markdown-implicit_figures --toc --pdf-engine=typst -V template=brand.typ -o <name>.pdf` with the build dir as cwd; copy both into `--out` only after both succeed
+- [ ] Run the file's tests → PASS locally (pandoc 3.8.3, Typst 0.15.1, mmdc 11), then `npm test`
+- [ ] Build the probe document and look at every PDF page; record in Progress what the cover, contents, header and footer show
+- [ ] Commit `feat(publishing-documents): build branded HTML and PDF with one command`
+
+### Task 5: the skill text (criteria 1, 9)
+
+**Files:** Create `skills/publishing-documents/SKILL.md` (+ `references/` only if the body passes 500 words)
+
+- [ ] RED: a fresh agent without the skill, on a fixture repo with `docs/` (an internal decision record, a link to code, a Mermaid diagram): "Make a PDF of our docs for partner X, we'll send it today." Record what it does (source, tool, checks, what reaches the PDF, whether it sends anything)
+- [ ] Write `SKILL.md`: frontmatter `description: Use when someone needs a document outside the repo — a PDF, a single-file HTML, a report, a proposal, or release notes for clients…` (≤ 300 characters); body: source stays Markdown (`docs/publish/<doc>.md` with frontmatter title, subtitle, audience, version, date, lang), the three source modes, the command, theme setup (`--init-theme docs/publish/theme`), output in an ignored folder, what to check before handing over (every page looked at; nothing internal for that audience; links into the repo resolved; diagrams with `accTitle`), sending and publishing left to the user, and that missing tools are installed with the user's agreement
+- [ ] GREEN: the same scenario with the skill's text → the agent uses `publish.ts`, removes or flags what isn't for partners, looks at the pages, doesn't send; record both runs in Progress
+- [ ] Trigger: a fresh agent with the kit installed asked in plain words loads the skill (manual, agreed)
+- [ ] `npm test` (lint) → PASS; commit `feat(publishing-documents): the skill`
+
+### Task 6: the pi edition and release 0.30.0 (criteria 1, 10)
+
+**Files:** in `src/`: copy `skills/publishing-documents/`, `tests/publish.test.ts`, the `tsconfig.json` include; both editions: Post-implementation docs and versions
+
+- [ ] Copy; `diff -r` of the skill folders and of the two test files prints nothing; `node tools/compare-editions.mts` reports no drift for the skill
+- [ ] Post-implementation items above
+- [ ] Verify from the workspace root → all pass; `node .github/release.ts check` in each repo → `ok 0.30.0`
+- [ ] Commit in each repo `feat(publishing-documents): publishable HTML/PDF documents (0.30.0)`
 
 ## Progress
 
