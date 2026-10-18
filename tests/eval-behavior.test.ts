@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test, { after } from "node:test";
@@ -120,5 +120,41 @@ test("spec-timeout: no timeout or a 2000 that only sits in a comment fails, a cl
 		"  spec-timeout with run 1: a hung provider was still pending after 3000 ms",
 		"  spec-timeout with run 2: a hung provider was still pending after 3000 ms",
 	]);
+});
+
+test("the run's code sees no secrets and can't write, spawn or read outside", async () => {
+	const repoFile = JSON.stringify(realpathSync(join(import.meta.dirname, "..", "package.json")));
+	// A file beside the run's folder in the temp folder, where a widened read grant would reach first.
+	const sibling = join(realpathSync(tmpdir()), `eval-behavior-sibling-${process.pid}`);
+	writeFileSync(sibling, "x");
+	after(() => rmSync(sibling, { force: true }));
+	const probe = `const fs = await import("node:fs");
+		const cp = await import("node:child_process");
+		const code = async (f: () => unknown) => { try { await f(); return "allowed"; } catch (error) { return (error as { code?: string }).code ?? "error"; } };
+		return [
+			"env:" + process.env.EVAL_BEHAVIOR_SECRET,
+			"write:" + await code(() => fs.writeFileSync(process.cwd() + "/probe", "x")),
+			"spawn:" + await code(() => cp.execSync("true")),
+			"read:" + await code(() => fs.readFileSync("/etc/hosts")),
+			"read repo:" + await code(() => fs.readFileSync(${repoFile})),
+			"read temp sibling:" + await code(() => fs.readFileSync(${JSON.stringify(sibling)})),
+			"sqlite:" + await code(async () => new (await import("node:sqlite")).DatabaseSync(process.cwd() + "/probe.db").exec("create table t(x)")),
+		];`;
+	const { resultsPath, evalsDir } = fixture({ with: [DOUBLE(2)] }, probe);
+	process.env.EVAL_BEHAVIOR_SECRET = "s3cret";
+	try {
+		const lines = (await runBehavior(resultsPath, { evalsDir })).lines;
+		assert.deepEqual(lines.slice(1), [
+			"  demo with run 1: env:undefined",
+			"  demo with run 1: write:ERR_ACCESS_DENIED",
+			"  demo with run 1: spawn:ERR_ACCESS_DENIED",
+			"  demo with run 1: read:ERR_ACCESS_DENIED",
+			"  demo with run 1: read repo:ERR_ACCESS_DENIED",
+			"  demo with run 1: read temp sibling:ERR_ACCESS_DENIED",
+			"  demo with run 1: sqlite:ERR_UNKNOWN_BUILTIN_MODULE",
+		]);
+	} finally {
+		delete process.env.EVAL_BEHAVIOR_SECRET;
+	}
 });
 
