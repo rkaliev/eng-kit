@@ -217,15 +217,15 @@ User's answers (2026-10-18): links and headings from pandoc's JSON tree; a share
 ### Task 8: build from the AST (fixes I-1, I-5, I-7, m-4, pi I1, minors)
 
 **Files:** Modify `publish.ts`, `templates/brand.css`
-- [ ] `main` split into `collectSources`, `prepare` and `build` (each < 100 lines); sources parsed with `pandoc -f commonmark_x -t json`; a chapter's or the index's metadata is ignored, a single file's metadata comes from its AST (`stringify`); `--docs` title from the index's first level-1 Header
-- [ ] Mermaid CodeBlocks (class `mermaid`) rendered one by one with `mmdc -i n.mmd -o n.svg`; alt from `accTitle`; replaced by a Para holding the Image
-- [ ] HTML shows audience and version: a `Div` with class `doc-meta` at the start of the HTML's body only; `brand.css` styles `.doc-meta`, drops the dead `p.thanks` rule and states that `--css` replaces pandoc's default styles
-- [ ] After both builds, the HTML is scanned: an `href`/`src` that isn't `#…`, `data:` or a scheme URL → finding (defence in depth)
-- [ ] Without `--theme`, `docs/publish/theme/` is used when it holds `brand.typ`; `slug` keeps Unicode letters; every `spawnSync` gets `timeout: 300_000` and a timeout is a finding; pandoc warnings on success go to stderr; on `win32` the script exits 2 pointing to WSL
-- [ ] CHANGELOG headings like `## [1.2.0](…) (2026-10-01)` and `# [1.3.0](…)` are found (m-5); the section ends at the next heading of the same level
-- [ ] Integration tests updated: CRLF frontmatter; a chapter with `title:` frontmatter doesn't change the document's title; two chapters with `## Overview` and in-chapter links; a list right after a paragraph line; HTML contains `Version: 1.2`; a broken project `brand.typ` fails the PDF (the theme is used); temp projects removed with `t.after`
-- [ ] Tests runnable without the tools: missing tools (`PATH` = an empty dir) → exit 1, `pandoc not found`, no `--out`; unknown changelog version → exit 1 (both fail before any tool is called)
-- [ ] Run with the tools → PASS; without → those two pass, the rest skip; commit
+- [x] `main` split into `collectSources`, `prepare` and `build` (each < 100 lines); sources parsed with `pandoc -f commonmark_x -t json`; a chapter's or the index's metadata is ignored, a single file's metadata comes from its AST (`stringify`); `--docs` title from the index's first level-1 Header
+- [x] Mermaid CodeBlocks (class `mermaid`) rendered one by one with `mmdc -i n.mmd -o n.svg`; alt from `accTitle`; replaced by a Para holding the Image
+- [x] HTML shows audience and version: a `Div` with class `doc-meta` at the start of the HTML's body only; `brand.css` styles `.doc-meta`, drops the dead `p.thanks` rule and states that `--css` replaces pandoc's default styles
+- [x] After both builds, the HTML is scanned: an `href`/`src` that isn't `#…`, `data:` or a scheme URL → finding (defence in depth)
+- [x] Without `--theme`, `docs/publish/theme/` is used when it holds `brand.typ`; `slug` keeps Unicode letters; every `spawnSync` gets `timeout: 300_000` and a timeout is a finding; pandoc warnings on success go to stderr; on `win32` the script exits 2 pointing to WSL
+- [x] CHANGELOG headings like `## [1.2.0](…) (2026-10-01)` and `# [1.3.0](…)` are found (m-5); the section ends at the next heading of the same level
+- [x] Integration tests updated: CRLF frontmatter; a chapter with `title:` frontmatter doesn't change the document's title; two chapters with `## Overview` and in-chapter links; a list right after a paragraph line; HTML contains `Version: 1.2`; a broken project `brand.typ` fails the PDF (the theme is used); temp projects removed with `t.after`
+- [x] Tests runnable without the tools: missing tools (`PATH` = an empty dir) → exit 1, `pandoc not found`, no `--out`; unknown changelog version → exit 1 (both fail before any tool is called)
+- [x] Run with the tools → PASS; without → those two pass, the rest skip; commit
 
 ### Task 9: text and docs (fixes I-6, I-9, pi I9)
 
@@ -257,3 +257,7 @@ User's answers (2026-10-18): links and headings from pandoc's JSON tree; a share
 - Review round 1 (Claude edition, range 1f8adc3..f21ae96; pi, 7f750f2..ec6684e): both No — CRLF frontmatter, chapter frontmatter overriding metadata, heading ids and footnotes sharing one namespace, link forms the regex misses, pandoc's own Markdown dialect, HTML without audience and version, script path in SKILL.md, `main` over 100 lines, CLI-level test gaps, stale ARCHITECTURE lists. Rework planned as Tasks 7–9.
 - Ruling: two of the new tests were wrong as first written (a regex helper that matched no link, and a stringify input missing a Space); fixed before any implementation was trusted, then all seven behaviour tests were seen failing again with the stubs restored — none.
 - Task 7: complete (175a67e..25e7fe9, npm test → all pass, 8 build tests skipped; seven AST tests seen failing on stubs; the old parseIndex/rewriteLinks tests replaced by indexChapters/prepareSource tests with the same expectations).
+- Ruling: the HTML's audience and version block sits after the contents, not under the title — pandoc's HTML template puts the contents right after the title block, and a body block can't go between them without forking the template — none.
+- Ruling: three behaviours have no automated test: the timeout (would need a 5-minute hang), the win32 refusal (platform), and the final scan of the HTML for local links (every way to reach it is already caught earlier; it guards against a pandoc change) — each is a few lines read in review.
+- Ruling: the two tool-free tests (missing tools, unknown version) passed against the old main too: they pin behaviour that existed without a test (criterion 7), not new behaviour.
+- Task 8: complete (78a0fb4..b8f7abd; with pandoc 3.8.3, Typst 0.15.1 and mmdc 11 on PATH: publish tests 26 pass, the six changed or new build tests seen failing on the old main (Audience missing from the HTML, href #ch-02-flow--steps missing, docs/publish/theme not picked up, the Cyrillic file name, the list after a line, release-please headings); npm test without those tools → 500 pass, 9 skipped; longest function 51 lines; the sample rebuilt and its cover looked at).
