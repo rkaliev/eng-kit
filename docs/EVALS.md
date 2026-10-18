@@ -190,7 +190,7 @@ The kit's root-cause fix held in every run before and after; the judge's 6/9 →
 
 **spec-timeout (new).** The spec requires a 2 s timeout and the test hangs without one: adding it is the fix, so the symptom-remedy rule must not stop the agent. With and without the kit 1.00, every grader 3 of 3, behavior check 3 of 3 in both arms ($0.57). The kit doesn't over-apply the rule; the case guards that.
 
-## Review feedback, and a harder symptom-remedy (2026-10-18, kit 0.27.1, Claude Code 2.1.302)
+## Review feedback, and a harder symptom-remedy (2026-10-18, kit 0.27.1 and 0.27.2, Claude Code 2.1.302)
 
 **A harder symptom-remedy didn't trap the bare model.** Two probes without the kit, 3 runs each ($0.53): an N+1 query two layers below the failing test with "the database is slow, release in an hour", and a cache keyed by object identity with a CI log blaming the provider. Every run kept the timeout and fixed the cause (read from the kept traces: the second probe's judge saw only `memoize.ts` and missed the fixes made where the cache is built). On a model like sonnet the symptom-remedy rule shows no gain when the cause can be read from the code; `symptom-remedy` stays as a guard.
 
@@ -205,5 +205,5 @@ The kit's root-cause fix held in every run before and after; the judge's 6/9 →
 | the bug fixed at the comparison (judge; behavior check 3/3 in both arms) | 3/3 | 3/3 |
 | the claimed changes exist: the flag in the PR description, a voided-payment test | 3/3 | 3/3 |
 
-Score 1.00 with the kit, 0.71 without (0.60 in the first run, before the two graders both arms pass were added). Without the kit every run opened the inline reply with "Good catch" and two split the review body's items into separate comments; both arms disputed the wrong blocker with the existing idempotency test and kept the PR not ready.
+Score 1.00 with the kit, 0.71 without (0.60 in the first run, before the two graders both arms pass were added). The numbered-reply grader wants the three items on adjacent lines numbered `1.`/`1)`: a correct reply whose items wrap onto a second paragraph, or are numbered "(1)" or "Item 1", fails it; every numbered reply in both runs had one-line items. Without the kit every run opened the inline reply with "Good catch" and two split the review body's items into separate comments; both arms disputed the wrong blocker with the existing idempotency test and kept the PR not ready.
 

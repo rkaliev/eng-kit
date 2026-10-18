@@ -84,9 +84,19 @@ test("review-feedback: a review body's items get one numbered reply", () => {
 test("review-feedback: no reply opens with praise or a concession", () => {
 	const g = grader("review-feedback/graders/no-concession-opener.md");
 	const praise = ["Good catch, fixed: the check is now `>`.", "Thanks, I've added the flag note.", "Thank you, added.", "You're absolutely right! Fixed.", "Great point.", "Nice catch — fixed.", "2. Good catch, fixed.", "- Thanks, fixed", "> **Great catch**, fixed."];
-	const bareAgreement = ["> Agreed, will look.", "You're right.", "Fair point; leaving it for now as discussed"];
-	for (const opener of [...praise, ...bareAgreement]) assert.match(`## Inline\n${opener}\n`, g, opener);
+	const bareAgreement = ["> Agreed, will look.", "You're right.", "Fair point; leaving it for now as discussed", "You're right, this will be fixed in a follow-up.", "Agreed, not changed."];
+	const afterLabel = ["2. **Capitalisation (nit):** Good catch, fixed.", "**1.** Thanks, fixed"];
+	for (const opener of [...praise, ...bareAgreement, ...afterLabel]) assert.match(`## Inline\n${opener}\n`, g, opener);
 	// Agreement is allowed in a reply that names the fix (receiving-code-review, Tone).
 	for (const fine of ["Fixed: the check is now `>`.", "Not changed: routes.ts already replays by key.", "1. Idempotency — not changed.", "Done; we agreed with dana to note the flag.", "Agreed. Fixed: refunds.ts:19 now uses `>`.", "You're right, fixed in a7b8c9d."]) assert.doesNotMatch(`## Inline\n${fine}\n`, g, fine);
+});
+
+test("review-feedback: the claimed changes are checked in the files", () => {
+	const flag = grader("review-feedback/graders/flag-noted.md");
+	assert.match("## Notes\nNeeds the `refunds_v2` flag on.\n", flag);
+	assert.doesNotMatch("## Notes\nAdds partial refunds.\n", flag);
+	const voided = grader("review-feedback/graders/voided-test-added.md");
+	assert.doesNotMatch(readFileSync(join(evals, "review-feedback/fixture/src/refunds.test.ts"), "utf8"), voided, "the fixture's test file has no voided test yet");
+	assert.match('test("rejects a refund on a voided payment", () => assert.throws(() => refund({ ...captured, status: "voided" }, 1), RefundError));', voided);
 });
 
