@@ -38,7 +38,7 @@ This document describes how the plugin works and why it works that way. What plu
 │   SubagentStop      review verdict from the reviewer report           │
 │   Stop              verify, approval, working-docs gates              │
 │   UserPromptSubmit  re-arms the gates                                 │
-│ skills/   34 skills: 28 methodology + 6 entry points                  │
+│ skills/   35 skills: 29 methodology + 6 entry points                  │
 │ agents/   reviewer (opus, read-only), implementer (opus)              │
 │ scripts/  verify.ts, init.ts, install-project.ts, test-hygiene.ts, …  │
 │ templates/ CLAUDE.md, task.md, verify.json, ts-monorepo/, …           │
@@ -130,6 +130,8 @@ The hook code is the same in both modes. The kit root is the parent folder of `h
 **Diagrams.** Where prose would make the reader draw the picture (calls between components, failure paths, states), the doc carries a Mermaid diagram named as the code is, with one sentence stating its takeaway (`writing-documentation/references/diagrams.md`). Without this rule, an agent documenting a webhook flow wrote steps and tables but no diagram; with it, a sequence diagram with every failure branch.
 
 **Docs site.** A site is a view of `docs/`, never a second copy: the text stays in the Markdown, the menu is built from the chapter files, and the build is strict, with lychee on its output and the `mmdc` check, in CI (`writing-documentation/references/docs-site.md`). VitePress for JS/TS projects, Zensical for other stacks. Without the reference, an agent typed the menu into the config and checked no diagram; with it, the menu came from the files and CI ran four checks.
+
+**Publishing documents.** A PDF or single-file HTML for a reader outside the repo is a view of Markdown kept in the repo: chapters of `docs/` chosen (never copied), a document in `docs/publish/`, or a CHANGELOG version (`publishing-documents`). One command, `scripts/publish.ts` in that skill, checks pandoc, Typst and mermaid-cli and every link before writing anything, then builds both files in the project's theme. The agent removes what that reader must not see, lists gaps without guessing and looks at every page; sending is the user's. Without the skill, an agent left out the internal chapters but built a plain PDF from a hand-edited copy and checked one page; with it, it chose chapters, built both files with the theme and looked at every page.
 
 **Two kinds of documents.**
 - **Working** documents: the task file (`docs/tasks/`) and the legacy map. The task file is filled as work goes on (`brainstorming` writes the description, `writing-plans` the Plan, `executing-plans` the Progress) and records intent and progress. It lives only on the work branch.
