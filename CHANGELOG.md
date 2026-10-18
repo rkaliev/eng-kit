@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.27.2
+
+- **A new eval, `review-feedback`:** PR feedback in an inline thread, a review body and a top-level comment. With the kit every run answers the review body in one numbered reply, opens no reply with praise and closes every item (1.00); without it 0.60 (no run without praise in the opening, one numbered reply in 1 of 3). Its fix is also checked by behavior. The grader tests read a regex grader's `flags`.
+- `docs/EVALS.md` records that a harder `symptom-remedy` (the cause two layers down, a plausible external cause in the logs) didn't trap the bare model either.
+
 ## 0.27.1
 
 - **The behavior check runs model-written code with less reach.** `scripts/eval-behavior.ts` runs each run's final file outside the eval's sandbox; the child process now gets no environment but `PATH`, so your tokens aren't in it, and Node's permission model (`--permission`): it may read only its own temp folder, the case's folder and the runner, may not write files, start processes or load addons, and `node:sqlite`, which writes files past the permission model, is off. Not covered: the network, including local sockets (a reachable daemon such as Docker can still touch your files for that code), and signals to your processes. Node calls its permission model a seat belt, not a sandbox, so run the check only on your own eval results, and in a container or VM for results you don't trust.
