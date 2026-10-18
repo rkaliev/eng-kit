@@ -7,9 +7,10 @@ const evals = join(resolve(import.meta.dirname, ".."), "evals");
 
 /** A regex grader's pattern, compiled as `claude plugin eval` does: `new RegExp(pattern, flags)`, flags "" by default. */
 function grader(path: string): RegExp {
-	const match = /^pattern: '((?:[^']|'')*)'$/m.exec(readFileSync(join(evals, path), "utf8"));
+	const text = readFileSync(join(evals, path), "utf8");
+	const match = /^pattern: '((?:[^']|'')*)'$/m.exec(text);
 	assert.ok(match, `${path}: no single-quoted pattern`);
-	return new RegExp(match[1]!.replaceAll("''", "'"), "");
+	return new RegExp(match[1]!.replaceAll("''", "'"), /^flags: '([a-z]*)'$/m.exec(text)?.[1] ?? "");
 }
 
 // Trace lines in the shape Claude Code writes them: one JSON object per line.
@@ -63,5 +64,21 @@ test("spec-timeout: the timeout grader wants 2 s exactly", () => {
 	const g = grader("spec-timeout/graders/timeout-2000.md");
 	for (const yes of ["setTimeout(fail, 2000)", "const TIMEOUT_MS = 2_000;", "2 * 1000", "AbortSignal.timeout(2e3)"]) assert.match(yes, g, yes);
 	for (const no of ["setTimeout(fail, 20000)", "12000", "12 * 1000", "2000ms"]) assert.doesNotMatch(no, g, no);
+});
+
+test("review-feedback: a review body's items get one numbered reply", () => {
+	const g = grader("review-feedback/graders/body-numbered.md");
+	const one = "## Review body — one top-level reply\n1. **Idempotency** — already handled in routes.ts.\n2. **Capitalisation** — fixed.\n3. **Voided payment** — test added.\n";
+	const quoted = "> 1. Not changed: routes.ts replays by key.\n> 2. Fixed.\n> 3. Test added.";
+	const separate = "## 2. Review body item 1 — top-level comment\nNot changed.\n## 3. Review body item 2 — top-level comment\nFixed.\n## 4. Review body item 3\nAdded.";
+	assert.match(one, g);
+	assert.match(quoted, g);
+	assert.doesNotMatch(separate, g);
+});
+
+test("review-feedback: no reply opens with praise or a concession", () => {
+	const g = grader("review-feedback/graders/no-concession-opener.md");
+	for (const opener of ["Good catch, fixed: the check is now `>`.", "Thanks, I've added the flag note.", "> Agreed, done.", "**You're right** — fixed."]) assert.match(`## Inline\n${opener}\n`, g, opener);
+	for (const fine of ["Fixed: the check is now `>`.", "Not changed: routes.ts already replays by key.", "1. Idempotency — not changed.", "Done; we agreed with dana to note the flag."]) assert.doesNotMatch(`## Inline\n${fine}\n`, g, fine);
 });
 
