@@ -205,14 +205,14 @@ User's answers (2026-10-18): links and headings from pandoc's JSON tree; a share
 **Files:** Modify `publish.ts` · Test `tests/publish.test.ts`
 **Interfaces:** Produces `stringify(inlines): string` · `indexChapters(doc): string[]` (Link targets of a README AST, decoded, in order, chapter pattern) · `prepareSource(doc, o: { from, chapters, anchor?, repoDir, repoUrl?, dropRepoLinks?, assetsDir }): { blocks, outside: string[], images: string[], findings: string[] }`. Replaces `parseIndex` and `rewriteLinks` (their tests move to the new functions, same expectations).
 
-- [ ] Failing tests with hand-built ASTs:
+- [x] Failing tests with hand-built ASTs:
   - targets with a title, from a reference definition, with `<…>` and percent-encoding resolve (`01-my setup.md`, `img/a%20b.png` → `img/a b.png`)
   - inside a chapter (`anchor` set) every Header id becomes `<anchor>--<id>`; `#overview` → `#<anchor>--overview`; `02-flow.md#overview` → `#ch-02-flow--overview`; a `#frag` that isn't a heading of its chapter → finding `docs/01-setup.md: anchor #nope not found`
   - the chapter's blocks are wrapped in a Div with id `<anchor>`
   - a Link into the repo → `outside`, or its inlines with `dropRepoLinks`, or the repo URL with `repoUrl`; images → `assets/…`; links inside CodeBlock/Code are untouched (they aren't Links in the AST)
   - RawInline/RawBlock HTML with a local `href`/`src` → finding `raw HTML link … : write it as a Markdown link`
   - an image wrapped in a link: the image is copied and the link judged on its own target
-- [ ] Run → FAIL; implement; run → PASS; full suite; commit
+- [x] Run → FAIL; implement; run → PASS; full suite; commit
 
 ### Task 8: build from the AST (fixes I-1, I-5, I-7, m-4, pi I1, minors)
 
@@ -255,3 +255,5 @@ User's answers (2026-10-18): links and headings from pandoc's JSON tree; a share
 - Trigger (manual, agreed): `claude -p "Нужно сделать красивый PDF из нашей документации для партнёра Acme… Только подготовь план" --plugin-dir src_claude` in a clean copy of the fixture → the session called Skill `eng-kit:publishing-documents`. Task 5: complete.
 - Task 6: complete (f18b369..65a1c84 in src_claude, ec6684e in src; skill folder and tests/publish.test.ts identical (diff -r empty; compare-editions lists no difference for the skill); verify from the workspace root → all pass; pi publish tests with the tools → 21 pass; release check → ok 0.30.0 in both).
 - Review round 1 (Claude edition, range 1f8adc3..f21ae96; pi, 7f750f2..ec6684e): both No — CRLF frontmatter, chapter frontmatter overriding metadata, heading ids and footnotes sharing one namespace, link forms the regex misses, pandoc's own Markdown dialect, HTML without audience and version, script path in SKILL.md, `main` over 100 lines, CLI-level test gaps, stale ARCHITECTURE lists. Rework planned as Tasks 7–9.
+- Ruling: two of the new tests were wrong as first written (a regex helper that matched no link, and a stringify input missing a Space); fixed before any implementation was trusted, then all seven behaviour tests were seen failing again with the stubs restored — none.
+- Task 7: complete (175a67e..25e7fe9, npm test → all pass, 8 build tests skipped; seven AST tests seen failing on stubs; the old parseIndex/rewriteLinks tests replaced by indexChapters/prepareSource tests with the same expectations).
