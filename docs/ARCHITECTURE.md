@@ -125,9 +125,11 @@ The hook code is the same in both modes. The kit root is the parent folder of `h
 1. the rule in `writing-documentation`: docs in the same change and about the current state;
 2. the "Post-implementation" block in every plan and the docs update step in `/implement` and `executing-plans`, plus a Docs line in the final report;
 3. in review, stale docs are Important, not Minor;
-4. mechanical checks (links, markdownlint, doc-comment linters, API reference generation, diagrams that render): `writing-documentation/references/checks.md` suggests adding them to the project's verify and CI.
+4. mechanical checks (links, markdownlint, doc-comment linters, API reference generation, diagrams that render, a strict docs site build): `writing-documentation/references/checks.md` suggests adding them to the project's verify and CI.
 
 **Diagrams.** Where prose would make the reader draw the picture (calls between components, failure paths, states), the doc carries a Mermaid diagram named as the code is, with one sentence stating its takeaway (`writing-documentation/references/diagrams.md`). Without this rule, an agent documenting a webhook flow wrote steps and tables but no diagram; with it, a sequence diagram with every failure branch.
+
+**Docs site.** A site is a view of `docs/`, never a second copy: the text stays in the Markdown, the menu is built from the chapter files, and the build is strict, with lychee on its output and the `mmdc` check, in CI (`writing-documentation/references/docs-site.md`). VitePress for JS/TS projects, Zensical for other stacks. Without the reference, an agent typed the menu into the config and checked no diagram; with it, the menu came from the files and CI ran four checks.
 
 **Two kinds of documents.**
 - **Working** documents: the task file (`docs/tasks/`) and the legacy map. The task file is filled as work goes on (`brainstorming` writes the description, `writing-plans` the Plan, `executing-plans` the Progress) and records intent and progress. It lives only on the work branch.
