@@ -148,12 +148,12 @@ None: a new skill; nothing installed into projects changes until the user update
 **Files:** Modify `publish.ts` · Test `tests/publish.test.ts`
 **Interfaces:** Produces `checkTools(o: { mermaid: boolean }, run?: (cmd: string, args: string[]) => { status: number | null; stdout: string }): string[]` (empty when all present; default `run` is `spawnSync`)
 
-- [ ] Stub returning `[]`; write failing tests with a fake `run`:
+- [x] Stub returning `[]`; write failing tests with a fake `run`:
   - `missing pandoc is named with how to install it`: `run` returns `status: null` for `pandoc` → one finding starting `pandoc not found`
   - `old pandoc is rejected`: `pandoc 3.7.0` → finding `pandoc 3.7.0 is older than 3.8`
   - `typst is required`; `mmdc is required only with diagrams`: `{ mermaid: false }` never calls `mmdc`
-- [ ] Run → FAIL; implement (`pandoc --version` first line, `typst --version`, `mmdc --version`); run → PASS, then `npm test`
-- [ ] Commit `feat(publishing-documents): check the build tools before writing anything`
+- [x] Run → FAIL; implement (`pandoc --version` first line, `typst --version`, `mmdc --version`); run → PASS, then `npm test`
+- [x] Commit `feat(publishing-documents): check the build tools before writing anything`
 
 ### Task 4: theme and build (`main`)
 
@@ -202,3 +202,4 @@ None: a new skill; nothing installed into projects changes until the user update
 - Ruling: image links are written as `<…>` (pandoc's form for paths with spaces), so the test input is `![x](<img/a b.png>)` rather than the plan's bare form — a bare path with a space isn't a Markdown link — none.
 - Ruling: added a test that links in fenced and inline code are left alone (plan didn't list it; a code sample would otherwise fail the build) — none.
 - Task 2: complete (635262e..d8b9126, npm test → 491 pass, 0 fail; four rewriteLinks tests seen failing on the stub; the code test seen failing with code skipping removed).
+- Task 3: complete (e08300b..7ea94ef, npm test → 495 pass, 0 fail; three checkTools tests seen failing on the stub; "everything present" passes on the stub by design and guards against false findings).
