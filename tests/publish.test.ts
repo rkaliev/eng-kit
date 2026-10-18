@@ -5,21 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { chapterAnchor, checkTools, extractChangelog, parseIndex, rewriteLinks } from "../skills/publishing-documents/scripts/publish.ts";
-
-test("parseIndex keeps the index order and only chapter links", () => {
-	const readme = [
-		"# Docs",
-		"",
-		"| Chapter | What |",
-		"|---|---|",
-		"| [02](02-flow.md) | flow |",
-		"| [01](./01-setup.md) | setup |",
-		"",
-		"Decisions: [d](decisions/README.md). External: [x](https://e.com/03-x.md). Again: [02 again](02-flow.md).",
-	].join("\n");
-	assert.deepEqual(parseIndex(readme), ["02-flow.md", "01-setup.md"]);
-});
+import { chapterAnchor, checkTools, extractChangelog, indexChapters, prepareSource, stringify, type Doc, type Node } from "../skills/publishing-documents/scripts/publish.ts";
 
 test("extractChangelog returns one version's section", () => {
 	const plain = "# Changelog\n\n## 0.2.0\n\n- b\n\n## 0.1.0\n\n- a\n";
@@ -37,55 +23,6 @@ test("chapterAnchor is stable and ASCII-safe", () => {
 	assert.match(ru, /^ch-01-[0-9a-f]{8}$/);
 	assert.equal(chapterAnchor("01-обзор.md"), ru);
 	assert.notEqual(chapterAnchor("01-архитектура.md"), ru);
-});
-
-const repo = "/r";
-const from = "/r/docs/01-setup.md";
-const chapters = new Map([["/r/docs/01-setup.md", "ch-01-setup"], ["/r/docs/02-flow.md", "ch-02-flow"]]);
-
-test("rewriteLinks: a link to another chapter becomes its anchor, without the fragment", () => {
-	const { text, outside } = rewriteLinks("See [f](02-flow.md) and [o](02-flow.md#overview).", { from, chapters, repoDir: repo });
-	assert.equal(text, "See [f](#ch-02-flow) and [o](#ch-02-flow).");
-	assert.deepEqual(outside, []);
-});
-
-test("rewriteLinks: a link into the repo outside the document is reported", () => {
-	const md = "Code: [c](../src/a.ts).";
-	const { text, outside } = rewriteLinks(md, { from, chapters, repoDir: repo });
-	assert.equal(text, md);
-	assert.deepEqual(outside, ["docs/01-setup.md: ../src/a.ts"]);
-});
-
-test("rewriteLinks: with repoUrl the link is rewritten and keeps its fragment", () => {
-	const { text, outside } = rewriteLinks("[c](../src/a.ts#L3) [r](/README.md)", {
-		from,
-		chapters,
-		repoDir: repo,
-		repoUrl: "https://git.example/r/blob/main",
-	});
-	assert.equal(text, "[c](https://git.example/r/blob/main/src/a.ts#L3) [r](https://git.example/r/blob/main/README.md)");
-	assert.deepEqual(outside, []);
-});
-
-test("rewriteLinks: external links, anchors, mailto and code are left alone", () => {
-	const md = [
-		"[e](https://e.com/x.md) [a](#top) [m](mailto:a@b.c) [p](//cdn.example/x)",
-		"Inline `[i](../src/a.ts)` stays.",
-		"```md",
-		"[k](../src/b.ts)",
-		"```",
-	].join("\n");
-	const r = rewriteLinks(md, { from, chapters, repoDir: repo });
-	assert.equal(r.text, md);
-	assert.deepEqual(r.outside, []);
-	assert.deepEqual(r.images, []);
-});
-
-test("rewriteLinks: local images are collected and moved to assets/", () => {
-	const md = "![x](<img/a b.png>) ![y](img/схема.png) ![w](https://e.com/w.png)";
-	const r = rewriteLinks(md, { from, chapters, repoDir: repo });
-	assert.equal(r.text, "![x](<assets/1-a b.png>) ![y](<assets/2-схема.png>) ![w](https://e.com/w.png)");
-	assert.deepEqual(r.images, ["/r/docs/img/a b.png", "/r/docs/img/схема.png"]);
 });
 
 /** A fake command runner: `tools` maps a command to its `--version` output; absent means not installed. */
@@ -279,8 +216,93 @@ test("publish: several files make one document in the given order; a left-out ch
 	assert.equal(p.run("docs/01-setup.md", "docs/02-flow.md", "--out", "out3").status, 1, "several files need --title");
 });
 
-test("rewriteLinks: dropRepoLinks keeps the text of a link into the repo and drops the link", () => {
-	const r = rewriteLinks("The handler is [createPayout](../src/payouts.ts); see [f](02-flow.md).", { from, chapters, repoDir: repo, dropRepoLinks: true });
-	assert.equal(r.text, "The handler is createPayout; see [f](#ch-02-flow).");
+// ---------------------------------------------------------------- transforms on pandoc's JSON tree
+
+const A = ["", [], []];
+const str = (c: string): Node => ({ t: "Str", c });
+const link = (text: string, url: string, title = ""): Node => ({ t: "Link", c: [A, [str(text)], [url, title]] });
+const image = (alt: string, url: string): Node => ({ t: "Image", c: [A, [str(alt)], [url, ""]] });
+const para = (...c: Node[]): Node => ({ t: "Para", c });
+const header = (level: number, id: string, text: string): Node => ({ t: "Header", c: [level, [id, [], []], [str(text)]] });
+const doc = (...blocks: Node[]): Doc => ({ "pandoc-api-version": [1, 23, 1], meta: {}, blocks });
+const repo = "/r";
+const from = "/r/docs/01-setup.md";
+const chapters = new Map([["/r/docs/01-setup.md", "ch-01-setup"], ["/r/docs/02-flow.md", "ch-02-flow"], ["/r/docs/01-my setup.md", "ch-01-x"]]);
+const opts = { from, chapters, repoDir: repo, assetsDir: "assets/1" };
+/** The targets of every node of type `t` in the prepared blocks, in order. */
+function targets(x: unknown, t = "Link", out: string[] = []): string[] {
+	if (Array.isArray(x)) for (const v of x) targets(v, t, out);
+	else if (x && typeof x === "object") {
+		const n = x as Node;
+		if (n.t === t) out.push(n.c[2][0]);
+		if ("c" in n) targets(n.c, t, out);
+	}
+	return out;
+}
+const urls = (blocks: unknown) => targets(blocks);
+
+test("stringify flattens inlines", () => {
+	assert.equal(stringify([str("Export"), { t: "Space" }, { t: "Code", c: [A, "POST"] }, { t: "Space" }, { t: "Emph", c: [str("now")] }]), "Export POST now");
+	assert.equal(stringify({ t: "MetaInlines", c: [str("A"), { t: "Space" }, str("B")] }), "A B");
+});
+
+test("indexChapters keeps the index order and only chapter links, decoded", () => {
+	const readme = doc(
+		header(1, "docs", "Docs"),
+		para(link("02", "02-flow.md", "Flow"), link("01", "./01-setup.md"), link("sp", "01-my%20setup.md")),
+		para(link("d", "decisions/README.md"), link("x", "https://e.com/03-x.md"), link("02 again", "02-flow.md")),
+	);
+	assert.deepEqual(indexChapters(readme), ["02-flow.md", "01-setup.md", "01-my setup.md"]);
+});
+
+test("prepareSource: links to chapters become anchors; titled, angle-bracket and encoded targets resolve", () => {
+	const r = prepareSource(doc(para(link("f", "02-flow.md", "Flow"), link("o", "02-flow.md#overview"), link("s", "01-my%20setup.md"))), { ...opts, anchor: "ch-01-setup" });
+	assert.deepEqual(urls(r.blocks), ["#ch-02-flow", "#ch-02-flow--overview", "#ch-01-x"]);
 	assert.deepEqual(r.outside, []);
+});
+
+test("prepareSource: a chapter gets its own namespace and its fragments are checked", () => {
+	const r = prepareSource(doc(header(1, "setup", "Setup"), header(2, "overview", "Overview"), para(link("o", "#overview"), link("n", "#nope"))), { ...opts, anchor: "ch-01-setup" });
+	const div = r.blocks[0]!;
+	assert.equal(div.t, "Div");
+	assert.equal(div.c[0][0], "ch-01-setup");
+	assert.deepEqual(div.c[1].slice(0, 2).map((h: Node) => h.c[1][0]), ["ch-01-setup--setup", "ch-01-setup--overview"]);
+	assert.deepEqual(urls(r.blocks), ["#ch-01-setup--overview", "#ch-01-setup--nope"]);
+	assert.deepEqual(r.findings, ["docs/01-setup.md: anchor #nope not found"]);
+	const single = prepareSource(doc(header(2, "overview", "Overview"), para(link("o", "#overview"))), opts);
+	assert.deepEqual(urls(single.blocks), ["#overview"]);
+	assert.equal(single.blocks[0]!.t, "Header");
+});
+
+test("prepareSource: a link into the repo is reported, dropped or rewritten", () => {
+	const src = doc(para(link("c", "../src/a.ts#L3", "Source")));
+	assert.deepEqual(prepareSource(src, opts).outside, ["docs/01-setup.md: ../src/a.ts#L3"]);
+	const dropped = prepareSource(src, { ...opts, dropRepoLinks: true });
+	assert.deepEqual(dropped.outside, []);
+	assert.deepEqual(urls(dropped.blocks), []);
+	assert.equal(stringify(dropped.blocks), "c");
+	const viaUrl = prepareSource(doc(para(link("c", "../src/a.ts#L3"), link("r", "/README.md"))), { ...opts, repoUrl: "https://git.example/r/blob/main/" });
+	assert.deepEqual(urls(viaUrl.blocks), ["https://git.example/r/blob/main/src/a.ts#L3", "https://git.example/r/blob/main/README.md"]);
+});
+
+test("prepareSource: external links and mailto are left alone", () => {
+	const r = prepareSource(doc(para(link("e", "https://e.com/x.md"), link("m", "mailto:a@b.c"), link("p", "//cdn.example/x"))), opts);
+	assert.deepEqual(urls(r.blocks), ["https://e.com/x.md", "mailto:a@b.c", "//cdn.example/x"]);
+	assert.deepEqual([r.outside, r.findings, r.images], [[], [], []]);
+});
+
+test("prepareSource: local images move to assets/, also inside a link", () => {
+	const r = prepareSource(doc(para(image("x", "img/a%20b.png"), image("y", "img/схема.png"), image("w", "https://e.com/w.png")), para({ t: "Link", c: [A, [image("s", "img/s.png")], ["https://e.com", ""]] })), opts);
+	assert.deepEqual(r.images, ["/r/docs/img/a b.png", "/r/docs/img/схема.png", "/r/docs/img/s.png"]);
+	const imgs = targets(r.blocks, "Image");
+	assert.deepEqual(imgs, ["assets/1/1-a b.png", "assets/1/2-схема.png", "https://e.com/w.png", "assets/1/3-s.png"]);
+	assert.deepEqual(r.outside, []);
+});
+
+test("prepareSource: raw HTML with a local link fails; external raw HTML passes", () => {
+	const r = prepareSource(doc({ t: "RawBlock", c: ["html", '<a href="../src/a.ts">a</a> <img src="https://e.com/x.png">'] }, para({ t: "RawInline", c: ["html", '<img src="img/x.png">'] })), opts);
+	assert.deepEqual(r.findings, [
+		"docs/01-setup.md: raw HTML link ../src/a.ts: write it as a Markdown link",
+		"docs/01-setup.md: raw HTML link img/x.png: write it as a Markdown link",
+	]);
 });

@@ -90,6 +90,143 @@ function toPosix(p: string): string {
 	return p.split("\\").join("/");
 }
 
+// ---------------------------------------------------------------- pandoc's JSON tree
+
+/** A node of pandoc's JSON AST: `t` is the type, `c` its contents (shape depends on the type). */
+// biome-ignore lint/suspicious/noExplicitAny: pandoc's AST is untyped JSON
+export type Node = { t: string; c?: any };
+export type Doc = { "pandoc-api-version": number[]; meta: Record<string, Node>; blocks: Node[] };
+
+/** The plain text of inlines, blocks or a metadata value. */
+export function stringify(x: unknown): string {
+	if (Array.isArray(x)) return x.map(stringify).join("");
+	if (!x || typeof x !== "object") return "";
+	const n = x as Node;
+	if (n.t === "Str" || n.t === "MetaString") return n.c;
+	if (n.t === "Space" || n.t === "SoftBreak" || n.t === "LineBreak") return " ";
+	if (n.t === "Code") return n.c[1];
+	if (n.t === "Link" || n.t === "Image" || n.t === "Span") return stringify(n.c[1]);
+	if (n.t === "Note" || n.t === "RawInline" || n.t === "RawBlock" || n.t === "CodeBlock") return "";
+	return stringify(n.c);
+}
+
+/** Calls `f` on every node, depth first, children before parents; `f` may return a replacement. */
+function walk(x: unknown, f: (n: Node) => Node | undefined): unknown {
+	if (Array.isArray(x)) return x.map((v) => walk(v, f));
+	if (!x || typeof x !== "object") return x;
+	const n = x as Node;
+	if (typeof n.t !== "string") return Object.fromEntries(Object.entries(n).map(([k, v]) => [k, walk(v, f)]));
+	const inner: Node = "c" in n ? { t: n.t, c: walk(n.c, f) } : { t: n.t };
+	return f(inner) ?? inner;
+}
+
+/** Every Link target, in document order. */
+function linkTargets(blocks: unknown): string[] {
+	const found: string[] = [];
+	walk(blocks, (n) => {
+		if (n.t === "Link") found.push(n.c[2][0]);
+		return undefined;
+	});
+	return found;
+}
+
+function decode(s: string): string {
+	try {
+		return decodeURIComponent(s);
+	} catch {
+		return s;
+	}
+}
+
+/** Chapter files linked from a docs index's AST, decoded, in the index's order. */
+export function indexChapters(doc: Doc): string[] {
+	const chapters: string[] = [];
+	for (const url of linkTargets(doc.blocks)) {
+		const href = decode(url.replace(/[?#].*$/, "")).replace(/^\.\//, "");
+		if (CHAPTER.test(href) && !chapters.includes(href)) chapters.push(href);
+	}
+	return chapters;
+}
+
+export type SourceOptions = {
+	from: string;
+	chapters: Map<string, string>;
+	anchor?: string;
+	repoDir: string;
+	repoUrl?: string;
+	dropRepoLinks?: boolean;
+	assetsDir: string;
+};
+
+/**
+ * Makes one source stand alone: inside a chapter (`anchor`) its ids get the chapter's prefix and its blocks a
+ * wrapping Div; chapter links become anchors, links into the repo are reported (or dropped, or rewritten to
+ * `repoUrl`), local images move to `assetsDir`, and raw HTML pointing at local files is a finding.
+ */
+export function prepareSource(doc: Doc, o: SourceOptions): { blocks: Node[]; outside: string[]; images: string[]; findings: string[] } {
+	const outside: string[] = [];
+	const images: string[] = [];
+	const findings: string[] = [];
+	const fromRel = toPosix(relative(o.repoDir, o.from));
+	const id = (local: string) => (o.anchor && local ? `${o.anchor}--${local}` : local);
+	const ids = new Set<string>();
+	walk(doc.blocks, (n) => {
+		const attr = attrOf(n);
+		if (attr?.[0]) ids.add(attr[0]);
+		return undefined;
+	});
+	const resolveTarget = (path: string) => (path.startsWith("/") ? resolve(o.repoDir, `.${path}`) : resolve(dirname(o.from), path));
+
+	const blocks = walk(doc.blocks, (n) => {
+		const attr = attrOf(n);
+		if (attr?.[0]) attr[0] = id(attr[0]);
+		if (n.t === "RawInline" || n.t === "RawBlock") {
+			if (/^html/.test(n.c[0]))
+				for (const m of (n.c[1] as string).matchAll(/\b(?:href|src)\s*=\s*["']([^"']+)["']/gi))
+					if (!isExternal(m[1]!)) findings.push(`${fromRel}: raw HTML link ${m[1]}: write it as a Markdown link`);
+			return undefined;
+		}
+		if (n.t !== "Link" && n.t !== "Image") return undefined;
+		const url: string = n.c[2][0];
+		if (isExternal(url)) return undefined;
+		const [, rawPath, rest] = url.match(/^([^?#]*)(.*)$/)!;
+		if (!rawPath) {
+			const frag = decode(rest!.slice(1));
+			if (n.t === "Link" && frag) {
+				if (!ids.has(frag)) findings.push(`${fromRel}: anchor #${frag} not found`);
+				n.c[2][0] = `#${id(frag)}`;
+			}
+			return undefined;
+		}
+		const target = resolveTarget(decode(rawPath));
+		if (n.t === "Image") {
+			images.push(target);
+			n.c[2][0] = `${o.assetsDir}/${images.length}-${basename(target)}`;
+			return undefined;
+		}
+		const chapter = o.chapters.get(target);
+		const frag = rest!.startsWith("#") ? decode(rest!.slice(1)) : "";
+		if (chapter) n.c[2][0] = frag ? `#${chapter}--${frag}` : `#${chapter}`;
+		else if (o.dropRepoLinks) return { t: "Span", c: [["", [], []], n.c[1]] };
+		else if (o.repoUrl) n.c[2][0] = `${o.repoUrl.replace(/\/$/, "")}/${toPosix(relative(o.repoDir, target))}${rest}`;
+		else outside.push(`${fromRel}: ${url}`);
+		return undefined;
+	}) as Node[];
+	return { blocks: o.anchor ? [{ t: "Div", c: [[o.anchor, [], []], blocks] }] : blocks, outside, images, findings };
+}
+
+/** A URL with a scheme, a protocol-relative URL, or data: — nothing to check locally. */
+function isExternal(url: string): boolean {
+	return /^[a-z][a-z0-9+.-]*:|^\/\//i.test(url);
+}
+
+/** The Attr ([id, classes, keyvals]) of a node that carries one, or undefined. */
+function attrOf(n: Node): [string, string[], [string, string][]] | undefined {
+	if (n.t === "Header") return n.c[1];
+	if (n.t === "Div" || n.t === "Span" || n.t === "CodeBlock" || n.t === "Code") return n.c[0];
+	return undefined;
+}
+
 export type Run = (cmd: string, args: string[]) => { status: number | null; stdout: string };
 
 /** What is missing or too old to build; empty when everything is there. */
