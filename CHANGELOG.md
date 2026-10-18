@@ -2,7 +2,7 @@
 
 ## 0.27.2
 
-- **A new eval, `review-feedback`:** PR feedback in an inline thread, a review body and a top-level comment. With the kit every run answers the review body in one numbered reply, opens no reply with praise and closes every item (1.00); without it 0.60 (no run without praise in the opening, one numbered reply in 1 of 3). Its fix is also checked by behavior. The grader tests read a regex grader's `flags`.
+- **A new eval, `review-feedback`:** PR feedback in an inline thread, a review body and a top-level comment. With the kit every run answers the review body in one numbered reply, opens no reply with praise and closes every item (1.00); without it 0.71 (no run without praise in the opening, one numbered reply in 1 of 3). Its fix is also checked by behavior, and two graders check that the claimed changes exist. The grader tests read a regex grader's `flags`.
 - `docs/EVALS.md` records that a harder `symptom-remedy` (the cause two layers down, a plausible external cause in the logs) didn't trap the bare model either.
 
 ## 0.27.1
