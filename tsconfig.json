@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["hooks/**/*.ts", "lib/**/*.ts", "scripts/**/*.ts", "skills/**/*.ts", "tests/**/*.ts", "evals/*/behavior.ts"]
+  "include": ["hooks/**/*.ts", "lib/**/*.ts", "scripts/**/*.ts", "skills/**/*.ts", "skills/**/*.mts", "tests/**/*.ts", "evals/*/behavior.ts"]
 }
