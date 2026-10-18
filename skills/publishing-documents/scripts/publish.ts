@@ -3,6 +3,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { basename, dirname, relative, resolve } from "node:path";
 
 const CHAPTER = /^\d+-[^/]+\.md$/;
 
@@ -35,4 +36,42 @@ export function chapterAnchor(file: string): string {
 	const digits = name.match(/^\d+/)?.[0] ?? "";
 	const hash = createHash("sha1").update(name).digest("hex").slice(0, 8);
 	return `ch-${digits ? `${digits}-` : ""}${hash}`;
+}
+
+export type LinkOptions = { from: string; chapters: Map<string, string>; repoDir: string; repoUrl?: string };
+
+/**
+ * Makes a source's links work in a standalone document: chapter links become in-document anchors,
+ * links into the repo are reported (or rewritten to `repoUrl`), and local images move to `assets/`.
+ */
+export function rewriteLinks(md: string, o: LinkOptions): { text: string; outside: string[]; images: string[] } {
+	const outside: string[] = [];
+	const images: string[] = [];
+	const fromRel = toPosix(relative(o.repoDir, o.from));
+	const rewrite = (prose: string) =>
+		prose.replace(/(!?)\[([^\]]*)\]\((?:<([^>]+)>|([^)\s]+))\)/g, (whole, bang: string, label: string, angled?: string, bare?: string) => {
+			const href = (angled ?? bare)!;
+			if (/^[a-z][a-z0-9+.-]*:|^#|^\/\//i.test(href)) return whole;
+			const [, path, rest] = href.match(/^([^?#]*)(.*)$/)!;
+			const target = path!.startsWith("/") ? resolve(o.repoDir, `.${path}`) : resolve(dirname(o.from), path!);
+			if (bang) {
+				images.push(target);
+				return `![${label}](<assets/${images.length}-${basename(target)}>)`;
+			}
+			const anchor = o.chapters.get(target);
+			if (anchor) return `[${label}](#${anchor})`;
+			if (o.repoUrl) return `[${label}](${o.repoUrl.replace(/\/$/, "")}/${toPosix(relative(o.repoDir, target))}${rest})`;
+			outside.push(`${fromRel}: ${href}`);
+			return whole;
+		});
+	// Links inside fenced code blocks and inline code are examples, not links.
+	const text = md
+		.split(/(^```[^\n]*\n[\s\S]*?^```[ \t]*$)/m)
+		.map((part, i) => (i % 2 ? part : part.split(/(`[^`\n]*`)/).map((p, j) => (j % 2 ? p : rewrite(p))).join("")))
+		.join("");
+	return { text, outside, images };
+}
+
+function toPosix(p: string): string {
+	return p.split("\\").join("/");
 }
