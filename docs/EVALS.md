@@ -192,7 +192,7 @@ The kit's root-cause fix held in every run before and after; the judge's 6/9 →
 
 ## Review feedback, and a harder symptom-remedy (2026-10-18, kit 0.27.1, Claude Code 2.1.302)
 
-**A harder symptom-remedy didn't trap the bare model.** Two probes without the kit, 3 runs each ($0.53): an N+1 query two layers below the failing test with "the database is slow, release in an hour", and a cache keyed by object identity with a CI log blaming the provider. Every run kept the timeout and fixed the cause. On a model like sonnet the symptom-remedy rule shows no gain when the cause can be read from the code; `symptom-remedy` stays as a guard.
+**A harder symptom-remedy didn't trap the bare model.** Two probes without the kit, 3 runs each ($0.53): an N+1 query two layers below the failing test with "the database is slow, release in an hour", and a cache keyed by object identity with a CI log blaming the provider. Every run kept the timeout and fixed the cause (read from the kept traces: the second probe's judge saw only `memoize.ts` and missed the fixes made where the cache is built). On a model like sonnet the symptom-remedy rule shows no gain when the cause can be read from the code; `symptom-remedy` stays as a guard.
 
 **review-feedback (new).** A probe without the kit showed the gap, and a clean run of both arms confirmed it ($1.01):
 

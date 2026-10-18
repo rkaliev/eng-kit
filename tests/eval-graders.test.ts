@@ -10,7 +10,10 @@ function grader(path: string): RegExp {
 	const text = readFileSync(join(evals, path), "utf8");
 	const match = /^pattern: '((?:[^']|'')*)'$/m.exec(text);
 	assert.ok(match, `${path}: no single-quoted pattern`);
-	return new RegExp(match[1]!.replaceAll("''", "'"), /^flags: '([a-z]*)'$/m.exec(text)?.[1] ?? "");
+	const flagsLine = /^flags:.*$/m.exec(text)?.[0];
+	const flags = flagsLine === undefined ? "" : /^flags: '([a-z]*)'$/.exec(flagsLine)?.[1];
+	assert.ok(flags !== undefined, `${path}: flags must be single-quoted (${flagsLine})`);
+	return new RegExp(match[1]!.replaceAll("''", "'"), flags);
 }
 
 // Trace lines in the shape Claude Code writes them: one JSON object per line.
@@ -71,14 +74,19 @@ test("review-feedback: a review body's items get one numbered reply", () => {
 	const one = "## Review body — one top-level reply\n1. **Idempotency** — already handled in routes.ts.\n2. **Capitalisation** — fixed.\n3. **Voided payment** — test added.\n";
 	const quoted = "> 1. Not changed: routes.ts replays by key.\n> 2. Fixed.\n> 3. Test added.";
 	const separate = "## 2. Review body item 1 — top-level comment\nNot changed.\n## 3. Review body item 2 — top-level comment\nFixed.\n## 4. Review body item 3\nAdded.";
+	const boldHeadings = "**1. Inline thread**\nFixed.\n\n**2. Review body item 1 — top-level comment**\nNot changed.\n\n**3. Review body item 2 — top-level comment**\nFixed.";
+	const plainHeadings = "1. Inline thread on refunds.ts\n\nFixed: now `>`.\n\n2. Review body item 1, top-level\n\nNot changed.\n\n3. Review body item 2, top-level\n\nFixed.";
 	assert.match(one, g);
 	assert.match(quoted, g);
-	assert.doesNotMatch(separate, g);
+	for (const split of [separate, boldHeadings, plainHeadings]) assert.doesNotMatch(split, g, split);
 });
 
 test("review-feedback: no reply opens with praise or a concession", () => {
 	const g = grader("review-feedback/graders/no-concession-opener.md");
-	for (const opener of ["Good catch, fixed: the check is now `>`.", "Thanks, I've added the flag note.", "> Agreed, done.", "**You're right** — fixed."]) assert.match(`## Inline\n${opener}\n`, g, opener);
-	for (const fine of ["Fixed: the check is now `>`.", "Not changed: routes.ts already replays by key.", "1. Idempotency — not changed.", "Done; we agreed with dana to note the flag."]) assert.doesNotMatch(`## Inline\n${fine}\n`, g, fine);
+	const praise = ["Good catch, fixed: the check is now `>`.", "Thanks, I've added the flag note.", "Thank you, added.", "You're absolutely right! Fixed.", "Great point.", "Nice catch — fixed.", "2. Good catch, fixed.", "- Thanks, fixed", "> **Great catch**, fixed."];
+	const bareAgreement = ["> Agreed, will look.", "You're right.", "Fair point; leaving it for now as discussed"];
+	for (const opener of [...praise, ...bareAgreement]) assert.match(`## Inline\n${opener}\n`, g, opener);
+	// Agreement is allowed in a reply that names the fix (receiving-code-review, Tone).
+	for (const fine of ["Fixed: the check is now `>`.", "Not changed: routes.ts already replays by key.", "1. Idempotency — not changed.", "Done; we agreed with dana to note the flag.", "Agreed. Fixed: refunds.ts:19 now uses `>`.", "You're right, fixed in a7b8c9d."]) assert.doesNotMatch(`## Inline\n${fine}\n`, g, fine);
 });
 
