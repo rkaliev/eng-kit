@@ -1,6 +1,6 @@
 # Publishable HTML/PDF documents from the repo's Markdown
 
-Status: plan approved (2026-10-18)
+Status: in progress
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
 Base: 0bb6af7771fa21741489461a1c7dcc6a0398c0fb
 Links: None
@@ -117,15 +117,15 @@ None: a new skill; nothing installed into projects changes until the user update
 **Files:** Create `skills/publishing-documents/scripts/publish.ts` · Modify `tsconfig.json` · Test `tests/publish.test.ts`
 **Interfaces:** Produces `parseIndex(readme: string): string[]` · `extractChangelog(text: string, version: string): string | null` · `chapterAnchor(file: string): string`
 
-- [ ] Add `"skills/**/*.ts"` to `tsconfig.json` `include`; create `publish.ts` with the three exports returning `[]`, `null`, `""`
-- [ ] Write failing tests:
+- [x] Add `"skills/**/*.ts"` to `tsconfig.json` `include`; create `publish.ts` with the three exports returning `[]`, `null`, `""`
+- [x] Write failing tests:
   - `parseIndex keeps the index order and only chapter links`: input with a table linking `[02](02-flow.md)`, `[01](./01-setup.md)`, `[d](decisions/README.md)`, `[x](https://e.com/03-x.md)`, `[02 again](02-flow.md)` → `["02-flow.md","01-setup.md"]`
   - `extractChangelog returns one version's section`: `## 0.2.0\n\n- b\n\n## 0.1.0\n\n- a\n` with `"0.2.0"` → `"- b"`; with `"[1.2.0] - 2026-10-01"` style heading and CRLF → the section text with `\n` line endings; unknown `"9.9.9"` → `null`
   - `chapterAnchor is stable and ASCII-safe`: `"02-flow.md"` → `"ch-02-flow"`; `"01-обзор.md"` → `"ch-01"` followed by a hex hash of the name (same input → same output, two names → two anchors)
-- [ ] Run `npm test -- tests/publish.test.ts` → expect FAIL: `[]` vs `["02-flow.md","01-setup.md"]`, `null` vs `"- b"`, `""` vs `"ch-02-flow"`
-- [ ] Implement: chapter link = relative href (optional `./`) matching `^\d+-[^/]+\.md$`, first occurrence wins; a CHANGELOG heading matches `^## \[?<version>\]?(\s|$)`; anchor = `ch-` + the name without `.md` when it is `[a-z0-9-]+`, else `ch-<leading digits>-<first 8 hex of sha1(name)>`
-- [ ] Run `npm test -- tests/publish.test.ts` → PASS, then `npm test` → all pass
-- [ ] Commit `feat(publishing-documents): sources from the docs index and the changelog`
+- [x] Run `npm test -- tests/publish.test.ts` → expect FAIL: `[]` vs `["02-flow.md","01-setup.md"]`, `null` vs `"- b"`, `""` vs `"ch-02-flow"`
+- [x] Implement: chapter link = relative href (optional `./`) matching `^\d+-[^/]+\.md$`, first occurrence wins; a CHANGELOG heading matches `^## \[?<version>\]?(\s|$)`; anchor = `ch-` + the name without `.md` when it is `[a-z0-9-]+`, else `ch-<leading digits>-<first 8 hex of sha1(name)>`
+- [x] Run `npm test -- tests/publish.test.ts` → PASS, then `npm test` → all pass
+- [x] Commit `feat(publishing-documents): sources from the docs index and the changelog`
 
 ### Task 2: link checks and rewriting
 
@@ -196,4 +196,6 @@ None: a new skill; nothing installed into projects changes until the user update
 
 ## Progress
 
-None yet
+- Baseline (eb23a09): verify from the workspace root passes (typecheck and tests of src and src_claude). Drift: none (every plan file is new except tsconfig.json, unchanged since Base). Pre-flight: Interfaces of Tasks 1–4 agree.
+- Ruling: a minimal SKILL.md added in Task 1 — the skill lint requires one in every skills/ folder and the plan wrote it only in Task 5 — none, Task 5 replaces it.
+- Task 1: complete (eb23a09..78402f9, npm test → 486 pass, 0 fail; publish tests seen failing first: [] vs [02-flow.md, 01-setup.md], null vs '- b', '' vs 'ch-02-flow').
