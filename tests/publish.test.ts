@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chapterAnchor, extractChangelog, parseIndex, rewriteLinks } from "../skills/publishing-documents/scripts/publish.ts";
+import { chapterAnchor, checkTools, extractChangelog, parseIndex, rewriteLinks } from "../skills/publishing-documents/scripts/publish.ts";
 
 test("parseIndex keeps the index order and only chapter links", () => {
 	const readme = [
@@ -81,4 +81,40 @@ test("rewriteLinks: local images are collected and moved to assets/", () => {
 	const r = rewriteLinks(md, { from, chapters, repoDir: repo });
 	assert.equal(r.text, "![x](<assets/1-a b.png>) ![y](<assets/2-схема.png>) ![w](https://e.com/w.png)");
 	assert.deepEqual(r.images, ["/r/docs/img/a b.png", "/r/docs/img/схема.png"]);
+});
+
+/** A fake command runner: `tools` maps a command to its `--version` output; absent means not installed. */
+function fakeRun(tools: Record<string, string>, calls: string[] = []) {
+	return (cmd: string) => {
+		calls.push(cmd);
+		return cmd in tools ? { status: 0, stdout: tools[cmd]! } : { status: null, stdout: "" };
+	};
+}
+const allTools = { pandoc: "pandoc 3.8.3\nFeatures: +server\n", typst: "typst 0.15.1 (9dfd3a08)\n", mmdc: "11.4.0\n" };
+
+test("checkTools: everything present gives no findings", () => {
+	assert.deepEqual(checkTools({ mermaid: true }, fakeRun(allTools)), []);
+});
+
+test("checkTools: missing pandoc is named with how to install it", () => {
+	const { pandoc: _, ...rest } = allTools;
+	const findings = checkTools({ mermaid: false }, fakeRun(rest));
+	assert.equal(findings.length, 1);
+	assert.match(findings[0]!, /^pandoc not found: install pandoc 3\.8 or newer/);
+});
+
+test("checkTools: old pandoc is rejected", () => {
+	assert.deepEqual(checkTools({ mermaid: false }, fakeRun({ ...allTools, pandoc: "pandoc 3.7.0\n" })), [
+		"pandoc 3.7.0 is older than 3.8: upgrade it (https://pandoc.org/installing.html)",
+	]);
+});
+
+test("checkTools: typst is required; mmdc only with diagrams", () => {
+	const { typst: _, mmdc: __, ...onlyPandoc } = allTools;
+	const calls: string[] = [];
+	const findings = checkTools({ mermaid: false }, fakeRun(onlyPandoc, calls));
+	assert.equal(findings.length, 1);
+	assert.match(findings[0]!, /^typst not found/);
+	assert.ok(!calls.includes("mmdc"));
+	assert.match(checkTools({ mermaid: true }, fakeRun({ pandoc: allTools.pandoc, typst: allTools.typst })).join(), /^mmdc not found/);
 });

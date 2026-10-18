@@ -2,6 +2,7 @@
  * Builds a standalone HTML file and a PDF from the repo's Markdown, for readers outside the repo.
  */
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { basename, dirname, relative, resolve } from "node:path";
 
@@ -74,4 +75,31 @@ export function rewriteLinks(md: string, o: LinkOptions): { text: string; outsid
 
 function toPosix(p: string): string {
 	return p.split("\\").join("/");
+}
+
+export type Run = (cmd: string, args: string[]) => { status: number | null; stdout: string };
+
+/** What is missing or too old to build; empty when everything is there. */
+export function checkTools(o: { mermaid: boolean }, run: Run = defaultRun): string[] {
+	const findings: string[] = [];
+	const pandoc = run("pandoc", ["--version"]);
+	if (pandoc.status !== 0) findings.push(`pandoc not found: install pandoc ${PANDOC_MIN.join(".")} or newer (https://pandoc.org/installing.html)`);
+	else {
+		const version = pandoc.stdout.match(/^pandoc (\d+)\.(\d+)(?:\.\d+)*/m);
+		const [major, minor] = version ? [Number(version[1]), Number(version[2])] : [0, 0];
+		if (major < PANDOC_MIN[0] || (major === PANDOC_MIN[0] && minor < PANDOC_MIN[1]))
+			findings.push(`${version?.[0] ?? "pandoc (unknown version)"} is older than ${PANDOC_MIN.join(".")}: upgrade it (https://pandoc.org/installing.html)`);
+	}
+	if (run("typst", ["--version"]).status !== 0) findings.push("typst not found: install Typst (https://github.com/typst/typst#installation)");
+	if (o.mermaid && run("mmdc", ["--version"]).status !== 0)
+		findings.push("mmdc not found: the document has Mermaid diagrams; install @mermaid-js/mermaid-cli (npm i -g @mermaid-js/mermaid-cli)");
+	return findings;
+}
+
+/** The pandoc version the theme was tested with. */
+const PANDOC_MIN = [3, 8] as const;
+
+function defaultRun(cmd: string, args: string[]) {
+	const r = spawnSync(cmd, args, { encoding: "utf8" });
+	return { status: r.status, stdout: r.stdout ?? "" };
 }
