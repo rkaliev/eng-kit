@@ -189,10 +189,10 @@ None: a new skill; nothing installed into projects changes until the user update
 
 **Files:** in `src/`: copy `skills/publishing-documents/`, `tests/publish.test.ts`, the `tsconfig.json` include; both editions: Post-implementation docs and versions
 
-- [ ] Copy; `diff -r` of the skill folders and of the two test files prints nothing; `node tools/compare-editions.mts` reports no drift for the skill
-- [ ] Post-implementation items above
-- [ ] Verify from the workspace root → all pass; `node .github/release.ts check` in each repo → `ok 0.30.0`
-- [ ] Commit in each repo `feat(publishing-documents): publishable HTML/PDF documents (0.30.0)`
+- [x] Copy; `diff -r` of the skill folders and of the two test files prints nothing; `node tools/compare-editions.mts` reports no drift for the skill
+- [x] Post-implementation items above
+- [x] Verify from the workspace root → all pass; `node .github/release.ts check` in each repo → `ok 0.30.0`
+- [x] Commit in each repo `feat(publishing-documents): publishable HTML/PDF documents (0.30.0)`
 
 ## Progress
 
@@ -214,3 +214,4 @@ None: a new skill; nothing installed into projects changes until the user update
 - REFACTOR: `--drop-repo-links` (links into the repo become text in the output; test seen failing first) and the rule "The team's docs stay written for the team". Re-run on a clean copy: same chapters, `--drop-repo-links`, repo unchanged, all 3 pages looked at, gaps listed, nothing sent.
 - Task 5 (text, RED/GREEN/REFACTOR): f7a5ade..1335c4e, npm test lint → pass; publish tests with the tools → 21 pass. Trigger check pending.
 - Trigger (manual, agreed): `claude -p "Нужно сделать красивый PDF из нашей документации для партнёра Acme… Только подготовь план" --plugin-dir src_claude` in a clean copy of the fixture → the session called Skill `eng-kit:publishing-documents`. Task 5: complete.
+- Task 6: complete (f18b369..65a1c84 in src_claude, ec6684e in src; skill folder and tests/publish.test.ts identical (diff -r empty; compare-editions lists no difference for the skill); verify from the workspace root → all pass; pi publish tests with the tools → 21 pass; release check → ok 0.30.0 in both).
