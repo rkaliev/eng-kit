@@ -108,7 +108,7 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 ## 5. Скиллы
 
-**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, ci-quality-gates, writing-documentation, updating-dependencies, writing-skills.
+**Ядро процесса:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, ci-quality-gates, writing-documentation, publishing-documents, updating-dependencies, writing-skills.
 
 **Старт: новый или существующий код:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
@@ -287,6 +287,7 @@ Push своей ветки из сабагента `implementer` спрашив�
   - `hook.ts` через stdin/stdout, включая нечитаемый ввод (код 1); `respond()` с падающим обработчиком (PreToolUse спрашивает, остальные события выходят с кодом 1);
   - `verify.ts`;
   - `test-hygiene.ts` (правила на 7 языках, храповик с переименованиями, нет merge base, только JUnit-отчёты, конфиг, CLI);
+  - `publish.ts` из publishing-documents (преобразования дерева pandoc, разделы CHANGELOG, проверка инструментов и отказы, которым инструменты не нужны); тесты сборки идут только там, где установлены pandoc, Typst и mermaid-cli, поэтому в CI кита пропускаются;
   - `kit-init` (в том числе пункт test-hygiene: предложен, копируется с `--test-hygiene`, старая копия видна в отчёте и заменяется по флагу, CI без него виден в том же прогоне);
   - `install-project` (установка, обновление, конфликты, хуки без дублей);
   - линтер скиллов и агентов, согласованность манифестов.

@@ -107,7 +107,7 @@ The hook code is the same in both modes. The kit root is the parent folder of `h
 
 ## 5. Skills
 
-**Process core:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, ci-quality-gates, writing-documentation, updating-dependencies, writing-skills.
+**Process core:** using-skills, brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review, receiving-code-review, git-workflow, dispatching-parallel-agents, ci-quality-gates, writing-documentation, publishing-documents, updating-dependencies, writing-skills.
 
 **Starting point: new or existing code:** choosing-a-stack, onboarding-existing-codebase, changing-legacy-code.
 
@@ -286,6 +286,7 @@ The plan names the test for each criterion, and the PR body says how each new te
   - `hook.ts` over stdin/stdout, including unparsable input (exit 1); `respond()` with a throwing handler (PreToolUse asks, other events exit 1);
   - `verify.ts`;
   - `test-hygiene.ts` (rules in 7 languages, ratchet with renames, no merge base, JUnit reports only, config, CLI);
+  - `publish.ts` of publishing-documents (transforms on pandoc's tree, CHANGELOG sections, the tool check, and the failures that need no tools); its build tests run only where pandoc, Typst and mermaid-cli are installed, so they skip in the kit's CI;
   - `kit-init` (including the test-hygiene item: offered, copied with `--test-hygiene`, an older copy reported and replaced with the flag, a CI that doesn't run it reported in the same run);
   - `install-project` (install, update, conflicts, hooks without duplicates);
   - the skill and agent linter, manifest consistency.
