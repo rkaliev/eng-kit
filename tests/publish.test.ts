@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { chapterAnchor, checkTools, extractChangelog, parseIndex, rewriteLinks } from "../skills/publishing-documents/scripts/publish.ts";
 
 test("parseIndex keeps the index order and only chapter links", () => {
@@ -117,4 +122,139 @@ test("checkTools: typst is required; mmdc only with diagrams", () => {
 	assert.match(findings[0]!, /^typst not found/);
 	assert.ok(!calls.includes("mmdc"));
 	assert.match(checkTools({ mermaid: true }, fakeRun({ pandoc: allTools.pandoc, typst: allTools.typst })).join(), /^mmdc not found/);
+});
+
+// ---------------------------------------------------------------- the build (needs the real tools)
+
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "../skills/publishing-documents/scripts/publish.ts");
+const KIT_THEME = resolve(dirname(SCRIPT), "../templates");
+const NO_TOOLS = checkTools({ mermaid: true }).length > 0;
+const SKIP = "mode: needs pandoc, typst and mmdc";
+/** A 1×1 PNG. */
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+
+/** A throwaway project; `run` executes publish.ts in it. */
+function project(files: Record<string, string | Buffer>) {
+	const dir = mkdtempSync(join(tmpdir(), "publish-"));
+	for (const [name, content] of Object.entries(files)) {
+		mkdirSync(dirname(join(dir, name)), { recursive: true });
+		writeFileSync(join(dir, name), content);
+	}
+	const run = (...args: string[]) => {
+		const r = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: dir, encoding: "utf8" });
+		return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+	};
+	const read = (name: string) => readFileSync(join(dir, name), "utf8");
+	return { dir, run, read };
+}
+
+const GUIDE = "---\ntitle: Export service\nsubtitle: Integration guide\naudience: Partners\nversion: 1.2\n---\n\n# Overview\n\n| Field | Meaning |\n|---|---|\n| `report` | name |\n";
+const DIAGRAM = "```mermaid\nsequenceDiagram\n    accTitle: Export request flow\n    A->>B: POST /exports\n```\n";
+
+test("publish: builds HTML and PDF from one file", (t) => {
+	if (NO_TOOLS) return t.skip(SKIP);
+	const p = project({ "docs/publish/guide.md": GUIDE });
+	const r = p.run("docs/publish/guide.md", "--out", "out");
+	assert.equal(r.status, 0, r.stderr);
+	const out = JSON.parse(r.stdout) as { html: string; pdf: string };
+	assert.equal(out.html, join(realpathSync(p.dir), "out/guide.html"));
+	assert.ok(statSync(out.pdf).size > 1000);
+	const html = readFileSync(out.html, "utf8");
+	assert.match(html, /Export service/);
+	assert.doesNotMatch(html, /(src|href)="(?!data:|#|https?:)[^"]+"/);
+});
+
+test("publish: --docs follows the index and links chapters inside the document", (t) => {
+	if (NO_TOOLS) return t.skip(SKIP);
+	const p = project({
+		"docs/README.md": "# Our service\n\n- [Flow](02-flow.md)\n- [Setup](01-setup.md)\n",
+		"docs/01-setup.md": "# Setup\n\nThen read [the flow](02-flow.md#steps).\n",
+		"docs/02-flow.md": "# Flow\n\n## Steps\n\nOne.\n",
+	});
+	const r = p.run("--docs", "--out", "out");
+	assert.equal(r.status, 0, r.stderr);
+	const html = p.read("out/documentation.html");
+	assert.ok(html.indexOf('id="ch-02-flow"') > 0 && html.indexOf('id="ch-02-flow"') < html.indexOf('id="ch-01-setup"'));
+	assert.match(html, /href="#ch-02-flow"/);
+	assert.match(html, /<title>Our service<\/title>/);
+
+	const empty = project({ "docs/README.md": "# Docs\n\nNothing yet.\n" });
+	const e = empty.run("--docs", "--out", "out");
+	assert.equal(e.status, 1);
+	assert.match(e.stderr, /no chapters linked in docs\/README\.md/);
+	assert.ok(!existsSync(join(empty.dir, "out")));
+});
+
+test("publish: --changelog builds one version and rejects an unknown one", (t) => {
+	if (NO_TOOLS) return t.skip(SKIP);
+	const p = project({ "CHANGELOG.md": "# Changelog\n\n## 0.2.0\n\n- Exports retry\n\n## 0.1.0\n\n- First\n" });
+	const r = p.run("--changelog", "0.2.0", "--out", "out");
+	assert.equal(r.status, 0, r.stderr);
+	const html = p.read("out/release-notes-0.2.0.html");
+	assert.match(html, /Release notes 0\.2\.0/);
+	assert.match(html, /Exports retry/);
+	assert.doesNotMatch(html, /First/);
+	const u = p.run("--changelog", "9.9.9", "--out", "out2");
+	assert.equal(u.status, 1);
+	assert.match(u.stderr, /version 9\.9\.9 not found in CHANGELOG\.md/);
+});
+
+test("publish: diagrams become SVG without a caption; a broken one fails", (t) => {
+	if (NO_TOOLS) return t.skip(SKIP);
+	const p = project({
+		"docs/publish/flow.md": `---\ntitle: Flow\n---\n\n# Flow\n\n${DIAGRAM}`,
+		"docs/publish/broken.md": "---\ntitle: Broken\n---\n\n```mermaid\nsequenceDiagram\n    A->>: nothing\n    alt\n```\n",
+	});
+	const r = p.run("docs/publish/flow.md", "--out", "out");
+	assert.equal(r.status, 0, r.stderr);
+	const html = p.read("out/flow.html");
+	assert.match(html, /data:image\/svg\+xml|<svg/);
+	assert.match(html, /alt="Export request flow"/);
+	assert.doesNotMatch(html, /Figure 1/);
+	const b = p.run("docs/publish/broken.md", "--out", "out-broken");
+	assert.equal(b.status, 1);
+	assert.match(b.stderr, /diagram failed to render in docs\/publish\/broken\.md/);
+	assert.ok(!existsSync(join(p.dir, "out-broken")));
+});
+
+test("publish: a link into the repo fails the build unless --repo-url", (t) => {
+	if (NO_TOOLS) return t.skip(SKIP);
+	const p = project({ "docs/publish/api.md": "---\ntitle: API\n---\n\nSee [the handler](../../src/api.ts).\n", "src/api.ts": "" });
+	const r = p.run("docs/publish/api.md", "--out", "out");
+	assert.equal(r.status, 1);
+	assert.match(r.stderr, /docs\/publish\/api\.md: \.\.\/\.\.\/src\/api\.ts/);
+	const ok = p.run("docs/publish/api.md", "--out", "out", "--repo-url", "https://git.example/r/blob/main");
+	assert.equal(ok.status, 0, ok.stderr);
+	assert.match(p.read("out/api.html"), /href="https:\/\/git\.example\/r\/blob\/main\/src\/api\.ts"/);
+});
+
+test("publish: a relative image and a Cyrillic chapter name reach both outputs", (t) => {
+	if (NO_TOOLS) return t.skip(SKIP);
+	const p = project({
+		"docs/README.md": "# Сервис\n\n- [Обзор](01-обзор.md)\n",
+		"docs/01-обзор.md": "# Обзор\n\n![Схема](img/схема.png)\n",
+		"docs/img/схема.png": PNG,
+	});
+	const r = p.run("--docs", "--out", "out", "--lang", "ru");
+	assert.equal(r.status, 0, r.stderr);
+	assert.match(p.read("out/documentation.html"), /src="data:image\/png;base64,/);
+	assert.ok(statSync(join(p.dir, "out/documentation.pdf")).size > 1000);
+});
+
+test("publish: themes — the kit's by default, the project's with --theme, copied by --init-theme", (t) => {
+	if (NO_TOOLS) return t.skip(SKIP);
+	const p = project({ "docs/publish/guide.md": GUIDE });
+	const init = p.run("--init-theme", "docs/publish/theme");
+	assert.equal(init.status, 0, init.stderr);
+	for (const f of ["brand.typ", "brand.css"])
+		assert.equal(p.read(`docs/publish/theme/${f}`), readFileSync(join(KIT_THEME, f), "utf8"));
+	assert.equal(p.run("--init-theme", "docs/publish/theme").status, 1, "refuses to overwrite a project's theme");
+
+	assert.equal(p.run("docs/publish/guide.md", "--out", "default").status, 0);
+	assert.match(p.read("default/guide.html"), /--accent: #1f4e79/);
+	writeFileSync(join(p.dir, "docs/publish/theme/brand.css"), p.read("docs/publish/theme/brand.css").replace("#1f4e79", "#b00020"));
+	writeFileSync(join(p.dir, "docs/publish/theme/brand.typ"), p.read("docs/publish/theme/brand.typ").replace("#1f4e79", "#b00020"));
+	const themed = p.run("docs/publish/guide.md", "--out", "themed", "--theme", "docs/publish/theme");
+	assert.equal(themed.status, 0, themed.stderr);
+	assert.match(p.read("themed/guide.html"), /--accent: #b00020/);
 });
