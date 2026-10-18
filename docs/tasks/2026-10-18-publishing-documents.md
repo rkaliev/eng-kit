@@ -132,16 +132,16 @@ None: a new skill; nothing installed into projects changes until the user update
 **Files:** Modify `publish.ts` · Test `tests/publish.test.ts`
 **Interfaces:** Consumes `chapterAnchor` · Produces `rewriteLinks(md: string, o: { from: string; chapters: Map<string, string>; repoDir: string; repoUrl?: string }): { text: string; outside: string[]; images: string[] }` (`from` and map keys are absolute paths; `images` are the absolute paths of local images, in order)
 
-- [ ] Stub returning `{ text: md, outside: [], images: [] }`; write failing tests:
+- [x] Stub returning `{ text: md, outside: [], images: [] }`; write failing tests:
   - `a link to another chapter becomes its anchor`: `[f](02-flow.md)` and `[f](02-flow.md#overview)` from `docs/01-setup.md` with `02-flow.md` in `chapters` → `[f](#ch-02-flow)` both times (review focus 1)
   - `a link into the repo outside the document is reported`: `[c](../src/a.ts)` → `outside` is `["docs/01-setup.md: ../src/a.ts"]`, text unchanged
   - `with repoUrl it is rewritten instead`: `repoUrl` `https://git.example/r/blob/main` → `[c](https://git.example/r/blob/main/src/a.ts)`, `outside` empty; a `#frag` is kept
   - `external links, anchors and mailto are left alone`
   - `local images are collected and rewritten to assets/`: `![x](img/a b.png)` → `![x](assets/<n>-a b.png)`, `images` holds its absolute path (review focus 2: also a Cyrillic file name)
-- [ ] Run `npm test -- tests/publish.test.ts` → FAIL on each of those assertions
-- [ ] Implement with one inline-link regex for `[text](href)` and `![alt](src)` (no reference-style links; the skill says so); resolve with `node:path`, report paths relative to `repoDir` with `/`
-- [ ] Run the file's tests → PASS, then `npm test`
-- [ ] Commit `feat(publishing-documents): check and rewrite links for a standalone document`
+- [x] Run `npm test -- tests/publish.test.ts` → FAIL on each of those assertions
+- [x] Implement with one inline-link regex for `[text](href)` and `![alt](src)` (no reference-style links; the skill says so); resolve with `node:path`, report paths relative to `repoDir` with `/`
+- [x] Run the file's tests → PASS, then `npm test`
+- [x] Commit `feat(publishing-documents): check and rewrite links for a standalone document`
 
 ### Task 3: tool check
 
@@ -199,3 +199,6 @@ None: a new skill; nothing installed into projects changes until the user update
 - Baseline (eb23a09): verify from the workspace root passes (typecheck and tests of src and src_claude). Drift: none (every plan file is new except tsconfig.json, unchanged since Base). Pre-flight: Interfaces of Tasks 1–4 agree.
 - Ruling: a minimal SKILL.md added in Task 1 — the skill lint requires one in every skills/ folder and the plan wrote it only in Task 5 — none, Task 5 replaces it.
 - Task 1: complete (eb23a09..78402f9, npm test → 486 pass, 0 fail; publish tests seen failing first: [] vs [02-flow.md, 01-setup.md], null vs '- b', '' vs 'ch-02-flow').
+- Ruling: image links are written as `<…>` (pandoc's form for paths with spaces), so the test input is `![x](<img/a b.png>)` rather than the plan's bare form — a bare path with a space isn't a Markdown link — none.
+- Ruling: added a test that links in fenced and inline code are left alone (plan didn't list it; a code sample would otherwise fail the build) — none.
+- Task 2: complete (635262e..d8b9126, npm test → 491 pass, 0 fail; four rewriteLinks tests seen failing on the stub; the code test seen failing with code skipping removed).
