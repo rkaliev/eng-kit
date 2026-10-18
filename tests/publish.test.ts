@@ -258,3 +258,29 @@ test("publish: themes — the kit's by default, the project's with --theme, copi
 	assert.equal(themed.status, 0, themed.stderr);
 	assert.match(p.read("themed/guide.html"), /--accent: #b00020/);
 });
+
+test("publish: several files make one document in the given order; a left-out chapter is reported", (t) => {
+	if (NO_TOOLS) return t.skip(SKIP);
+	const p = project({
+		"docs/01-setup.md": "# Setup\n\nThen read [the flow](02-flow.md).\n",
+		"docs/02-flow.md": "# Flow\n\nOne.\n",
+		"docs/03-ops.md": "# Ops\n\nInternal.\n",
+		"docs/04-faq.md": "# FAQ\n\nSee [ops](03-ops.md).\n",
+	});
+	const r = p.run("docs/02-flow.md", "docs/01-setup.md", "--title", "Partner guide", "--audience", "Acme", "--out", "out");
+	assert.equal(r.status, 0, r.stderr);
+	const html = p.read("out/partner-guide.html");
+	assert.ok(html.indexOf('id="ch-02-flow"') > 0 && html.indexOf('id="ch-02-flow"') < html.indexOf('id="ch-01-setup"'));
+	assert.match(html, /href="#ch-02-flow"/);
+	assert.doesNotMatch(html, /Internal/);
+	const left = p.run("docs/01-setup.md", "docs/04-faq.md", "--title", "Guide", "--out", "out2");
+	assert.equal(left.status, 1);
+	assert.match(left.stderr, /docs\/04-faq\.md: 03-ops\.md/);
+	assert.equal(p.run("docs/01-setup.md", "docs/02-flow.md", "--out", "out3").status, 1, "several files need --title");
+});
+
+test("rewriteLinks: dropRepoLinks keeps the text of a link into the repo and drops the link", () => {
+	const r = rewriteLinks("The handler is [createPayout](../src/payouts.ts); see [f](02-flow.md).", { from, chapters, repoDir: repo, dropRepoLinks: true });
+	assert.equal(r.text, "The handler is createPayout; see [f](#ch-02-flow).");
+	assert.deepEqual(r.outside, []);
+});

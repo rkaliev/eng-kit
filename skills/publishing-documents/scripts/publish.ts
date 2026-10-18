@@ -1,10 +1,11 @@
 /**
  * Builds a standalone HTML file and a PDF from the repo's Markdown, for readers outside the repo.
  *
- *   node publish.ts (<file.md> | --docs [<dir>] | --changelog <version> [<file>]) --out <dir>
- *        [--theme <dir>] [--repo-url <url>] [--title …] [--subtitle …] [--audience …] [--version …] [--date …] [--lang …]
+ *   node publish.ts (<file.md>… | --docs [<dir>] | --changelog <version> [<file>]) --out <dir>
+ *        [--theme <dir>] [--repo-url <url> | --drop-repo-links] [--title …] [--subtitle …] [--audience …] [--version …] [--date …] [--lang …]
  *   node publish.ts --init-theme <dir>
  *
+ * Several files make one document in the given order (pass --title); links between them stay inside it.
  * Needs pandoc ≥ 3.8 and Typst, plus mermaid-cli (`mmdc`) when a source has a Mermaid diagram.
  * Every check runs before anything is written to --out; a failed check lists all findings on stderr.
  * Exit 0: built (stdout `{"html":…,"pdf":…}`), 1: a check failed, 2: usage.
@@ -50,7 +51,7 @@ export function chapterAnchor(file: string): string {
 	return `ch-${digits ? `${digits}-` : ""}${hash}`;
 }
 
-export type LinkOptions = { from: string; chapters: Map<string, string>; repoDir: string; repoUrl?: string; assetsDir?: string };
+export type LinkOptions = { from: string; chapters: Map<string, string>; repoDir: string; repoUrl?: string; assetsDir?: string; dropRepoLinks?: boolean };
 
 /**
  * Makes a source's links work in a standalone document: chapter links become in-document anchors,
@@ -72,6 +73,7 @@ export function rewriteLinks(md: string, o: LinkOptions): { text: string; outsid
 			}
 			const anchor = o.chapters.get(target);
 			if (anchor) return `[${label}](#${anchor})`;
+			if (o.dropRepoLinks) return label;
 			if (o.repoUrl) return `[${label}](${o.repoUrl.replace(/\/$/, "")}/${toPosix(relative(o.repoDir, target))}${rest})`;
 			outside.push(`${fromRel}: ${href}`);
 			return whole;
@@ -120,12 +122,13 @@ const THEME_FILES = ["brand.typ", "brand.css"];
 const META_KEYS = ["title", "subtitle", "audience", "version", "date", "lang", "author"] as const;
 type Meta = Partial<Record<(typeof META_KEYS)[number], string>>;
 type Args = {
-	file?: string;
+	files: string[];
 	docs?: string;
 	changelog?: { version: string; file: string };
 	out?: string;
 	theme?: string;
 	repoUrl?: string;
+	dropRepoLinks?: boolean;
 	initTheme?: string;
 	meta: Meta;
 };
@@ -134,7 +137,7 @@ type Source = { path: string; body: string; anchor?: string };
 class Usage extends Error {}
 
 function parseArgs(argv: string[]): Args {
-	const a: Args = { meta: {} };
+	const a: Args = { files: [], meta: {} };
 	const value = (i: number) => {
 		const v = argv[i + 1];
 		if (v === undefined || v.startsWith("--")) throw new Usage(`${argv[i]} needs a value`);
@@ -154,14 +157,14 @@ function parseArgs(argv: string[]): Args {
 		} else if (arg === "--out") a.out = value(i++);
 		else if (arg === "--theme") a.theme = value(i++);
 		else if (arg === "--repo-url") a.repoUrl = value(i++);
+		else if (arg === "--drop-repo-links") a.dropRepoLinks = true;
 		else if (arg === "--init-theme") a.initTheme = value(i++);
 		else if (arg.startsWith("--") && (META_KEYS as readonly string[]).includes(arg.slice(2))) a.meta[arg.slice(2) as keyof Meta] = value(i++);
 		else if (arg.startsWith("--")) throw new Usage(`unknown option ${arg}`);
-		else if (a.file) throw new Usage(`one source file only (got ${a.file} and ${arg})`);
-		else a.file = arg;
+		else a.files.push(arg);
 	}
 	if (a.initTheme) return a;
-	if ([a.file, a.docs, a.changelog].filter(Boolean).length !== 1) throw new Usage("give one source: a file, --docs or --changelog");
+	if ([a.files.length > 0, a.docs, a.changelog].filter(Boolean).length !== 1) throw new Usage("give one source: a file, --docs or --changelog");
 	if (!a.out) throw new Usage("--out <dir> is required");
 	return a;
 }
@@ -176,6 +179,11 @@ function frontmatter(text: string): { meta: Meta; body: string } {
 		if (kv && (META_KEYS as readonly string[]).includes(kv[1]!)) meta[kv[1] as keyof Meta] = kv[2]!.replace(/^(["'])(.*)\1$/, "$2");
 	}
 	return { meta, body: text.slice(m[0].length) };
+}
+
+/** A file name from a title: lowercase ASCII words joined by hyphens, or `document`. */
+function slug(title: string): string {
+	return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "document";
 }
 
 function gitRoot(cwd: string): string {
@@ -238,15 +246,20 @@ export function main(argv: string[]): number {
 	const sources: Source[] = [];
 	let meta: Meta = {};
 	let name: string;
-	if (a.file) {
-		const path = resolve(cwd, a.file);
-		if (!existsSync(path)) findings.push(`${a.file} not found`);
-		else {
+	if (a.files.length) {
+		const several = a.files.length > 1;
+		for (const file of a.files) {
+			const path = resolve(cwd, file);
+			if (!existsSync(path)) {
+				findings.push(`${file} not found`);
+				continue;
+			}
 			const fm = frontmatter(readFileSync(path, "utf8"));
-			meta = fm.meta;
-			sources.push({ path, body: fm.body });
+			if (!several) meta = fm.meta;
+			sources.push({ path, body: fm.body, anchor: several ? chapterAnchor(basename(file)) : undefined });
 		}
-		name = basename(a.file).replace(/\.md$/, "");
+		if (several && !a.meta.title) findings.push("several files make one document: pass --title");
+		name = several ? slug(a.meta.title ?? "") : basename(a.files[0]!).replace(/\.md$/, "");
 	} else if (a.docs) {
 		const index = resolve(cwd, a.docs, "README.md");
 		if (!existsSync(index)) findings.push(`${rel(index)} not found`);
@@ -288,7 +301,7 @@ export function main(argv: string[]): number {
 		const chapters = new Map(sources.filter((s) => s.anchor).map((s) => [s.path, s.anchor!]));
 		const bodies: string[] = [];
 		sources.forEach((s, i) => {
-			const links = rewriteLinks(s.body, { from: s.path, chapters, repoDir, repoUrl: a.repoUrl, assetsDir: `assets/${i + 1}` });
+			const links = rewriteLinks(s.body, { from: s.path, chapters, repoDir, repoUrl: a.repoUrl, dropRepoLinks: a.dropRepoLinks, assetsDir: `assets/${i + 1}` });
 			findings.push(...links.outside);
 			links.images.forEach((img, n) => {
 				if (!existsSync(img)) findings.push(`${rel(s.path)}: image ${rel(img)} not found`);
