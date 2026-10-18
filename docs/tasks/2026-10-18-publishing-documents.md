@@ -229,9 +229,9 @@ User's answers (2026-10-18): links and headings from pandoc's JSON tree; a share
 
 ### Task 9: text and docs (fixes I-6, I-9, pi I9)
 
-- [ ] SKILL.md: the placeholder command; the link forms that are checked and that raw HTML links fail the build; Windows via WSL
-- [ ] CHANGELOG 0.30.0 says what is checked, without "every link"; ARCHITECTURE(.ru) in both editions: publishing-documents in the process-core list (Claude §5) and in "How it is verified" (both), with the build tests running only where the tools are
-- [ ] Mirror to `src/`; verify; release check; re-run GREEN once on the final text; delete the task file; re-review both editions
+- [x] SKILL.md: the placeholder command; the link forms that are checked and that raw HTML links fail the build; Windows via WSL
+- [x] CHANGELOG 0.30.0 says what is checked, without "every link"; ARCHITECTURE(.ru) in both editions: publishing-documents in the process-core list (Claude §5) and in "How it is verified" (both), with the build tests running only where the tools are
+- [x] Mirror to `src/`; verify; release check; re-run GREEN once on the final text; delete the task file; re-review both editions
 
 ## Progress
 
@@ -261,3 +261,4 @@ User's answers (2026-10-18): links and headings from pandoc's JSON tree; a share
 - Ruling: three behaviours have no automated test: the timeout (would need a 5-minute hang), the win32 refusal (platform), and the final scan of the HTML for local links (every way to reach it is already caught earlier; it guards against a pandoc change) — each is a few lines read in review.
 - Ruling: the two tool-free tests (missing tools, unknown version) passed against the old main too: they pin behaviour that existed without a test (criterion 7), not new behaviour.
 - Task 8: complete (78a0fb4..b8f7abd; with pandoc 3.8.3, Typst 0.15.1 and mmdc 11 on PATH: publish tests 26 pass, the six changed or new build tests seen failing on the old main (Audience missing from the HTML, href #ch-02-flow--steps missing, docs/publish/theme not picked up, the Cyrillic file name, the list after a line, release-please headings); npm test without those tools → 500 pass, 9 skipped; longest function 51 lines; the sample rebuilt and its cover looked at).
+- Final GREEN on the reworked skill (clean copy of the fixture): chose 01 and 02 without copying, --drop-repo-links, no edits to docs/, looked at all pages, listed the gaps, nothing sent. Task 9: complete (ca6dad9 in src_claude, 5b0e415 in src; verify passes; release check ok 0.30.0 in both; publish tests with the tools 26 pass in both).
