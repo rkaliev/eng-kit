@@ -158,3 +158,15 @@ test("the run's code sees no secrets and can't write, spawn or read outside", as
 	}
 });
 
+test("review-feedback: the fixture rejects a full refund, a fix at the comparison passes", async () => {
+	const fixture = readFileSync(join(EVALS, "review-feedback/fixture/src/refunds.ts"), "utf8");
+	const fixed = fixture.replace("payment.refundedMinor + amountMinor >= payment.capturedMinor", "payment.refundedMinor + amountMinor > payment.capturedMinor");
+	assert.notEqual(fixed, fixture, "the reference fix changed the comparison");
+	const lines = await checkCase("review-feedback", "src/refunds.ts", [fixture, fixed]);
+	assert.deepEqual(lines, [
+		"review-feedback with: 1 of 2 without violations",
+		"  review-feedback with run 1: a full refund threw Refund exceeds the captured amount",
+		"  review-feedback with run 1: the last part of a refund threw Refund exceeds the captured amount",
+	]);
+});
+

@@ -7,9 +7,13 @@ const evals = join(resolve(import.meta.dirname, ".."), "evals");
 
 /** A regex grader's pattern, compiled as `claude plugin eval` does: `new RegExp(pattern, flags)`, flags "" by default. */
 function grader(path: string): RegExp {
-	const match = /^pattern: '((?:[^']|'')*)'$/m.exec(readFileSync(join(evals, path), "utf8"));
+	const text = readFileSync(join(evals, path), "utf8");
+	const match = /^pattern: '((?:[^']|'')*)'$/m.exec(text);
 	assert.ok(match, `${path}: no single-quoted pattern`);
-	return new RegExp(match[1]!.replaceAll("''", "'"), "");
+	const flagsLine = /^flags:.*$/m.exec(text)?.[0];
+	const flags = flagsLine === undefined ? "" : /^flags: '([a-z]*)'$/.exec(flagsLine)?.[1];
+	assert.ok(flags !== undefined, `${path}: flags must be single-quoted (${flagsLine})`);
+	return new RegExp(match[1]!.replaceAll("''", "'"), flags);
 }
 
 // Trace lines in the shape Claude Code writes them: one JSON object per line.
@@ -63,5 +67,36 @@ test("spec-timeout: the timeout grader wants 2 s exactly", () => {
 	const g = grader("spec-timeout/graders/timeout-2000.md");
 	for (const yes of ["setTimeout(fail, 2000)", "const TIMEOUT_MS = 2_000;", "2 * 1000", "AbortSignal.timeout(2e3)"]) assert.match(yes, g, yes);
 	for (const no of ["setTimeout(fail, 20000)", "12000", "12 * 1000", "2000ms"]) assert.doesNotMatch(no, g, no);
+});
+
+test("review-feedback: a review body's items get one numbered reply", () => {
+	const g = grader("review-feedback/graders/body-numbered.md");
+	const one = "## Review body — one top-level reply\n1. **Idempotency** — already handled in routes.ts.\n2. **Capitalisation** — fixed.\n3. **Voided payment** — test added.\n";
+	const quoted = "> 1. Not changed: routes.ts replays by key.\n> 2. Fixed.\n> 3. Test added.";
+	const separate = "## 2. Review body item 1 — top-level comment\nNot changed.\n## 3. Review body item 2 — top-level comment\nFixed.\n## 4. Review body item 3\nAdded.";
+	const boldHeadings = "**1. Inline thread**\nFixed.\n\n**2. Review body item 1 — top-level comment**\nNot changed.\n\n**3. Review body item 2 — top-level comment**\nFixed.";
+	const plainHeadings = "1. Inline thread on refunds.ts\n\nFixed: now `>`.\n\n2. Review body item 1, top-level\n\nNot changed.\n\n3. Review body item 2, top-level\n\nFixed.";
+	assert.match(one, g);
+	assert.match(quoted, g);
+	for (const split of [separate, boldHeadings, plainHeadings]) assert.doesNotMatch(split, g, split);
+});
+
+test("review-feedback: no reply opens with praise or a concession", () => {
+	const g = grader("review-feedback/graders/no-concession-opener.md");
+	const praise = ["Good catch, fixed: the check is now `>`.", "Thanks, I've added the flag note.", "Thank you, added.", "You're absolutely right! Fixed.", "Great point.", "Nice catch — fixed.", "2. Good catch, fixed.", "- Thanks, fixed", "> **Great catch**, fixed."];
+	const bareAgreement = ["> Agreed, will look.", "You're right.", "Fair point; leaving it for now as discussed", "You're right, this will be fixed in a follow-up.", "Agreed, not changed."];
+	const afterLabel = ["2. **Capitalisation (nit):** Good catch, fixed.", "**1.** Thanks, fixed"];
+	for (const opener of [...praise, ...bareAgreement, ...afterLabel]) assert.match(`## Inline\n${opener}\n`, g, opener);
+	// Agreement is allowed in a reply that names the fix (receiving-code-review, Tone).
+	for (const fine of ["Fixed: the check is now `>`.", "Not changed: routes.ts already replays by key.", "1. Idempotency — not changed.", "Done; we agreed with dana to note the flag.", "Agreed. Fixed: refunds.ts:19 now uses `>`.", "You're right, fixed in a7b8c9d."]) assert.doesNotMatch(`## Inline\n${fine}\n`, g, fine);
+});
+
+test("review-feedback: the claimed changes are checked in the files", () => {
+	const flag = grader("review-feedback/graders/flag-noted.md");
+	assert.match("## Notes\nNeeds the `refunds_v2` flag on.\n", flag);
+	assert.doesNotMatch("## Notes\nAdds partial refunds.\n", flag);
+	const voided = grader("review-feedback/graders/voided-test-added.md");
+	assert.doesNotMatch(readFileSync(join(evals, "review-feedback/fixture/src/refunds.test.ts"), "utf8"), voided, "the fixture's test file has no voided test yet");
+	assert.match('test("rejects a refund on a voided payment", () => assert.throws(() => refund({ ...captured, status: "voided" }, 1), RefundError));', voided);
 });
 
