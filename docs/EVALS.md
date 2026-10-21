@@ -26,7 +26,7 @@ Each case's `scaffold.sh` copies its `fixture/` into the empty run workspace and
 
 The order graders of `tdd-discount` and `bug-root-cause` are regular expressions over the whole trace: a file written with `Write`, `Edit`, a shell redirection, `tee` or `sed -i` with a single-quoted expression counts alike (a script in another language does not). `red-before-green` tells the real code from a stub by its `RangeError` checks, which the spec requires. `tests/eval-graders.test.ts` checks both patterns on synthetic traces. LLM judges see only about the first 45,000 characters of a trace, while a run with the kit writes 60,000 to 110,000 (the bootstrap and loaded skills come first), so a judge with `focus: trace` misses late steps and is biased against the kit; use it only where no pattern can decide. `focus: files` gives the judge the changed file names, not their content.
 
-Every prompt ends with "I'm away, so don't ask me questions", in both arms. Each case also has an unscored `skill-loaded` indicator (a `Skill` call in the run with the kit).
+Every prompt ends with "I'm away, so don't ask me questions" (the Russian form in `docs-language`), in both arms. Each case also has an unscored `skill-loaded` indicator (a `Skill` call in the run with the kit).
 
 ## First run (2026-10-04, kit 0.20.0; the skills the cases use are unchanged since 0.19.0, Claude Code 2.1.289)
 
@@ -225,7 +225,7 @@ Score 1.00 with the kit, 0.71 without (0.60 in the first run, before the two gra
 
 Score 1.00 with 0.31.0, 0.83 with 0.30.0, 0.78 without ($0.58 and $0.60). Without the rule the agent followed the conversation and the repo's Russian record; with it the record is English while the requested client note stays Russian. Commit messages were mostly English anyway: one of five without the kit was Russian, none with it, so the commit grader guards more than it measures. It reads only the last commit's message.
 
-**The suite after trimming the bootstrap.** One run per case and arm, $3.95: with the kit a skill loaded in 12 of 13 cases (not in `verify-before-done`, as in every earlier run), so the four sentences removed from using-skills cost no loading. Score 0.94 with the kit, Δ +0.08. With the kit, the `root-cause-fixed` and `exponent-per-currency` judges failed their single run and `docs-language` made no commit in one run; the skills those cases use are unchanged and the traces were not kept, so one run is not read as a change.
+**The suite after trimming the bootstrap.** One run per case and arm, $3.95: with the kit a skill loaded in 12 of 13 cases (not in `verify-before-done`, as in every earlier run), so the four sentences removed from using-skills cost no loading. Score 0.94 with the kit, Δ +0.08. With the kit, the `root-cause-fixed` and `exponent-per-currency` judges failed their single run and `docs-language` made no commit in one run; the first two cases use unchanged skills, `docs-language` committed in 3 of 3 runs before, and the traces were not kept, so one run is not read as a change.
 
 ## Review rounds that converge (2026-10-22, kit 0.30.0 → 0.32.0, Claude Code 2.1.307)
 
