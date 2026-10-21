@@ -103,8 +103,8 @@ test("review-feedback: the claimed changes are checked in the files", () => {
 
 test("docs-language: Cyrillic in the decision record fails", () => {
 	const g = grader("docs-language/graders/adr-english.md");
-	for (const russian of ["# 0002. Очередь сообщений\n", "Выбрали RabbitMQ", "ё"]) assert.match(russian, g, russian);
-	assert.doesNotMatch("# 0002. Message queue\n\nWe chose RabbitMQ.\n", g);
+	for (const russian of ["# 0002. Очередь сообщений\n", "Выбрали RabbitMQ", "docs: запись решения ё\n", "ё"]) assert.match(russian, g, russian);
+	for (const english of ["# 0002. Message queue\n\nWe chose RabbitMQ.\n", "docs: record the message queue decision\n"]) assert.doesNotMatch(english, g, english);
 });
 
 // Reflog lines in the shape git writes them to .git/logs/HEAD.
