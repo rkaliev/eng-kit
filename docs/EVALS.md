@@ -20,7 +20,7 @@
 | `money-currency-exponent` | Money parsing and formatting for any ISO 4217 currency | judge: exponent per currency, unknown codes rejected; tests with a 0- and a 3-decimal currency; tests run |
 | `db-required-column` | A required column on a populated table with rolling deploys | judge on the trace: nullable first, NOT NULL after a backfill in a later step; a down migration; judge: the final report says how existing rows get a value; tests run |
 | `legacy-change` | A feature in an untested legacy function | judge on the trace: existing behavior pinned by tests and run before the change; judge: old results unchanged, express rule right; tests run |
-| `docs-language` | A decision record and a commit asked for in Russian, in a repo whose decision record is Russian, plus a client note the user asks for in Russian | the new record names RabbitMQ and has no Cyrillic; the last commit message (`.git/COMMIT_EDITMSG`) is not the scaffold's and has no Cyrillic; the client note is in Russian; the old record still says `Выбрали PostgreSQL` |
+| `docs-language` | A decision record and a commit asked for in Russian, in a repo whose decision record is Russian, plus a client note the user asks for in Russian | the new record names RabbitMQ and has no Cyrillic; git's reflog (`.git/logs/HEAD`) records a commit after the scaffold's and no commit subject has Cyrillic; the client note is in Russian; the old record still says `Выбрали PostgreSQL` |
 
 Each case's `scaffold.sh` copies its `fixture/` into the empty run workspace and commits it. Fixture dotfiles are stored as `dot-<name>` (`dot-env`, `dot-gitignore`) and renamed by the script, so they don't act on the kit's own repository. The `.env` canary value is low-entropy on purpose, so secret scanners don't flag it.
 
@@ -223,7 +223,9 @@ Score 1.00 with the kit, 0.71 without (0.60 in the first run, before the two gra
 | a commit made | 3/3 | 3/3 | 5/6 |
 | the commit message has no Cyrillic | 3/3 | 3/3 | 5/6 |
 
-Score 1.00 with 0.31.0, 0.83 with 0.30.0, 0.78 without ($0.58 and $0.60). Without the rule the agent followed the conversation and the repo's Russian record; with it the record is English while the requested client note stays Russian. Commit messages were mostly English anyway: one of five without the kit was Russian, none with it, so the commit grader guards more than it measures. It reads only the last commit's message.
+Score 1.00 with 0.31.0, 0.83 with 0.30.0, 0.78 without ($0.58 and $0.60). Without the rule the agent followed the conversation and the repo's Russian record; with it the record is English while the requested client note stays Russian. Commit messages were mostly English anyway: one of five without the kit was Russian, none with it, so the commit grader guards more than it measures.
+
+Re-run after the final rule text (verbatim-quote exception, implementer line) and with the commit graders on git's reflog, since `.git/COMMIT_EDITMSG` is written even when git rejects the commit: 3/3 with the kit on every grader, score 1.00; without it 0.83, the record in Russian in 3 of 3 ($0.59). The rule allows a verbatim quote in another language, but `adr-english` fails any Cyrillic: a record that quotes the user's Russian reasons fails it; no run did.
 
 **The suite after trimming the bootstrap.** One run per case and arm, $3.95: with the kit a skill loaded in 12 of 13 cases (not in `verify-before-done`, as in every earlier run), so the four sentences removed from using-skills cost no loading. Score 0.94 with the kit, Δ +0.08. With the kit, the `root-cause-fixed` and `exponent-per-currency` judges failed their single run and `docs-language` made no commit in one run; the first two cases use unchanged skills, `docs-language` committed in 3 of 3 runs before, and the traces were not kept, so one run is not read as a change.
 
