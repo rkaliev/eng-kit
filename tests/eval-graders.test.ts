@@ -100,3 +100,24 @@ test("review-feedback: the claimed changes are checked in the files", () => {
 	assert.match('test("rejects a refund on a voided payment", () => assert.throws(() => refund({ ...captured, status: "voided" }, 1), RefundError));', voided);
 });
 
+
+test("docs-language: Cyrillic in the decision record or the commit message fails", () => {
+	for (const path of ["docs-language/graders/adr-english.md", "docs-language/graders/commit-english.md"]) {
+		const g = grader(path);
+		for (const russian of ["# 0002. Очередь сообщений\n", "Выбрали RabbitMQ", "docs: запись решения ё\n"]) assert.match(russian, g, `${path}: ${russian}`);
+		for (const english of ["# 0002. Message queue\n\nWe chose RabbitMQ.\n", "docs: record the message queue decision\n"]) assert.doesNotMatch(english, g, `${path}: ${english}`);
+	}
+});
+
+test("docs-language: the requested client note is in Russian", () => {
+	const g = grader("docs-language/graders/client-doc-russian.md");
+	assert.match("# Очередь\n\nНичего не теряется при перезапуске.\n", g);
+	assert.doesNotMatch("# Queue\n\nNothing is lost on a restart (RabbitMQ).\n", g);
+});
+
+test("docs-language: a commit counts only after the scaffold's own", () => {
+	const g = grader("docs-language/graders/commit-made.md");
+	assert.match("initial\n", g, "the scaffold commit's message");
+	assert.doesNotMatch("docs: record the message queue decision\n", g);
+	assert.doesNotMatch("initial work on the queue\n", g);
+});
