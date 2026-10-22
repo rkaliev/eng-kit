@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
-import { readReviews } from "../lib/reviews.ts";
+import { readReviews, recordVerdict } from "../lib/reviews.ts";
 import { branchSummary } from "../lib/usage.ts";
 import { loadState, readRun, writeRun } from "../lib/state.ts";
 
@@ -880,9 +880,21 @@ test("review-log prints the stored reports of a commit's latest round; with none
 	for (const cwd of [projectDir, join(projectDir, "src"), worktree]) {
 		const printed = log(cwd);
 		assert.equal(printed.status, 0, `${cwd}: ${printed.stderr}`);
+		assert.match(printed.stdout, /^Round 2 since the last Yes \(the stop rule counts these\)\. Earlier rounds, newest first: [0-9a-f]{7}\.\.[0-9a-f]{7} No\.$/m);
+		assert.match(printed.stdout, /^Highest finding IDs so far: none; a new finding takes the next number\.$/m);
 		assert.match(printed.stdout, /## Reviewer run a1 — No/);
 		assert.match(printed.stdout, /`a\.ts:1` · any input · wrong total/);
 	}
+	// A failed run records no range and no report: review-log still prints the round and a placeholder.
+	writeFileSync(join(projectDir, "b.ts"), "export const b = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: b");
+	const failed = git("rev-parse", "HEAD");
+	recordVerdict(projectDir, failed, "Inconclusive", { promptId: "p2", run: "a2" }, env.reviewsRoot);
+	const afterFail = spawnSync(process.execPath, [join(root, "scripts", "review-log.ts"), failed], { cwd: projectDir, encoding: "utf8", env: { ...shellEnv, ENG_KIT_REVIEWS_ROOT: env.reviewsRoot } });
+	assert.equal(afterFail.status, 0, afterFail.stderr);
+	assert.match(afterFail.stdout, new RegExp(`^Round 2 since the last Yes \\(the stop rule counts these\\)\\. Earlier rounds, newest first: ${failed.slice(0, 7)} Inconclusive\\.$`, "m"));
+	assert.match(afterFail.stdout, /\(no report stored for this run\)/);
 });
 
 test("review gate: a successful gh pr create registers its branch for the push gate; a failed one does not", () => {
