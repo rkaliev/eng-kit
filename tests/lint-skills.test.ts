@@ -211,6 +211,7 @@ test("effort xhigh is set exactly on the skills for reasoning, writing code and 
 
 
 test("checklist rules carry unique stable IDs", () => {
+	const PREFIXES: Record<string, string> = { "Correctness": "COR", "Tests": "TST", "Security": "SEC", "Architecture and design": "ARC", "AI-typical smells": "AI", "Hygiene": "HYG" };
 	const text = readFileSync(join(skillsDir, "requesting-code-review", "references", "checklist.md"), "utf8");
 	const sections = text.split(/^## /m).slice(1);
 	const ids: string[] = [];
@@ -224,8 +225,10 @@ test("checklist rules carry unique stable IDs", () => {
 				ids.push(id);
 			}
 			if (!fixed && /^- /.test(line)) {
-				const id = /^- ((COR|TST|SEC|ARC|AI|HYG)-\d{2}) /.exec(line)?.[1];
-				assert.ok(id, `checklist bullet in "${heading}" without an ID: ${line}`);
+				const prefix = PREFIXES[heading!];
+				assert.ok(prefix, `checklist section without an ID prefix: ${heading}`);
+				const id = new RegExp(`^- (${prefix}-\\d{2}) `).exec(line)?.[1];
+				assert.ok(id, `checklist bullet in "${heading}" without a ${prefix}- ID: ${line}`);
 				ids.push(id);
 			}
 		}
