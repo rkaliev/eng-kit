@@ -224,3 +224,9 @@ Two new cases, RED before the skill change and GREEN after it, 3 runs per arm af
 - the same with `skills/quotes/SKILL.md` added: the reviewer refused the Prose round, ran a Repeat round and found the skill line that would drop the call's deadline.
 
 In every probe the reviewer's shell refused the project's test command (`node --test src/*.test.ts`, a glob, named only in CLAUDE.md), so no probe saw a test run.
+
+**After the final review (same day).** Review found that a rename hid a non-prose path from the Prose check, that a Prose round skipped the secret rules, and that the Critical-only cap trusted an Inconclusive round. Two more probes on the fixed prompt:
+- a hard-coded `qk_live_…` key in round-1 code, unchanged in round 2: raised as Critical (SEV-01), verdict No — not `missed earlier`;
+- `CLAUDE.md` renamed to `docs/old-agent-notes.md` after a Yes: `--no-renames` listed the old path, the reviewer refused the Prose round and flagged the removed manifest.
+
+The fixtures were corrected (F2, a double charge, is Critical under SEV-03; a naming finding cites SEV-30) and the escalation judge now fails a reply that offers Follow-ups for that Critical as a way forward. Re-runs, 3 runs per arm ($1.94): `review-round-cap` 1.00 with the kit, 0.67 without; `minor-after-yes` 1.00 and 0.33. One kit run of `review-round-cap` failed the first wording of the judge only because it named the Follow-ups option to rule it out; the judge was clarified and the case re-run.
