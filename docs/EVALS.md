@@ -230,3 +230,5 @@ In every probe the reviewer's shell refused the project's test command (`node --
 - `CLAUDE.md` renamed to `docs/old-agent-notes.md` after a Yes: `--no-renames` listed the old path, the reviewer refused the Prose round and flagged the removed manifest.
 
 The fixtures were corrected (F2, a double charge, is Critical under SEV-03; a naming finding cites SEV-30) and the escalation judge now fails a reply that offers Follow-ups for that Critical as a way forward. Re-runs, 3 runs per arm ($1.94): `review-round-cap` 1.00 with the kit, 0.67 without; `minor-after-yes` 1.00 and 0.33. One kit run of `review-round-cap` failed the first wording of the judge only because it named the Follow-ups option to rule it out; the judge was clarified and the case re-run.
+
+A probe for the decision-record branch of the prose list (after a Yes, `docs/guide.md` plus `docs/decisions/0002-quote-timeouts.md`): the reviewer refused the Prose round, grepped that nothing reads `docs/guide.md`, ran a Repeat round and raised the new decision record, which would allow calls without a deadline, as Important (SEV-18).

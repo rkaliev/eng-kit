@@ -881,6 +881,7 @@ test("review-log prints the stored reports of a commit's latest round; with none
 		const printed = log(cwd);
 		assert.equal(printed.status, 0, `${cwd}: ${printed.stderr}`);
 		assert.match(printed.stdout, /^Round 2 since the last Yes \(the stop rule counts these\)\. Earlier rounds, newest first: [0-9a-f]{7}\.\.[0-9a-f]{7} No\.$/m);
+		assert.match(printed.stdout, /^Highest finding IDs so far: none; a new finding takes the next number\.$/m);
 		assert.match(printed.stdout, /## Reviewer run a1 — No/);
 		assert.match(printed.stdout, /`a\.ts:1` · any input · wrong total/);
 	}
