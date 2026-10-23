@@ -124,6 +124,12 @@ export function pruneStates(dir: string, now = Date.now()): void {
 
 function isTree(value: unknown): value is Tree {
 	if (!value || typeof value !== "object") return false;
-	const { head, files } = value as Partial<Tree>;
-	return typeof head === "string" && !!files && typeof files === "object" && Object.values(files).every((v) => typeof v === "string");
+	const { head, files, heads, blind } = value as Partial<Tree>;
+	const strings = (record: unknown) => !!record && typeof record === "object" && Object.values(record).every((v) => typeof v === "string");
+	return (
+		typeof head === "string" &&
+		strings(files) &&
+		(heads === undefined || strings(heads)) &&
+		(blind === undefined || (Array.isArray(blind) && blind.every((b) => typeof b === "string")))
+	);
 }

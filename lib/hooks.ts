@@ -22,7 +22,7 @@ import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { changedPaths, shellWriteTargets, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
+import { callChanges, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -305,7 +305,8 @@ const MAX_PENDING = 8;
  * Compares the working tree with the session's fingerprint and counts what changed as edits, then stores the new one.
  * With `callId` alone (before a shell call) it also keeps the tree for that call; with `after` (its result) it compares
  * with the tree taken before the call, and outside git, without a fingerprint or once git has failed in the session,
- * reads the files the command writes from its text. Taking the fingerprint before loading the state keeps a mark that
+ * reads the files the command writes from its text, as it does inside a workspace part the fingerprint is blind to
+ * (`callChanges`). Taking the fingerprint before loading the state keeps a mark that
  * another hook process saved meanwhile.
  */
 function trackTree(
@@ -320,9 +321,7 @@ function trackTree(
 	let state = loadState(env.stateDir, sessionId);
 	const own = after && callId !== undefined ? state.pending[callId] : undefined;
 	const before = own ?? state.tree;
-	let paths: string[] = [];
-	if (tree && before) paths = changedPaths(before, tree, env.projectDir, ignore);
-	else if (after) paths = shellWriteTargets(after.command, after.cwd, env.projectDir, process.env, after.powershell).filter((p) => !isIgnored(p, ignore));
+	const paths = callChanges(before, tree, env.projectDir, after).filter((p) => !isIgnored(p, ignore));
 	// Only a call compared with its own snapshot can claim the changes as a verification run's own.
 	const marked = paths.length > 0 && !(after?.exempt && own) ? paths : [];
 	if (marked.length > 0) state = markEdited(state, marked);

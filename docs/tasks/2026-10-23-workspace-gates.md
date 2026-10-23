@@ -160,16 +160,16 @@ Checked 2026-10-23: `CLAUDE_PROJECT_DIR` is empty in the Bash tool's environment
 **Files:** Modify `lib/worktree.ts`, `lib/state.ts`, `lib/hooks.ts` · Test `tests/worktree.test.ts`, `tests/hooks.test.ts`
 **Interfaces:** Produces `callChanges(before: Tree | undefined, now: Tree | undefined, projectDir: string, after?: { command: string; cwd: string; powershell?: boolean }): string[]` (ignore filtering stays with the caller)
 
-- [ ] Red reproduction in `tests/hooks.test.ts` with a helper `setupWorkspace()` (temp dir, repositories `a` and `b` with one commit each, `.claude/verify.json` with one command): `in a workspace, a redirect to an unknown variable path marks nothing` → `bash("cd a && true > $S/red.log")` writing no project file → `loadState(...).unverified` is false. Run `node --test tests/hooks.test.ts` → expect FAIL: edited `["$S/red.log"]`.
-- [ ] Write failing tests:
+- [x] Red reproduction in `tests/hooks.test.ts` with a helper `setupWorkspace()` (temp dir, repositories `a` and `b` with one commit each, `.claude/verify.json` with one command): `in a workspace, a redirect to an unknown variable path marks nothing` → `bash("cd a && true > $S/red.log")` writing no project file → `loadState(...).unverified` is false. Run `node --test tests/hooks.test.ts` → expect FAIL: edited `["$S/red.log"]`.
+- [x] Write failing tests:
   - hooks `in a workspace, a shell write in a repository marks it` → `bash("echo x > a/f.ts")` → edited `["a/f.ts"]`;
   - hooks `a write between calls in a workspace is found at Stop` → write `b/n.ts` from the test, then `stop` → block reason lists `b/n.ts`;
   - hooks `state saved without heads still compares` → state with a 0.33.0-shape `tree` (`{ head, files }`) in a single repository, then a write → marked as before;
   - unit `callChanges reads text targets only inside blind parts` → blind `["a"]`: `> a/x` counts, `> b/x` doesn't; blind `[""]`: `> loose.js` counts, `> a/x` doesn't.
-- [ ] Run `node --test tests/hooks.test.ts tests/worktree.test.ts` → expect FAIL on those assertions
-- [ ] Implement `callChanges`: both trees → `changedPaths(before, now, projectDir)` plus `shellWriteTargets` filtered to paths inside a part blind in either tree (`""` = under no repository named in `heads` or `blind`); a tree missing and `after` given → text targets, as today. `isTree` accepts optional `heads` (string record) and `blind` (string array). `trackTree` computes `paths` as `callChanges(...).filter((p) => !isIgnored(p, ignore))`; `gitOff` is set only by a `repo` fingerprint (a workspace never sets `why.slow`).
-- [ ] Run `node --test tests/hooks.test.ts tests/worktree.test.ts` → PASS, then `npm test` and `npm run typecheck`
-- [ ] Commit `fix(verify): a workspace call counts what it changed, not what its text names`
+- [x] Run `node --test tests/hooks.test.ts tests/worktree.test.ts` → expect FAIL on those assertions
+- [x] Implement `callChanges`: both trees → `changedPaths(before, now, projectDir)` plus `shellWriteTargets` filtered to paths inside a part blind in either tree (`""` = under no repository named in `heads` or `blind`); a tree missing and `after` given → text targets, as today. `isTree` accepts optional `heads` (string record) and `blind` (string array). `trackTree` computes `paths` as `callChanges(...).filter((p) => !isIgnored(p, ignore))`; `gitOff` is set only by a `repo` fingerprint (a workspace never sets `why.slow`).
+- [x] Run `node --test tests/hooks.test.ts tests/worktree.test.ts` → PASS, then `npm test` and `npm run typecheck`
+- [x] Commit `fix(verify): a workspace call counts what it changed, not what its text names`
 
 ### Task 4: verdicts per repository
 
@@ -216,9 +216,11 @@ Checked 2026-10-23: `CLAUDE_PROJECT_DIR` is empty in the Bash tool's environment
 
 ## Progress
 
-- Baseline 2026-10-23 on 389a370: workspace verify 4/4 PASS (typecheck and test in both editions).
+- Baseline 2026-10-23 on 595698c: workspace verify 4/4 PASS (typecheck and test in both editions).
 - Drift check: none (the plan was written on this HEAD).
 - Pre-flight: Interfaces agree across tasks; no conflicts.
-- Task 1: complete (389a370..feat(repos) commit, node --test tests/repos.test.ts → 4 pass after RED on the kind/repos/repoOf assertions; npm test → 532 tests: 521 pass, 11 skipped (publish build tests, mode: needs pandoc, typst and mmdc), 0 fail; tsc clean).
+- Task 1: complete (595698c..feat(repos) commit, node --test tests/repos.test.ts → 4 pass after RED on the kind/repos/repoOf assertions; npm test → 532 tests: 521 pass, 11 skipped (publish build tests, mode: needs pandoc, typst and mmdc), 0 fail; tsc clean).
 - Measured 2026-10-23: treeFingerprint on the real two-repository workspace root, 5 runs: 61/66/71/82/95 ms, median 71 ms (7 files outside the repositories, nothing blind).
-- Task 2: complete (b965899..feat(verify) fingerprint commit, node --test tests/worktree.test.ts → 6 new tests RED on 'a git repository has a fingerprint' / falsy tree, then 20 pass; npm test → 538 tests: 527 pass, 11 skipped, 0 fail; tsc clean).
+- Task 2: complete (a9ca526..feat(verify) fingerprint commit, node --test tests/worktree.test.ts → 6 new tests RED on 'a git repository has a fingerprint' / falsy tree, then 20 pass; npm test → 538 tests: 527 pass, 11 skipped, 0 fail; tsc clean).
+- Ruling: Task 2's fingerprint already makes the workspace hook tests pass, so their RED was taken on the pre-Task-2 commit a9ca526 in a temporary worktree: the reproduction failed with 'Changed since the last green run: $S/red.log, $S/t-$e.log' and the between-calls commit went unseen — cost if wrong: none, the same tests now pass on the fixed code.
+- Task 3: complete (195ad96..fix(verify) commit; RED: hooks workspace tests on a9ca526 (2 fail as above), callChanges unit test on a stub (actual [] vs ['a/x']), loadState test on 'a non-string HEAD'; GREEN: node --test tests/worktree.test.ts tests/hooks.test.ts → 78 pass; npm test → 543 tests: 532 pass, 11 skipped, 0 fail; tsc clean).

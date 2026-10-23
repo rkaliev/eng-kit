@@ -469,6 +469,69 @@ test("verify gate: outside git the command's text decides", () => {
 	assert.deepEqual(call({ hook_event_name: "Stop", session_id: "t" }), {});
 });
 
+/** `setup` in a folder outside git that holds repositories `a` (committed `f.ts`) and `b` (committed `m.ts`). */
+function setupWorkspace() {
+	const ctx = setup();
+	const git = (repo: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: join(ctx.projectDir, repo), stdio: "pipe" });
+	for (const [repo, file] of [["a", "f.ts"], ["b", "m.ts"]] as const) {
+		mkdirSync(join(ctx.projectDir, repo));
+		git(repo, "init", "-q", "-b", "main");
+		writeFileSync(join(ctx.projectDir, repo, file), "export {};\n");
+		git(repo, "add", "-A");
+		git(repo, "commit", "-q", "-m", "initial");
+	}
+	let calls = 0;
+	const bash = (command: string, during = () => {}) => {
+		const tool_use_id = `toolu_${++calls}`;
+		ctx.call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id });
+		during();
+		return ctx.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id });
+	};
+	return { ...ctx, git, bash };
+}
+
+test("verify gate: in a workspace, a redirect to an unknown variable path marks nothing", () => {
+	const { call, bash } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	bash("cd a && true > $S/red.log");
+	bash('S=$(mktemp -d); for e in x y; do true > $S/t-$e.log; done');
+	assert.deepEqual(call({ hook_event_name: "Stop" }), {});
+});
+
+test("verify gate: in a workspace, a shell write in a repository marks it with its folder", () => {
+	const { call, bash, projectDir } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	bash("echo x > a/f.ts", () => writeFileSync(join(projectDir, "a", "f.ts"), "x\n"));
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /a\/f\.ts/);
+});
+
+test("verify gate: in a workspace, a write or a commit between calls is found at Stop", () => {
+	const { call, git, projectDir } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	writeFileSync(join(projectDir, "b", "c.ts"), "export {};\n");
+	git("b", "add", "c.ts");
+	git("b", "commit", "-q", "-m", "c");
+	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /b\/c\.ts/, "a subagent's commit in a repository");
+
+	call({ hook_event_name: "SessionStart", source: "startup", session_id: "s2" });
+	writeFileSync(join(projectDir, "loose.js"), "1;\n");
+	assert.match(String(call({ hook_event_name: "Stop", session_id: "s2" }).output?.reason), /loose\.js/, "a file outside the repositories");
+});
+
+test("verify gate: a saved tree from before workspaces loads; a malformed workspace field drops it", () => {
+	const { env } = setup();
+	const save = (tree: unknown) => writeFileSync(join(env.stateDir, "t.json"), JSON.stringify({ tree }));
+	save({ head: "abc", files: { "src/a.ts": "1 2" } });
+	assert.deepEqual(loadState(env.stateDir, "t").tree, { head: "abc", files: { "src/a.ts": "1 2" } });
+	save({ head: "", files: {}, heads: { a: "abc" }, blind: [""] });
+	assert.deepEqual(loadState(env.stateDir, "t").tree?.blind, [""]);
+	save({ head: "", files: {}, heads: { a: 1 }, blind: [] });
+	assert.equal(loadState(env.stateDir, "t").tree, undefined, "a non-string HEAD");
+	save({ head: "", files: {}, heads: {}, blind: "a" });
+	assert.equal(loadState(env.stateDir, "t").tree, undefined, "blind is a list");
+});
+
 test("verify gate: outside git, $HOME is the shell's in Bash and PowerShell's own variable in PowerShell", () => {
 	const { call } = setup();
 	const run = (tool_name: string, session_id: string) => call({ hook_event_name: "PostToolUse", tool_name, tool_input: { command: "echo x > $HOME/a.ts" }, session_id });
