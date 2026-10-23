@@ -960,6 +960,37 @@ test("review-log prints the stored reports of a commit's latest round; with none
 	assert.match(afterFail.stdout, /\(no report stored for this run\)/);
 });
 
+/** `setupWorkspace` with its own record store, and each repository's HEAD. */
+function reviewWorkspace() {
+	const ctx = setupWorkspace();
+	ctx.env.reviewsRoot = mkdtempSync(join(tmpdir(), "hooks-reviews-"));
+	const head = (repo: string) => String(ctx.git(repo, "rev-parse", "HEAD")).trim();
+	return { ...ctx, reviewsRoot: ctx.env.reviewsRoot, head };
+}
+
+test("review gate: SubagentStop records a workspace reviewer's verdict in the repository that has the commit", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	const report = `### Verdict\nReviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: Yes`;
+	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: report, prompt_id: "p1", agent_id: "a1" }), {});
+	assert.deepEqual(readReviews(join(projectDir, "a"), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head("a"), "Yes"]]);
+});
+
+test("review gate: a malformed report in a workspace lands Inconclusive on each repository's HEAD", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed HEAD: deadbeef0", prompt_id: "p1", agent_id: "a1", stop_hook_active: true });
+	for (const repo of ["a", "b"]) assert.deepEqual(readReviews(join(projectDir, repo), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head(repo), "Inconclusive"]], repo);
+});
+
+test("review-log finds the commit's repository from the workspace folder", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	const report = `### Verdict\nReviewed BASE: ${head("b")}\nReviewed HEAD: ${head("b")}\nReady to merge: No`;
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: report, prompt_id: "p1", agent_id: "r1" });
+	const { CLAUDE_PROJECT_DIR: _unset, ...shellEnv } = process.env;
+	const printed = spawnSync(process.execPath, [join(root, "scripts", "review-log.ts"), head("b")], { cwd: projectDir, encoding: "utf8", env: { ...shellEnv, ENG_KIT_REVIEWS_ROOT: reviewsRoot } });
+	assert.equal(printed.status, 0, printed.stderr);
+	assert.match(printed.stdout, /## Reviewer run r1 — No/);
+});
+
 test("review gate: a successful gh pr create registers its branch for the push gate; a failed one does not", () => {
 	const projectDir = gitRepo({});
 	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();

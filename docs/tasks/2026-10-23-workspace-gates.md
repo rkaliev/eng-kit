@@ -194,11 +194,11 @@ Checked 2026-10-23: `CLAUDE_PROJECT_DIR` is empty in the Bash tool's environment
 **Files:** Modify `scripts/review-log.ts` · Test `tests/hooks.test.ts`
 **Interfaces:** Consumes `commitRepos`
 
-- [ ] Write failing test `review-log finds the commit from the workspace folder` → spawn the script with `cwd: ws`, `ENG_KIT_REVIEWS_ROOT`, rev = `a`'s HEAD with a recorded review → exit 0 and the report printed. Run → expect FAIL: exit 1, `is not a commit in this repository`.
-- [ ] Add hooks tests `SubagentStop records a workspace reviewer's verdict` (→ `readReviews(ws/a)` has `Yes`, no warning) and `a malformed report in a workspace lands Inconclusive on each HEAD`. They pass on Task 4's code: confirm each fails when `commitRepos` returns `[]` (a temporary mutation of a copy, not the file), then keep them as regression tests.
-- [ ] Implement: review-log resolves `rev` in `process.cwd()`; failing that, takes the first `commitRepos(process.cwd(), rev)` entry and reads its reports, chain and IDs from that folder; error `<rev> is not a commit in this repository or any repository here`.
-- [ ] Run `node --test tests/hooks.test.ts` → PASS, then `npm test`
-- [ ] Commit `fix(review-log): find the commit's repository from a workspace folder`
+- [x] Write failing test `review-log finds the commit from the workspace folder` → spawn the script with `cwd: ws`, `ENG_KIT_REVIEWS_ROOT`, rev = `a`'s HEAD with a recorded review → exit 0 and the report printed. Run → expect FAIL: exit 1, `is not a commit in this repository`.
+- [x] Add hooks tests `SubagentStop records a workspace reviewer's verdict` (→ `readReviews(ws/a)` has `Yes`, no warning) and `a malformed report in a workspace lands Inconclusive on each HEAD`. They pass on Task 4's code: confirm each fails when `commitRepos` returns `[]` (a temporary mutation of a copy, not the file), then keep them as regression tests.
+- [x] Implement: review-log resolves `rev` in `process.cwd()`; failing that, takes the first `commitRepos(process.cwd(), rev)` entry and reads its reports, chain and IDs from that folder; error `<rev> is not a commit in this repository or any repository here`.
+- [x] Run `node --test tests/hooks.test.ts` → PASS, then `npm test`
+- [x] Commit `fix(review-log): find the commit's repository from a workspace folder`
 
 ### Task 6: docs and release 0.34.0
 
@@ -227,3 +227,4 @@ Checked 2026-10-23: `CLAUDE_PROJECT_DIR` is empty in the Bash tool's environment
 - Ruling: two repo() repositories built in the same second have identical commits, so the test's b had a's SHA; b now gets its own README through a new repo() parameter (test helper only) — cost if wrong: none, the fixed tests were re-run RED on the pre-Task-4 code (5 fail for the planned reasons).
 - Added test 'a PR entry noted by 0.33.0 (branches, no folders) registers its branches in the project's store' for the legacy path settlePr keeps; it passes on old and new code, and a mutation of a copy (legacy entries lose their branch) makes it fail (actual []).
 - Task 4: complete (bbbe549..fix(review-gate) commit; RED: 5 workspace review tests (recordReview returned a string; 'is not a commit in this repository'; PR blocked with a Yes; b's push gated by a's PR); GREEN: node --test tests/reviews.test.ts → 62 pass; npm test → 549 tests: 538 pass, 11 skipped, 0 fail; tsc clean).
+- Task 5: complete (6b94dd5..fix(review-log) commit; RED: review-log from the workspace exited 1 ('… is not a commit in this repository'); the two SubagentStop workspace tests pass on Task 4's code and fail (2 of 2) with commitRepos mutated to find no workspace repository (a copy restored, diff empty); GREEN: npm test → 552 tests: 541 pass, 11 skipped, 0 fail; tsc clean).
