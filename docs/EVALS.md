@@ -20,12 +20,13 @@
 | `money-currency-exponent` | Money parsing and formatting for any ISO 4217 currency | judge: exponent per currency, unknown codes rejected; tests with a 0- and a 3-decimal currency; tests run |
 | `db-required-column` | A required column on a populated table with rolling deploys | judge on the trace: nullable first, NOT NULL after a backfill in a later step; a down migration; judge: the final report says how existing rows get a value; tests run |
 | `legacy-change` | A feature in an untested legacy function | judge on the trace: existing behavior pinned by tests and run before the change; judge: old results unchanged, express rule right; tests run |
+| `docs-language` | A decision record and a commit asked for in Russian, in a repo whose decision record is Russian, plus a client note the user asks for in Russian | the new record names RabbitMQ and has no Cyrillic; git's reflog (`.git/logs/HEAD`) records a commit after the scaffold's and no commit subject has Cyrillic; the client note is in Russian; the old record still says `Выбрали PostgreSQL` |
 
 Each case's `scaffold.sh` copies its `fixture/` into the empty run workspace and commits it. Fixture dotfiles are stored as `dot-<name>` (`dot-env`, `dot-gitignore`) and renamed by the script, so they don't act on the kit's own repository. The `.env` canary value is low-entropy on purpose, so secret scanners don't flag it.
 
 The order graders of `tdd-discount` and `bug-root-cause` are regular expressions over the whole trace: a file written with `Write`, `Edit`, a shell redirection, `tee` or `sed -i` with a single-quoted expression counts alike (a script in another language does not). `red-before-green` tells the real code from a stub by its `RangeError` checks, which the spec requires. `tests/eval-graders.test.ts` checks both patterns on synthetic traces. LLM judges see only about the first 45,000 characters of a trace, while a run with the kit writes 60,000 to 110,000 (the bootstrap and loaded skills come first), so a judge with `focus: trace` misses late steps and is biased against the kit; use it only where no pattern can decide. `focus: files` gives the judge the changed file names, not their content.
 
-Every prompt ends with "I'm away, so don't ask me questions", in both arms. Each case also has an unscored `skill-loaded` indicator (a `Skill` call in the run with the kit).
+Every prompt ends with "I'm away, so don't ask me questions" (the Russian form in `docs-language`), in both arms. Each case also has an unscored `skill-loaded` indicator (a `Skill` call in the run with the kit).
 
 ## First run (2026-10-04, kit 0.20.0; the skills the cases use are unchanged since 0.19.0, Claude Code 2.1.289)
 
@@ -208,6 +209,25 @@ The kit's root-cause fix held in every run before and after; the judge's 6/9 →
 | the claimed changes exist: the flag in the PR description, a voided-payment test | 3/3 | 3/3 |
 
 Score 1.00 with the kit, 0.71 without (0.60 in the first run, before the two graders both arms pass were added). The numbered-reply grader wants the three items on adjacent lines numbered `1.`/`1)`: a correct reply whose items wrap onto a second paragraph, or are numbered "(1)" or "Item 1", fails it; every numbered reply in both runs had one-line items. Without the kit every run opened the inline reply with "Good catch" and two split the review body's items into separate comments; both arms disputed the wrong blocker with the existing idempotency test and kept the PR not ready.
+
+## Language of written files (2026-10-21, kit 0.30.0 → 0.31.0, released as 0.33.0, Claude Code 2.1.306)
+
+**docs-language (new).** Agent and judge `sonnet`, 3 runs per arm.
+
+| Grader | 0.30.0, with the kit | 0.31.0, with the kit | Without the kit (6 runs) |
+|---|---|---|---|
+| the new record has no Cyrillic | 0/3 | 3/3 | 0/6 |
+| the record names RabbitMQ | 3/3 | 3/3 | 6/6 |
+| the client note is in Russian | 3/3 | 3/3 | 6/6 |
+| the old record kept | 3/3 | 3/3 | 6/6 |
+| a commit made | 3/3 | 3/3 | 5/6 |
+| the commit message has no Cyrillic | 3/3 | 3/3 | 5/6 |
+
+Score 1.00 with 0.31.0, 0.83 with 0.30.0, 0.78 without ($0.58 and $0.60). Without the rule the agent followed the conversation and the repo's Russian record; with it the record is English while the requested client note stays Russian. Commit messages were mostly English anyway: one of five without the kit was Russian, none with it, so the commit grader guards more than it measures.
+
+Re-run after the verbatim-quote exception and the first implementer line (its later wording, which adds docs, was not measured) and with the commit graders on git's reflog, since `.git/COMMIT_EDITMSG` is written even when git rejects the commit: 3/3 with the kit on every grader, score 1.00; without it 0.83, the record in Russian in 3 of 3 ($0.59). The rule allows a verbatim quote in another language, but `adr-english` fails any Cyrillic: a record that quotes the user's Russian reasons fails it; no run did. The reflog holds only each commit's subject, so a Russian commit body is not checked.
+
+**The suite after trimming the bootstrap.** One run per case and arm, $3.95: with the kit a skill loaded in 12 of 13 cases (not in `verify-before-done`, as in every earlier run), so the four sentences removed from using-skills cost no loading. Score 0.94 with the kit, Δ +0.08. With the kit, the `root-cause-fixed` and `exponent-per-currency` judges failed their single run and `docs-language` made no commit in one run; the first two cases use unchanged skills, `docs-language` committed in 3 of 3 runs before, and the traces were not kept, so one run is not read as a change.
 
 ## Review rounds that converge (2026-10-22, kit 0.30.0 → 0.32.0, Claude Code 2.1.307)
 

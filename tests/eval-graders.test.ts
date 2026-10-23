@@ -100,3 +100,33 @@ test("review-feedback: the claimed changes are checked in the files", () => {
 	assert.match('test("rejects a refund on a voided payment", () => assert.throws(() => refund({ ...captured, status: "voided" }, 1), RefundError));', voided);
 });
 
+
+test("docs-language: Cyrillic in the decision record fails", () => {
+	const g = grader("docs-language/graders/adr-english.md");
+	for (const russian of ["# 0002. Очередь сообщений\n", "Выбрали RabbitMQ", "docs: запись решения ё\n", "ё"]) assert.match(russian, g, russian);
+	for (const english of ["# 0002. Message queue\n\nWe chose RabbitMQ.\n", "docs: record the message queue decision\n"]) assert.doesNotMatch(english, g, english);
+});
+
+// Reflog lines in the shape git writes them to .git/logs/HEAD.
+const reflog = (who: string, entry: string) => `${"0".repeat(40)} ${"a".repeat(40)} ${who} 1700000000 +0000\t${entry}\n`;
+const INITIAL = reflog("eval <eval@example.invalid>", "commit (initial): initial");
+
+test("docs-language: Cyrillic in any commit subject fails, not in the author's name", () => {
+	const g = grader("docs-language/graders/commit-english.md");
+	assert.match(INITIAL + reflog("eval <e@x>", "commit: docs: запись решения"), g);
+	assert.match(INITIAL + reflog("eval <e@x>", "commit: docs: record the decision") + reflog("eval <e@x>", "commit (amend): docs: запись"), g);
+	assert.doesNotMatch(INITIAL + reflog("Руслан <r@x>", "commit: docs: record the message queue decision"), g);
+});
+
+test("docs-language: the requested client note is in Russian", () => {
+	const g = grader("docs-language/graders/client-doc-russian.md");
+	assert.match("# Очередь\n\nНичего не теряется при перезапуске.\n", g);
+	assert.doesNotMatch("# Queue\n\nNothing is lost on a restart (RabbitMQ).\n", g);
+});
+
+test("docs-language: a commit counts only when git recorded one after the scaffold's", () => {
+	const g = grader("docs-language/graders/commit-made.md");
+	assert.doesNotMatch(INITIAL, g, "only the scaffold commit");
+	assert.match(INITIAL + reflog("eval <e@x>", "commit: docs: record the message queue decision"), g);
+	assert.match(INITIAL + reflog("eval <e@x>", "commit: initial work on the queue"), g);
+});
