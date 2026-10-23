@@ -1,8 +1,8 @@
 # Verify and review gates work in a folder of several git repositories
 
-Status: design approved (2026-10-23)
+Status: plan approved (2026-10-23)
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
-Base: 50523abd7bf6f7ef9290a10769d8e34aa5bffc6c
+Base: 7ad427089b68bf64aecc0148d5833c3b12c32df6
 Links: None
 
 <details><summary>Original request</summary>
@@ -88,7 +88,131 @@ Minor release 0.34.0. Old session state and review stores keep working: the stor
 
 ## Plan
 
-None yet
+> Execute with the executing-plans skill. Only this section uses `- [ ]` checkboxes.
+
+**Goal:** the verify and review gates see every repository of a non-git folder of git repositories, as they see one repository.
+**Architecture:** a new shared `lib/repos.ts` names the project's repositories; `lib/worktree.ts` fingerprints each of them plus a walk of the files outside them, and a shared `callChanges` decides what a call changed; `lib/reviews.ts` records a verdict in every repository that has the commit and checks a landing against its own repository's store. `lib/hooks.ts` only switches to `callChanges`.
+**Stack / constraints:** Node ≥22.18 running `.ts` natively, `node:test`, no new dependencies. `lib/repos.ts`, `lib/worktree.ts`, `lib/reviews.ts` stay byte-identical with the other edition's copies (`cmp` must pass); imports stay relative (`./commands.ts`). Everything written in English. Commits: Conventional Commits, repo-local identity, no trailers. Values: at most 32 repositories (`MAX_REPOS`), 5000 entries per part (`MAX_ENTRIES`), workspace fingerprint budget 2000 ms (`WORKSPACE_BUDGET_MS`), git timeout per call `min(3000, time left)`.
+**Verification:** in `src_claude/`: `npm run typecheck`, `npm test`; from the workspace root, the bare `node "<kit>/scripts/verify.ts"` (workspace `.claude/verify.json`).
+
+Ruling: the two defects' red reproductions open Task 3 (verify) and Task 4 (review): they need `projectRepos` (Task 1) to set up a workspace at all, and every commit stays green.
+
+Checked 2026-10-23: `CLAUDE_PROJECT_DIR` is empty in the Bash tool's environment, so `scripts/verify.ts` uses the shell's cwd; the hooks get it set. No design change: the gates run in hooks.
+
+### Review focus
+1. A repository whose `git status` times out or exceeds 5000 entries: only it becomes blind, and text targets inside it still count (Task 2, Task 3).
+2. Two repositories that are clones of one history: a verdict lands in both, and a branch named the same in both doesn't share PR state (Task 4).
+3. Session state written by 0.33.0 without `heads`/`blind` loads and compares as a single repository's (Task 3).
+4. A repository folder removed between two fingerprints: its listed files count as changed, nothing throws (Task 2).
+5. A `.git` *file* (a worktree checkout) at the first level counts as a repository; a symlinked folder is neither a repository nor walked (Task 1, Task 2).
+
+### Post-implementation
+- README.md "Verify gate" and "Review gate": a paragraph on folders of repositories (what is fingerprinted, where verdicts go, the 32 / 5000 / 2 s limits).
+- docs/ARCHITECTURE.md and docs/ARCHITECTURE.ru.md: the PostToolUse and SubagentStop rows, the reviews path note, "How it's verified".
+- skills/requesting-code-review/references/review-gate.md: records per repository, found from a folder of repositories too.
+- CHANGELOG.md `## 0.34.0`; version 0.34.0 in package.json and .claude-plugin/plugin.json (`node .github/release.ts check` passes).
+- The topic chapter is README "Verify gate" / "Review gate" (this repo has no `docs/NN-*` chapters). No decision record: the decisions go to CHANGELOG and ARCHITECTURE.
+
+### Files
+- Create `lib/repos.ts`: which repositories the project is (`projectRepos`, `repoOf`).
+- Modify `lib/worktree.ts`: workspace fingerprint, `changedPaths` per repository, `callChanges`.
+- Modify `lib/state.ts`: `isTree` accepts the new optional fields.
+- Modify `lib/hooks.ts`: `trackTree` uses `callChanges`.
+- Modify `lib/reviews.ts`: `commitRepos`, workspace `recordVerdict`, landing store through `repoOf`, PR tracking per repository.
+- Modify `scripts/review-log.ts`: finds the commit's repository.
+- Tests: create `tests/repos.test.ts`; modify `tests/worktree.test.ts`, `tests/hooks.test.ts`, `tests/reviews.test.ts`.
+
+### Task 1: repositories of a project
+
+**Files:** Create `lib/repos.ts` · Test `tests/repos.test.ts`
+**Interfaces:** Produces `projectRepos(projectDir: string, ignore?: string[]): { kind: "repo" | "workspace" | "none"; repos: string[] }`, `repoOf(projectDir: string, path: string): string`, `MAX_REPOS = 32`
+
+- [ ] Write failing tests against a stub that returns `{ kind: "none", repos: [] }` and `projectDir`:
+  - `a folder inside git is one repository` → `{ kind: "repo", repos: [""] }`, also from a subfolder;
+  - `a non-git folder of repositories is a workspace` → temp dir with `b/.git` (folder), `a/.git` (file `gitdir: …`), `plain/`, `ignored/.git` with ignore `["ignored/**"]`, `deep/x/.git`, a symlink `link → b` → `{ kind: "workspace", repos: ["a", "b"] }`;
+  - `no repositories, or more than 32, is none` → an empty dir and a dir of 33 repositories give `{ kind: "none", repos: [] }`;
+  - `repoOf names the repository a path is in` → `repoOf(ws, ws/b/src/x)` = `ws/b`; `repoOf(ws, ws/plain/x)` and `repoOf(ws, /elsewhere)` = `ws`; inside a repo it returns `projectDir`.
+- [ ] Run `node --test tests/repos.test.ts` → expect FAIL on the `kind` and `repos` assertions
+- [ ] Implement: `repo` when `git rev-parse --is-inside-work-tree` succeeds (one call, 3 s timeout); else the direct subfolders (`readdirSync` with file types, symlinks excluded) holding a `.git` entry, minus those a glob ignores (`isIgnored(name, ignore)`, or a `<stem>/**` glob whose stem is `name`), sorted; 1..32 of them → `workspace`. `repoOf` returns `join(projectDir, r)` for the workspace repository containing `path`, else `projectDir`.
+- [ ] Run `node --test tests/repos.test.ts` → PASS, then `npm test`
+- [ ] Commit `feat(repos): name the repositories of a project folder`
+
+### Task 2: workspace fingerprint
+
+**Files:** Modify `lib/worktree.ts` · Test `tests/worktree.test.ts`
+**Interfaces:** Consumes `projectRepos` · `Tree` gains `heads?: Record<string, string>` (repository → HEAD, `""` before its first commit) and `blind?: string[]` (parts not fingerprinted: a repository, or `""` for the files outside the repositories) · `treeFingerprint(projectDir, ignore, why = {}, limits: { deadline?: number; maxEntries?: number } = {})`; `changedPaths` keeps its signature
+
+- [ ] Write failing tests in a temp workspace with repositories `a`, `b` (one commit each) and a loose file `notes/x.js`:
+  - `a workspace fingerprint lists each repository's changes under its folder` → edit `a/f.ts`, add `b/n.ts` → `changedPaths` = `["a/f.ts", "b/n.ts"]`;
+  - `a commit in one repository counts its files` → commit `b/c.ts` between fingerprints → `["b/c.ts"]`, `heads.b` differs;
+  - `a file outside the repositories counts, an ignored one doesn't` → edit `notes/x.js` and `docs/y.md` → `["notes/x.js"]`;
+  - `a repository over the limit is blind, not the workspace` → `limits.maxEntries = 2` with three new files in `a` → `blind` = `["a"]`, a change in `b` still listed;
+  - `an expired deadline leaves every part blind` → `limits.deadline = Date.now() - 1` → `blind` = `["", "a", "b"]`, `files` = `{}`;
+  - `a removed repository folder counts its listed files` → remove `a/` after a fingerprint with `a/f.ts` dirty → `a/f.ts` listed, no throw.
+- [ ] Run `node --test tests/worktree.test.ts` → expect FAIL: `treeFingerprint` returns `undefined` for the workspace
+- [ ] Implement `workspaceFingerprint` behind `treeFingerprint` (kind `repo` → today's code, unchanged; `none` → `undefined`): per repository today's status logic with paths prefixed `<repo>/` and its HEAD into `heads`; then a walk of the project skipping repository folders, `.git`, symlinks and ignored paths (a directory is pruned when a `<stem>/**` glob's stem matches it), each file by `identity()`. A part over `maxEntries` (default `MAX_ENTRIES`), failing git, or reached after the deadline (default now + `WORKSPACE_BUDGET_MS`) goes into `blind` and contributes no entries; each git call's timeout is `min(GIT_TIMEOUT_MS, time left)`. `changedPaths`: when both trees have `heads`, the HEAD diff runs per repository whose HEAD moved, in `join(projectDir, repo)`, results prefixed; without `heads`, as today.
+- [ ] Measure `treeFingerprint` on the real workspace root, 5 runs; record the median in Progress (risk "a large workspace").
+- [ ] Run `node --test tests/worktree.test.ts` → PASS, then `npm test`
+- [ ] Commit `feat(verify): fingerprint every repository of a workspace and the files outside them`
+
+### Task 3: the verify gate counts what a workspace call changed
+
+**Files:** Modify `lib/worktree.ts`, `lib/state.ts`, `lib/hooks.ts` · Test `tests/worktree.test.ts`, `tests/hooks.test.ts`
+**Interfaces:** Produces `callChanges(before: Tree | undefined, now: Tree | undefined, projectDir: string, after?: { command: string; cwd: string; powershell?: boolean }): string[]` (ignore filtering stays with the caller)
+
+- [ ] Red reproduction in `tests/hooks.test.ts` with a helper `setupWorkspace()` (temp dir, repositories `a` and `b` with one commit each, `.claude/verify.json` with one command): `in a workspace, a redirect to an unknown variable path marks nothing` → `bash("cd a && true > $S/red.log")` writing no project file → `loadState(...).unverified` is false. Run `node --test tests/hooks.test.ts` → expect FAIL: edited `["$S/red.log"]`.
+- [ ] Write failing tests:
+  - hooks `in a workspace, a shell write in a repository marks it` → `bash("echo x > a/f.ts")` → edited `["a/f.ts"]`;
+  - hooks `a write between calls in a workspace is found at Stop` → write `b/n.ts` from the test, then `stop` → block reason lists `b/n.ts`;
+  - hooks `state saved without heads still compares` → state with a 0.33.0-shape `tree` (`{ head, files }`) in a single repository, then a write → marked as before;
+  - unit `callChanges reads text targets only inside blind parts` → blind `["a"]`: `> a/x` counts, `> b/x` doesn't; blind `[""]`: `> loose.js` counts, `> a/x` doesn't.
+- [ ] Run `node --test tests/hooks.test.ts tests/worktree.test.ts` → expect FAIL on those assertions
+- [ ] Implement `callChanges`: both trees → `changedPaths(before, now, projectDir)` plus `shellWriteTargets` filtered to paths inside a part blind in either tree (`""` = under no repository named in `heads` or `blind`); a tree missing and `after` given → text targets, as today. `isTree` accepts optional `heads` (string record) and `blind` (string array). `trackTree` computes `paths` as `callChanges(...).filter((p) => !isIgnored(p, ignore))`; `gitOff` is set only by a `repo` fingerprint (a workspace never sets `why.slow`).
+- [ ] Run `node --test tests/hooks.test.ts tests/worktree.test.ts` → PASS, then `npm test` and `npm run typecheck`
+- [ ] Commit `fix(verify): a workspace call counts what it changed, not what its text names`
+
+### Task 4: verdicts per repository
+
+**Files:** Modify `lib/reviews.ts` · Test `tests/reviews.test.ts`
+**Interfaces:** Consumes `projectRepos`, `repoOf` · Produces `commitRepos(projectDir: string, rev: string): Array<{ dir: string; sha: string }>`; `recordVerdict` and `recordReview` keep their signatures and return the first record
+
+- [ ] Red reproduction: `a workspace records the verdict in the repository that has the commit` → workspace of `repo()`-style repositories `a`, `b`; `recordReview(ws, <report naming a's HEAD>)` returns a record and `readReviews(ws/a)` holds it. Run `node --test tests/reviews.test.ts` → expect FAIL: `"Reviewed HEAD … is not a commit in this repository"`.
+- [ ] Write failing tests:
+  - `clones of one history both record the verdict` → `b` cloned from `a` → both stores hold it;
+  - `a SHA in no repository names them` → `"Reviewed HEAD <sha> is not a commit in any repository here (a, b)"`;
+  - `HEAD records on each repository's HEAD` → `recordVerdict(ws, "HEAD", "Inconclusive")` → one record per store, each on its own HEAD;
+  - `a workspace PR from a repository passes with its Yes and is denied without` → `check("cd a && gh pr create", { missing: "block" }, ws)`;
+  - `a push to a repository's PR branch is gated by that repository's store` → `notePr`/`settlePr` for `cd a && gh pr create`, then `git -C a push origin feat/a` is gated;
+  - `a branch named the same in another repository is not a PR branch` → push of `feat/a` from `b` is not gated by `a`'s PR.
+- [ ] Run `node --test tests/reviews.test.ts` → expect FAIL on those assertions
+- [ ] Implement: `commitRepos` → `[{ dir: projectDir, sha }]` for kind `repo`, each workspace repository where `rev^{commit}` resolves, `[]` otherwise. `recordVerdict` writes one record per entry into `reviewsDir(entry.dir)`, BASE resolved in the same repository (entries without it skipped; none left → the BASE error); the not-a-commit error names the repositories in a workspace. `uncovered` and `openPrBranches` use the store of `repoOf(projectDir, where)`. `notePr` stores `{ prs: Array<{ branch, dir }>, at, last }`; `settlePr` writes each branch into the `prs.json` of `repoOf(projectDir, dir)` and still reads the legacy `branches`/`branch` entries (dir = `projectDir`).
+- [ ] Run `node --test tests/reviews.test.ts` → PASS, then `npm test`
+- [ ] Commit `fix(review-gate): record and check verdicts per repository of a workspace`
+
+### Task 5: SubagentStop and review-log in a workspace
+
+**Files:** Modify `scripts/review-log.ts` · Test `tests/hooks.test.ts`
+**Interfaces:** Consumes `commitRepos`
+
+- [ ] Write failing test `review-log finds the commit from the workspace folder` → spawn the script with `cwd: ws`, `ENG_KIT_REVIEWS_ROOT`, rev = `a`'s HEAD with a recorded review → exit 0 and the report printed. Run → expect FAIL: exit 1, `is not a commit in this repository`.
+- [ ] Add hooks tests `SubagentStop records a workspace reviewer's verdict` (→ `readReviews(ws/a)` has `Yes`, no warning) and `a malformed report in a workspace lands Inconclusive on each HEAD`. They pass on Task 4's code: confirm each fails when `commitRepos` returns `[]` (a temporary mutation of a copy, not the file), then keep them as regression tests.
+- [ ] Implement: review-log resolves `rev` in `process.cwd()`; failing that, takes the first `commitRepos(process.cwd(), rev)` entry and reads its reports, chain and IDs from that folder; error `<rev> is not a commit in this repository or any repository here`.
+- [ ] Run `node --test tests/hooks.test.ts` → PASS, then `npm test`
+- [ ] Commit `fix(review-log): find the commit's repository from a workspace folder`
+
+### Task 6: docs and release 0.34.0
+
+**Files:** Modify README.md, docs/ARCHITECTURE.md, docs/ARCHITECTURE.ru.md, skills/requesting-code-review/references/review-gate.md, CHANGELOG.md, package.json, .claude-plugin/plugin.json
+
+- [ ] Update each doc as Post-implementation lists; ARCHITECTURE.ru.md stays Russian (an existing Russian file keeps its language)
+- [ ] Run `npm test` (lint-skills, release) and `node .github/release.ts check` → PASS
+- [ ] Commit `docs: workspace gates (0.34.0)`
+
+### Task 7: live checks
+
+- [ ] Criterion 10: in a workspace session, dispatch `eng-kit:reviewer` on a small range, continue it with SendMessage, and check with review-log from the workspace whether the second verdict was recorded. Record the result in Progress; a needed fix goes to Follow-ups.
+- [ ] Criterion 11: with this branch loaded (`claude --plugin-dir src_claude` from the workspace root), run one review and one `cd src && … > $S/red.log` call → the verdict is recorded and the verify gate doesn't re-fire. Record in Progress.
+- [ ] Bare `node "<kit>/scripts/verify.ts"` from the workspace root → all four commands pass.
 
 ## Progress
 
