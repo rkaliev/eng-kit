@@ -27,7 +27,7 @@ Use the Agent tool. If delegation is unavailable (for example, you are already a
 2. **Write one focused prompt per agent**, self-contained, since it has none of your context:
    - **Scope:** exact files, tests, or the question.
    - **Goal:** what "done" means, with the verification command.
-   - **Constraints:** read-only, or which files it may change; don't touch anything else.
+   - **Constraints:** read-only, or which files it may change; don't touch anything else; what it writes is in English (using-skills).
    - **Output:** root cause, changes as a file list, commands run with results, open questions.
 3. **Dispatch all agents in one message** (several Agent calls side by side), using the matching agent: `Explore` for recon, `reviewer` for review, `implementer` or `general-purpose` for edits. Writers must have disjoint file sets. Otherwise give each writer its own worktree (`isolation: worktree`) or run them sequentially.
 4. **Integrate:**

@@ -188,16 +188,16 @@ cd shop-v2 && claude --add-dir ../legacy-shop
 ```
 /eng-kit:brainstorming переписать legacy-shop по docs/legacy-map.md. Проект большой, сначала разбей на части
 ```
-Brainstorming называет независимые подсистемы до того, как уточнять любую из них, и предлагает разбиение: задача, которую начинаем сейчас, а остальные — по строке в её `## Follow-ups`, с порядком и контрактами между ними (API, данные, события). Например, первый файл задачи `docs/tasks/…-foundation.md` получает:
+Brainstorming называет независимые подсистемы до того, как уточнять любую из них, и предлагает разбиение: задача, которую начинаем сейчас, а остальные — по строке в её `## Follow-ups`, с порядком и контрактами между ними (API, данные, события). Например, первый файл задачи `docs/tasks/…-foundation.md` получает такой раздел. Файлы задач, планы и записи решений агент пишет на английском, даже если ты пишешь по-русски; по-русски он пишет только документы для людей, о которых ты попросишь:
 
 ```markdown
 ## Follow-ups
 
-- Каталог: перенести список товаров и поиск из legacy-shop; схему берёт из Фундамента.
-- Корзина и скидки: после Каталога; контракт API корзины из docs/legacy-map.md.
-- Оформление и оплата: после Корзины; правила payments-and-money, идемпотентные вызовы оплаты.
-- Админка: после Каталога, от Корзины не зависит.
-- Миграция данных и переключение со старой системы: последней, после всех остальных.
+- Catalog: port product listing and search from legacy-shop; reads the schema from Foundation.
+- Cart and discounts: after Catalog; the cart API contract from docs/legacy-map.md.
+- Checkout and payment: after Cart; payments-and-money rules, idempotent payment calls.
+- Admin panel: after Catalog, independent of Cart.
+- Data migration and cutover from the old system: last, after all the others.
 ```
 
 **Фазы 2…N. Одна задача = один файл задачи = одна ветка = один PR, в свежей сессии**
