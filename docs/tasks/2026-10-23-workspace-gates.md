@@ -204,9 +204,9 @@ Checked 2026-10-23: `CLAUDE_PROJECT_DIR` is empty in the Bash tool's environment
 
 **Files:** Modify README.md, docs/ARCHITECTURE.md, docs/ARCHITECTURE.ru.md, skills/requesting-code-review/references/review-gate.md, CHANGELOG.md, package.json, .claude-plugin/plugin.json
 
-- [ ] Update each doc as Post-implementation lists; ARCHITECTURE.ru.md stays Russian (an existing Russian file keeps its language)
-- [ ] Run `npm test` (lint-skills, release) and `node .github/release.ts check` → PASS
-- [ ] Commit `docs: workspace gates (0.34.0)`
+- [x] Update each doc as Post-implementation lists; ARCHITECTURE.ru.md stays Russian (an existing Russian file keeps its language)
+- [x] Run `npm test` (lint-skills, release) and `node .github/release.ts check` → PASS
+- [x] Commit `docs: workspace gates (0.34.0)`
 
 ### Task 7: live checks
 
@@ -228,3 +228,4 @@ Checked 2026-10-23: `CLAUDE_PROJECT_DIR` is empty in the Bash tool's environment
 - Added test 'a PR entry noted by 0.33.0 (branches, no folders) registers its branches in the project's store' for the legacy path settlePr keeps; it passes on old and new code, and a mutation of a copy (legacy entries lose their branch) makes it fail (actual []).
 - Task 4: complete (bbbe549..fix(review-gate) commit; RED: 5 workspace review tests (recordReview returned a string; 'is not a commit in this repository'; PR blocked with a Yes; b's push gated by a's PR); GREEN: node --test tests/reviews.test.ts → 62 pass; npm test → 549 tests: 538 pass, 11 skipped, 0 fail; tsc clean).
 - Task 5: complete (6b94dd5..fix(review-log) commit; RED: review-log from the workspace exited 1 ('… is not a commit in this repository'); the two SubagentStop workspace tests pass on Task 4's code and fail (2 of 2) with commitRepos mutated to find no workspace repository (a copy restored, diff empty); GREEN: npm test → 552 tests: 541 pass, 11 skipped, 0 fail; tsc clean).
+- Task 6: complete (5caa056..docs commit; README verify and review gate, ARCHITECTURE.md and .ru.md (PostToolUse and SubagentStop rows, review gate paragraph, section 9), review-gate.md, CHANGELOG 0.34.0, version 0.34.0 in package.json, package-lock.json and plugin.json; node .github/release.ts check → 'release metadata ok: 0.34.0'; claude plugin validate . → passed; npm test → 552 tests: 541 pass, 11 skipped, 0 fail. No new links or commands beyond review-log, which the e2e test runs).
