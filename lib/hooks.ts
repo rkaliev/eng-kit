@@ -22,7 +22,7 @@ import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { callChanges, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
+import { callChanges, ignoredPath, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -244,7 +244,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 			const rel = relative(env.projectDir, resolve(input.cwd || env.projectDir, path));
 			// Plans, memory and scratch files outside the project don't change what the checks verify.
 			if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return {};
-			if (isIgnored(rel, resolveIgnore(env.projectDir))) return {};
+			if (ignoredPath(env.projectDir, rel, resolveIgnore(env.projectDir))) return {};
 			label = rel.replaceAll("\\", "/");
 		}
 		const state = loadState(env.stateDir, sessionId);
@@ -316,8 +316,9 @@ function trackTree(
 	after?: { command: string; cwd: string; exempt: boolean; powershell?: boolean },
 ): { state: SessionState; marked: string[] } {
 	const ignore = resolveIgnore(env.projectDir);
-	const why: { slow?: boolean } = {};
-	const tree = loadState(env.stateDir, sessionId).gitOff ? undefined : treeFingerprint(env.projectDir, ignore, why);
+	const why: { slow?: boolean; slowParts?: string[] } = {};
+	const known = loadState(env.stateDir, sessionId);
+	const tree = known.gitOff ? undefined : treeFingerprint(env.projectDir, ignore, why, { skip: known.slowParts });
 	let state = loadState(env.stateDir, sessionId);
 	const own = after && callId !== undefined ? state.pending[callId] : undefined;
 	const before = own ?? state.tree;
@@ -329,7 +330,8 @@ function trackTree(
 	if (callId !== undefined) delete pending[callId];
 	if (callId !== undefined && !after && tree) pending[callId] = tree;
 	const kept = Object.fromEntries(Object.entries(pending).slice(-MAX_PENDING));
-	state = { ...state, tree: tree ?? state.tree, gitOff: state.gitOff || why.slow === true, pending: kept };
+	const slowParts = [...new Set([...state.slowParts, ...(why.slowParts ?? [])])];
+	state = { ...state, tree: tree ?? state.tree, gitOff: state.gitOff || why.slow === true, slowParts, pending: kept };
 	saveState(env.stateDir, sessionId, state);
 	return { state, marked };
 }

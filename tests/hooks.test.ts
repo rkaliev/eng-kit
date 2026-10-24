@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -517,6 +517,38 @@ test("verify gate: in a workspace, a write or a commit between calls is found at
 	call({ hook_event_name: "SessionStart", source: "startup", session_id: "s2" });
 	writeFileSync(join(projectDir, "loose.js"), "1;\n");
 	assert.match(String(call({ hook_event_name: "Stop", session_id: "s2" }).output?.reason), /loose\.js/, "a file outside the repositories");
+});
+
+test("verify gate: a slow workspace repository is remembered for the session, so later calls don't wait on it", () => {
+	const { call, projectDir, env } = setupWorkspace();
+	const bin = mkdtempSync(join(tmpdir(), "slow-git-"));
+	const log = join(bin, "calls.log");
+	writeFileSync(log, "");
+	const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+	writeFileSync(join(bin, "git"), `#!/bin/sh\nif [ "$PWD" = "${realpathSync(join(projectDir, "a"))}" ]; then echo call >> "${log}"; sleep 4; fi\nexec "${real}" "$@"\n`, { mode: 0o755 });
+	const path = process.env.PATH;
+	process.env.PATH = `${bin}:${path}`;
+	try {
+		call({ hook_event_name: "SessionStart", source: "startup" });
+		assert.deepEqual(loadState(env.stateDir, "s1").slowParts, ["a"]);
+		const calls = readFileSync(log, "utf8");
+		call({ hook_event_name: "Stop" });
+		assert.equal(readFileSync(log, "utf8"), calls, "no git in the remembered repository");
+	} finally {
+		process.env.PATH = path;
+	}
+});
+
+test("verify gate: in a workspace, an edit a glob ignores by its path inside the repository isn't counted", () => {
+	const { call, projectDir } = setupWorkspace();
+	writeFileSync(join(projectDir, "CLAUDE.md"), "## Commands\n- `npm test`\n");
+	mkdirSync(join(projectDir, ".claude"));
+	writeFileSync(join(projectDir, ".claude", "verify.json"), JSON.stringify({ commands: ["npm test"], ignore: ["docs/**"] }));
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "docs", "d.svg") } });
+	assert.deepEqual(call({ hook_event_name: "Stop" }), {});
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "src", "d.ts") } });
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /a\/src\/d\.ts/);
 });
 
 test("verify gate: a saved tree from before workspaces loads; a malformed workspace field drops it", () => {
