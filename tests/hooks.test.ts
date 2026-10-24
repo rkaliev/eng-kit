@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFil
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { slowGit } from "./slow-git.ts";
 import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
 import { readReviews, recordVerdict } from "../lib/reviews.ts";
 import { branchSummary } from "../lib/usage.ts";
@@ -519,23 +520,20 @@ test("verify gate: in a workspace, a write or a commit between calls is found at
 	assert.match(String(call({ hook_event_name: "Stop", session_id: "s2" }).output?.reason), /loose\.js/, "a file outside the repositories");
 });
 
-test("verify gate: a slow workspace repository is remembered for the session, so later calls don't wait on it", () => {
+test("verify gate: a workspace repository late twice running is remembered for the session, so later calls don't wait on it", () => {
 	const { call, projectDir, env } = setupWorkspace();
-	const bin = mkdtempSync(join(tmpdir(), "slow-git-"));
-	const log = join(bin, "calls.log");
-	writeFileSync(log, "");
-	const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
-	writeFileSync(join(bin, "git"), `#!/bin/sh\nif [ "$PWD" = "${realpathSync(join(projectDir, "a"))}" ]; then echo call >> "${log}"; sleep 4; fi\nexec "${real}" "$@"\n`, { mode: 0o755 });
-	const path = process.env.PATH;
-	process.env.PATH = `${bin}:${path}`;
+	const { log, restore } = slowGit(realpathSync(join(projectDir, "a")));
 	try {
 		call({ hook_event_name: "SessionStart", source: "startup" });
-		assert.deepEqual(loadState(env.stateDir, "s1").slowParts, ["a"]);
+		assert.deepEqual(loadState(env.stateDir, "s1").slowParts, [], "late once");
+		call({ hook_event_name: "Stop" });
+		assert.deepEqual(loadState(env.stateDir, "s1").slowParts, ["a"], "late twice running");
 		const calls = readFileSync(log, "utf8");
+		call({ hook_event_name: "UserPromptSubmit" });
 		call({ hook_event_name: "Stop" });
 		assert.equal(readFileSync(log, "utf8"), calls, "no git in the remembered repository");
 	} finally {
-		process.env.PATH = path;
+		restore();
 	}
 });
 
@@ -549,6 +547,23 @@ test("verify gate: in a workspace, an edit a glob ignores by its path inside the
 	assert.deepEqual(call({ hook_event_name: "Stop" }), {});
 	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "src", "d.ts") } });
 	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /a\/src\/d\.ts/);
+});
+
+test("verify gate: in a workspace, a repository's files follow its own ignore globs, in edits, shell writes and commits", () => {
+	const { call, projectDir, git, bash } = setupWorkspace();
+	mkdirSync(join(projectDir, ".claude"));
+	writeFileSync(join(projectDir, ".claude", "verify.json"), JSON.stringify({ commands: ["npm test"], ignore: ["scripts/**"] }));
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	bash("git -C a commit", () => {
+		mkdirSync(join(projectDir, "a", "docs"));
+		writeFileSync(join(projectDir, "a", "docs", "setup.yaml"), "x: 1\n");
+		git("a", "add", "docs/setup.yaml");
+		git("a", "commit", "-q", "-m", "docs");
+	});
+	assert.deepEqual(call({ hook_event_name: "Stop" }), {}, "a's default docs/** ignores its committed docs file");
+	call({ hook_event_name: "UserPromptSubmit" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "scripts", "build.ts") } });
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /a\/scripts\/build\.ts/, "the workspace's scripts/** is for the workspace's own folder");
 });
 
 test("verify gate: a saved tree from before workspaces loads; a malformed workspace field drops it", () => {
@@ -1011,6 +1026,21 @@ test("review gate: a malformed report in a workspace lands Inconclusive on each 
 	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
 	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed HEAD: deadbeef0", prompt_id: "p1", agent_id: "a1", stop_hook_active: true });
 	for (const repo of ["a", "b"]) assert.deepEqual(readReviews(join(projectDir, repo), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head(repo), "Inconclusive"]], repo);
+});
+
+test("review-log reads a short SHA as the commit it abbreviates, never a branch of that name", () => {
+	const { call, projectDir, reviewsRoot, head, git } = reviewWorkspace();
+	const first = head("a");
+	writeFileSync(join(projectDir, "a", "g.ts"), "export {};\n");
+	git("a", "add", "g.ts");
+	git("a", "commit", "-q", "-m", "g");
+	const second = head("a");
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `WRONG-COMMIT\nReviewed BASE: ${first}\nReviewed HEAD: ${second}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
+	git("a", "branch", first.slice(0, 10), second);
+	const { CLAUDE_PROJECT_DIR: _unset, ...shellEnv } = process.env;
+	const printed = spawnSync(process.execPath, [join(root, "scripts", "review-log.ts"), first.slice(0, 10)], { cwd: join(projectDir, "a"), encoding: "utf8", env: { ...shellEnv, ENG_KIT_REVIEWS_ROOT: reviewsRoot } });
+	assert.doesNotMatch(printed.stdout, /WRONG-COMMIT/);
+	assert.equal(printed.status, 1);
 });
 
 test("review-log finds the commit's repository from the workspace folder", () => {

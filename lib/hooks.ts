@@ -15,14 +15,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
-import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
+import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { callChanges, ignoredPath, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
+import { callChanges, ignoredPath, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -318,11 +318,12 @@ function trackTree(
 	const ignore = resolveIgnore(env.projectDir);
 	const why: { slow?: boolean; slowParts?: string[] } = {};
 	const known = loadState(env.stateDir, sessionId);
-	const tree = known.gitOff ? undefined : treeFingerprint(env.projectDir, ignore, why, { skip: known.slowParts });
+	const tree = known.gitOff ? undefined : treeFingerprint(env.projectDir, ignore, why, { skip: known.slowParts, previous: known.tree });
 	let state = loadState(env.stateDir, sessionId);
 	const own = after && callId !== undefined ? state.pending[callId] : undefined;
 	const before = own ?? state.tree;
-	const paths = callChanges(before, tree, env.projectDir, after).filter((p) => !isIgnored(p, ignore));
+	const ignored = ignoreFilter(env.projectDir, ignore);
+	const paths = callChanges(before, tree, env.projectDir, after).filter((p) => !ignored(p));
 	// Only a call compared with its own snapshot can claim the changes as a verification run's own.
 	const marked = paths.length > 0 && !(after?.exempt && own) ? paths : [];
 	if (marked.length > 0) state = markEdited(state, marked);

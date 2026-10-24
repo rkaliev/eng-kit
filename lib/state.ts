@@ -127,12 +127,15 @@ export function pruneStates(dir: string, now = Date.now()): void {
 
 function isTree(value: unknown): value is Tree {
 	if (!value || typeof value !== "object") return false;
-	const { head, files, heads, blind } = value as Partial<Tree>;
+	const { head, files, heads, blind, unseen, late } = value as Partial<Tree>;
+	const list = (v: unknown) => v === undefined || (Array.isArray(v) && v.every((b) => typeof b === "string"));
 	const strings = (record: unknown) => !!record && typeof record === "object" && Object.values(record).every((v) => typeof v === "string");
 	return (
 		typeof head === "string" &&
 		strings(files) &&
 		(heads === undefined || strings(heads)) &&
-		(blind === undefined || (Array.isArray(blind) && blind.every((b) => typeof b === "string")))
+		list(blind) &&
+		list(unseen) &&
+		list(late)
 	);
 }
