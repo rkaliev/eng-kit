@@ -210,9 +210,9 @@ Checked 2026-10-23: `CLAUDE_PROJECT_DIR` is empty in the Bash tool's environment
 
 ### Task 7: live checks
 
-- [ ] Criterion 10: in a workspace session, dispatch `eng-kit:reviewer` on a small range, continue it with SendMessage, and check with review-log from the workspace whether the second verdict was recorded. Record the result in Progress; a needed fix goes to Follow-ups.
-- [ ] Criterion 11: with this branch loaded (`claude --plugin-dir src_claude` from the workspace root), run one review and one `cd src && … > $S/red.log` call → the verdict is recorded and the verify gate doesn't re-fire. Record in Progress.
-- [ ] Bare `node "<kit>/scripts/verify.ts"` from the workspace root → all four commands pass.
+- [x] Criterion 10: in a workspace session, dispatch `eng-kit:reviewer` on a small range, continue it with SendMessage, and check with review-log from the workspace whether the second verdict was recorded. Record the result in Progress; a needed fix goes to Follow-ups.
+- [x] Criterion 11: with this branch loaded (`claude --plugin-dir src_claude` from the workspace root), run one review and one `cd src && … > $S/red.log` call → the verdict is recorded and the verify gate doesn't re-fire. Record in Progress.
+- [x] Bare `node "<kit>/scripts/verify.ts"` from the workspace root → all four commands pass.
 
 ## Progress
 
@@ -229,3 +229,7 @@ Checked 2026-10-23: `CLAUDE_PROJECT_DIR` is empty in the Bash tool's environment
 - Task 4: complete (bbbe549..fix(review-gate) commit; RED: 5 workspace review tests (recordReview returned a string; 'is not a commit in this repository'; PR blocked with a Yes; b's push gated by a's PR); GREEN: node --test tests/reviews.test.ts → 62 pass; npm test → 549 tests: 538 pass, 11 skipped, 0 fail; tsc clean).
 - Task 5: complete (6b94dd5..fix(review-log) commit; RED: review-log from the workspace exited 1 ('… is not a commit in this repository'); the two SubagentStop workspace tests pass on Task 4's code and fail (2 of 2) with commitRepos mutated to find no workspace repository (a copy restored, diff empty); GREEN: npm test → 552 tests: 541 pass, 11 skipped, 0 fail; tsc clean).
 - Task 6: complete (5caa056..docs commit; README verify and review gate, ARCHITECTURE.md and .ru.md (PostToolUse and SubagentStop rows, review gate paragraph, section 9), review-gate.md, CHANGELOG 0.34.0, version 0.34.0 in package.json, package-lock.json and plugin.json; node .github/release.ts check → 'release metadata ok: 0.34.0'; claude plugin validate . → passed; npm test → 552 tests: 541 pass, 11 skipped, 0 fail. No new links or commands beyond review-log, which the e2e test runs).
+- Live check 2026-10-24, scratch workspace (repos a and b, verify command 'test -f a/a.ts'), claude -p with --plugin-dir src_claude and the installed eng-kit, yoda and tester plugins disabled, $0.39: eng-kit:reviewer reviewed a's feat/sum (Yes), then was continued with SendMessage and put ROUND-TWO-MARKER in its second report; review-log run from the workspace folder printed run ae53adfd84c77fc78 — Yes with the marker. Criterion 10: the continued reviewer's verdict is recorded; the earlier 'continuation bypasses SubagentStop' observation was the non-git session folder, so no follow-up.
+- Live check 2026-10-24, same workspace: the command 'S=$TMPDIR; cd a && echo hi > $S/red.log' with this branch → no Verify gate message ($0.16); the same run with the installed 0.33.0 plugin → 'Verify gate … Changed since the last green run: a/$S/red.log'. Criterion 11 met. (A first attempt with 'S=$(mktemp -d); cd a …' was asked by the guard, an unfollowed move, so refused in -p: expected behaviour.)
+- Workspace verify from the root (bare kit verify script) → all four commands PASS.
+- Task 7: complete (live checks above; no code change).
