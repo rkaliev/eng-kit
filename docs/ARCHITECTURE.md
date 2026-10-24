@@ -303,6 +303,7 @@ The plan names the test for each criterion, and the PR body says how each new te
   - folder mode: bootstrap and guard from `.claude/eng-kit`;
   - install through `--scope project` from a local marketplace;
   - review gate (claude 2.1.285, `--plugin-dir`, a copy of `examples/demo` with planted defects): a PR without review was denied; the `reviewer` agent found float rounding of money (Critical, with rule quotes from CLAUDE.md, the task and the checklist) and an uncovered criterion, verdict `No`, denied again; after the fixes the repeat round over the new range re-checked the old findings, `Yes`, and the guard let `gh pr create` through.
+  - a folder of repositories (claude 2.1.307, `--plugin-dir`, two repositories in a temp folder): `S=$TMPDIR; cd a && echo hi > $S/red.log` didn't send the agent back (0.33.0 did, naming `a/$S/red.log`); a reviewer continued with SendMessage had its second report recorded in the repository's store, and review-log run from the folder printed it.
 
 **Not verified:** Windows (the PowerShell tool and running the hook through `cmd`), a live run of the `implementer` agent; the own-branch push has no live run yet, its live check is the first push of the branch that ships it.
 

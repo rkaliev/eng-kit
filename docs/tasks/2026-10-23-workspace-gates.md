@@ -233,3 +233,4 @@ Checked 2026-10-23: `CLAUDE_PROJECT_DIR` is empty in the Bash tool's environment
 - Live check 2026-10-24, same workspace: the command 'S=$TMPDIR; cd a && echo hi > $S/red.log' with this branch → no Verify gate message ($0.16); the same run with the installed 0.33.0 plugin → 'Verify gate … Changed since the last green run: a/$S/red.log'. Criterion 11 met. (A first attempt with 'S=$(mktemp -d); cd a …' was asked by the guard, an unfollowed move, so refused in -p: expected behaviour.)
 - Workspace verify from the root (bare kit verify script) → all four commands PASS.
 - Task 7: complete (live checks above; no code change).
+- Section 9 of ARCHITECTURE(.ru) records the live run (claude 2.1.307).
