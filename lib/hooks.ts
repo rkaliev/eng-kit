@@ -17,7 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, type RecordResult } from "./reviews.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
@@ -430,11 +430,17 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir, { detect: false }).commands.length > 0;
 	const parsed = parseReview(report);
 	if (unverified && parsed) {
-		recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report });
-		return { warning: "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again." };
+		const held = recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report });
+		// A SHA that isn't a commit here falls back to HEAD, as below, so the Inconclusive is never lost.
+		if (typeof held === "string") recordVerdict(env.projectDir, "HEAD", "Inconclusive", ids, env.reviewsRoot);
+		const unverifiedWarning = "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again.";
+		return { warning: [unverifiedWarning, missedWarning(held)].filter(Boolean).join("\n") };
 	}
 	const result = recordReview(env.projectDir, report, ids, env.reviewsRoot);
-	if (typeof result !== "string") return {};
+	if (typeof result !== "string") {
+		const warning = missedWarning(result);
+		return warning === undefined ? {} : { warning };
+	}
 	const warning = `eng-kit review gate: no verdict recorded: ${result}.`;
 	// Sent back once already: the run failed. It counts as Inconclusive for the commit it reviewed, so a
 	// parallel reviewer's Yes on that commit can't stand alone; a review of a later commit is unaffected.
@@ -454,6 +460,12 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 			reason: `Review gate: ${result}. End your report with exactly three lines: \`Reviewed BASE: <the commit your range starts at>\`, \`Reviewed HEAD: <the SHA you reviewed>\` and \`Ready to merge: <one of Yes, No, With fixes, Inconclusive>\`.`,
 		},
 	};
+}
+
+/** A warning when a verdict short of Yes missed a repository that has the commit (see `recordVerdict`). */
+function missedWarning(result: RecordResult | string): string | undefined {
+	if (typeof result === "string" || result.missed === undefined) return undefined;
+	return `eng-kit review gate: the verdict missed a repository that has the commit (${result.missed}), so a parallel reviewer's Yes there could stand alone. Review again once it can be recorded there.`;
 }
 
 /**

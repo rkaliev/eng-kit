@@ -26,7 +26,7 @@ export interface SessionState {
 	notified: boolean;
 	/** git timed out or listed too many files once: the command text decides for the rest of the session. */
 	gitOff: boolean;
-	/** Workspace parts whose git timed out or went over the limit: not fingerprinted again this session (see `treeFingerprint`). */
+	/** Workspace parts over the entry limit or out of their share twice running: not fingerprinted again this session (see `treeFingerprint`). */
 	slowParts: string[];
 	/** The fingerprint taken before each running shell call, by `tool_use_id` (at most `MAX_PENDING`). */
 	pending: Record<string, Tree>;

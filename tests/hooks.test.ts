@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { slowGit } from "./slow-git.ts";
 import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
-import { readReviews, recordVerdict } from "../lib/reviews.ts";
+import { readReports, readReviews, recordVerdict, reviewsDir } from "../lib/reviews.ts";
 import { branchSummary } from "../lib/usage.ts";
 import { loadState, readRun, writeRun } from "../lib/state.ts";
 
@@ -1025,6 +1025,24 @@ test("review gate: SubagentStop records a workspace reviewer's verdict in the re
 test("review gate: a malformed report in a workspace lands Inconclusive on each repository's HEAD", () => {
 	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
 	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed HEAD: deadbeef0", prompt_id: "p1", agent_id: "a1", stop_hook_active: true });
+	for (const repo of ["a", "b"]) assert.deepEqual(readReviews(join(projectDir, repo), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head(repo), "Inconclusive"]], repo);
+});
+
+test("review gate: a verdict short of Yes that misses a workspace repository warns without sending the reviewer back", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	writeFileSync(reviewsDir(join(projectDir, "a"), reviewsRoot), "not a folder");
+	const out = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `F1 the finding\nReviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
+	assert.equal(out.output, undefined, "its lines were fine");
+	assert.match(String(out.warning), /missed a repository/);
+	assert.match(String(readReports(join(projectDir, "c"), head("a"), reviewsRoot)[0]?.report), /F1 the finding/);
+});
+
+test("review gate: a review of unverified edits that names no commit here falls back to each repository's HEAD", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "f.ts") } });
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed BASE: deadbeef0\nReviewed HEAD: deadbeef1\nReady to merge: Yes", prompt_id: "p1", agent_id: "r1" });
 	for (const repo of ["a", "b"]) assert.deepEqual(readReviews(join(projectDir, repo), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head(repo), "Inconclusive"]], repo);
 });
 
