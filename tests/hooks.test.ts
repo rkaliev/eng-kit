@@ -1035,7 +1035,15 @@ test("review gate: a verdict short of Yes that misses a workspace repository war
 	const out = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `F1 the finding\nReviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
 	assert.equal(out.output, undefined, "its lines were fine");
 	assert.match(String(out.warning), /missed a repository/);
-	assert.match(String(readReports(join(projectDir, "c"), head("a"), reviewsRoot)[0]?.report), /F1 the finding/);
+	assert.ok(readReports(join(projectDir, "c"), head("a"), reviewsRoot).some((r) => /F1 the finding/.test(r.report)), "the reviewer's record keeps its report");
+});
+
+test("review gate: a verdict short of Yes that misses a workspace repository is followed by an Inconclusive that holds the commit back", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	writeFileSync(reviewsDir(join(projectDir, "a"), reviewsRoot), "not a folder");
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
+	assert.deepEqual(readReports(join(projectDir, "c"), head("a"), reviewsRoot).map((r) => [r.run, r.verdict]).sort(), [["r1", "No"], ["r1-held", "Inconclusive"]]);
 });
 
 test("review gate: a review of unverified edits that names no commit here falls back to each repository's HEAD", () => {
