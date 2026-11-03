@@ -1034,7 +1034,7 @@ test("review gate: a verdict short of Yes that misses a workspace repository war
 	writeFileSync(reviewsDir(join(projectDir, "a"), reviewsRoot), "not a folder");
 	const out = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `F1 the finding\nReviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
 	assert.equal(out.output, undefined, "its lines were fine");
-	assert.match(String(out.warning), /missed a repository/);
+	assert.match(String(out.warning), /could not be recorded in every repository/);
 	assert.ok(readReports(join(projectDir, "c"), head("a"), reviewsRoot).some((r) => /F1 the finding/.test(r.report)), "the reviewer's record keeps its report");
 });
 
@@ -1044,6 +1044,51 @@ test("review gate: a verdict short of Yes that misses a workspace repository is 
 	writeFileSync(reviewsDir(join(projectDir, "a"), reviewsRoot), "not a folder");
 	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
 	assert.deepEqual(readReports(join(projectDir, "c"), head("a"), reviewsRoot).map((r) => [r.run, r.verdict]).sort(), [["r1", "No"], ["r1-held", "Inconclusive"]]);
+});
+
+test("review gate: a hold-back after a missed workspace repository leaves unrelated repositories' verdicts alone", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	writeFileSync(reviewsDir(join(projectDir, "a"), reviewsRoot), "not a folder");
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
+	assert.deepEqual(readReviews(join(projectDir, "b"), reviewsRoot), []);
+});
+
+test("review gate: a review of unverified edits with a bad BASE holds back the commit it names, not HEAD", () => {
+	const { call, projectDir, reviewsRoot, head, git } = reviewWorkspace();
+	const named = head("a");
+	writeFileSync(join(projectDir, "a", "g.ts"), "export {};\n");
+	git("a", "add", "g.ts");
+	git("a", "commit", "-q", "-m", "g");
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "f.ts") } });
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: deadbeef0\nReviewed HEAD: ${named}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "r1" });
+	assert.deepEqual(readReviews(join(projectDir, "a"), reviewsRoot).map((r) => [r.sha, r.verdict]), [[named, "Inconclusive"]]);
+});
+
+test("review gate: a review of unverified edits that misses a workspace repository is held back there too", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	writeFileSync(reviewsDir(join(projectDir, "a"), reviewsRoot), "not a folder");
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "b", "f.ts") } });
+	const out = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "r1" });
+	assert.deepEqual(readReports(join(projectDir, "c"), head("a"), reviewsRoot).map((r) => [r.run, r.verdict]).sort(), [["r1", "Inconclusive"], ["r1-held", "Inconclusive"]]);
+	assert.match(String(out.warning), /could not be recorded/);
+});
+
+test("review gate: with a workspace repository that keeps hanging, SubagentStop ends in time and warns", () => {
+	const { call, projectDir, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	const slow = slowGit(realpathSync(join(projectDir, "c")), "rev-parse", 20);
+	try {
+		const started = Date.now();
+		const out = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
+		assert.ok(Date.now() - started < 9500, `took ${Date.now() - started} ms, past the hook's 10 s`);
+		assert.match(String(out.warning), /could not be recorded/);
+	} finally {
+		slow.restore();
+	}
 });
 
 test("review gate: a review of unverified edits that names no commit here falls back to each repository's HEAD", () => {

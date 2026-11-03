@@ -429,18 +429,20 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive.
 	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir, { detect: false }).commands.length > 0;
 	const parsed = parseReview(report);
+	// Every lookup of this hook run shares one deadline inside the hook's timeout, so a warning always gets out.
+	const deadline = Date.now() + LOOKUP_DEADLINE_MS;
 	if (unverified && parsed) {
-		const held = recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report });
-		// A SHA that isn't a commit here falls back to HEAD, as below, so the Inconclusive is never lost.
-		const still = typeof held === "string" ? holdBack(env.projectDir, undefined, ids, env.reviewsRoot) : held.missed === undefined ? undefined : holdBack(env.projectDir, parsed.sha, heldIds(ids), env.reviewsRoot);
+		const held = recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report, deadline });
+		// Not recorded as written (its BASE or HEAD is no commit): the named commit, else each HEAD, so it is never lost.
+		const still = typeof held === "string" ? holdBack(env.projectDir, parsed.sha, ids, env.reviewsRoot, deadline) : held.missed === undefined ? undefined : holdBack(env.projectDir, parsed.sha, heldIds(ids), env.reviewsRoot, deadline);
 		const unverifiedWarning = "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again.";
 		return { warning: [unverifiedWarning, missedWarning(typeof held === "string" ? undefined : held.missed, still)].filter(Boolean).join("\n") };
 	}
-	const result = recordReview(env.projectDir, report, ids, env.reviewsRoot);
+	const result = recordReview(env.projectDir, report, ids, env.reviewsRoot, deadline);
 	if (typeof result !== "string") {
 		if (result.missed === undefined) return {};
 		// The reviewer's lines were fine: hold the commit back where the verdict may not have reached, keep its report.
-		return { warning: missedWarning(result.missed, holdBack(env.projectDir, result.sha, heldIds(ids), env.reviewsRoot)) };
+		return { warning: missedWarning(result.missed, holdBack(env.projectDir, result.sha, heldIds(ids), env.reviewsRoot, deadline)) };
 	}
 	const warning = `eng-kit review gate: no verdict recorded: ${result}.`;
 	// Sent back once already: the run failed. It counts as Inconclusive for the commit it reviewed, so a
@@ -448,7 +450,7 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	// A handed-back report is already delivered: sending the reviewer back can't change it, so it fails at once.
 	if (input.stop_hook_active || handedBack !== undefined) {
 		// A SHA that isn't a commit here (a typo) falls back to HEAD, so the failure is never lost.
-		const still = holdBack(env.projectDir, reviewedHead(report), ids, env.reviewsRoot);
+		const still = holdBack(env.projectDir, reviewedHead(report), ids, env.reviewsRoot, deadline);
 		return { warning: [warning, missedWarning(undefined, still)].filter(Boolean).join("\n") };
 	}
 	return {
@@ -465,15 +467,19 @@ function heldIds(ids: { promptId: string; run: string }): { promptId: string; ru
 	return { promptId: ids.promptId, run: `${ids.run}-held` };
 }
 
+/** How long the lookups of one SubagentStop run may take in all, inside its 10 s hook timeout. */
+const LOOKUP_DEADLINE_MS = 7000;
+
 /**
- * A warning when a verdict short of Yes missed a repository that may have the commit (`missed`), or when the
- * Inconclusive meant to hold it back missed one too (`still`): a parallel reviewer's Yes there could stand alone.
+ * A warning when a verdict short of Yes could not be recorded in every repository that has the commit (`missed`), and
+ * when the Inconclusive meant to hold the commit back could not be recorded everywhere either (`still`).
  */
 function missedWarning(missed: string | undefined, still: string | undefined): string | undefined {
-	const parts: string[] = [];
-	if (missed !== undefined) parts.push(`the verdict missed a repository that may have the commit (${missed}); an Inconclusive holds the commit back there`);
-	if (still !== undefined) parts.push(`the Inconclusive that holds it back missed a repository too (${still}), so a parallel reviewer's Yes there could stand alone: review again once it can be recorded`);
-	return parts.length === 0 ? undefined : `eng-kit review gate: ${parts.join("; ")}.`;
+	if (missed === undefined && still === undefined) return undefined;
+	const verdict = missed === undefined ? "" : `the verdict could not be recorded in every repository that has the commit (${missed})`;
+	if (still === undefined) return `eng-kit review gate: ${verdict}; an Inconclusive now holds the commit back there.`;
+	const held = `the Inconclusive meant to hold the commit back could not be recorded everywhere either (${still}): a Yes recorded there earlier or in parallel still counts. Review again once it can be recorded.`;
+	return `eng-kit review gate: ${verdict === "" ? held.charAt(0).toUpperCase() + held.slice(1) : `${verdict}, and ${held}`}`;
 }
 
 /**
