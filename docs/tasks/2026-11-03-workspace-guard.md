@@ -149,11 +149,11 @@ Release 0.35.0 in both editions. Rollback: revert the release; no stored state c
 **Files:** Modify `src_claude/lib/patterns.ts` · Test `src_claude/tests/guard.test.ts`
 **Interfaces:** Consumes `repoOf`, `projectRepos`
 
-- [ ] Write failing test `a plain push of a workspace repository's work branch passes` → helper `pushWorkspace()`: a temp folder holding `pushRepo()`'s setup as `a` (move or build it there); `ask("git -C a push", ws, env, ws)` → `allow`; with `a` on `main` → `confirm`; `ask("git -C a push", ws/a, env, ws)` → `allow`; criterion 6
-- [ ] Run `node --test tests/guard.test.ts` → expect FAIL: `'confirm' !== 'allow'`
-- [ ] Implement: the owner is `project` outside a workspace, else `repoOf(project, repos, dir)`; no owner → false; compare `commonDir(dir)` with `commonDir(owner)`.
-- [ ] Run → PASS; `npm test` → all pass
-- [ ] Commit `fix(guard): a workspace repository's own work branch is pushed without a question`
+- [x] Write failing test `a plain push of a workspace repository's work branch passes` → helper `pushWorkspace()`: a temp folder holding `pushRepo()`'s setup as `a` (move or build it there); `ask("git -C a push", ws, env, ws)` → `allow`; with `a` on `main` → `confirm`; `ask("git -C a push", ws/a, env, ws)` → `allow`; criterion 6
+- [x] Run `node --test tests/guard.test.ts` → expect FAIL: `'confirm' !== 'allow'`
+- [x] Implement: the owner is `project` outside a workspace, else `repoOf(project, repos, dir)`; no owner → false; compare `commonDir(dir)` with `commonDir(owner)`.
+- [x] Run → PASS; `npm test` → all pass
+- [x] Commit `fix(guard): a workspace repository's own work branch is pushed without a question`
 
 ### Task 4: task-file leak guard per landing repository (`checkWorkDocs`)
 
@@ -245,3 +245,4 @@ Release 0.35.0 in both editions. Rollback: revert the release; no stored state c
 - Baseline 2026-11-03 on eng-kit a6a6bc6 / pi 17b418b: workspace verify 4/4 PASS; eng-kit npm test 617 tests, 606 pass, 11 skipped, 0 fail; pi npm test 578 tests, 567 pass, 11 skipped, 0 fail. Drift since Base: only the plan commit.
 - Task 1: complete (a6a6bc6..feat(guard) commit; RED: repoOf returned undefined, segmentFolders []; GREEN: node --test tests/repos.test.ts tests/reviews.test.ts → 91 pass; npm test → 619 tests: 608 pass, 11 skipped, 0 fail; tsc clean).
 - Ruling: the judgeWrite parameter of checkCommand moves to Task 6 — its only test (a heredoc into a repository's protected path) is a hooks test there — cost if wrong: none, the parameter lands with its test. Ruling: the plan's scopedConfig test used npm publish, a built-in confirm, so cd b would ask; the test uses make release — cost if wrong: none. Task 2: complete (74bd222..feat(guard) commit; RED: 5 of 6 scope tests failed on assertions ('allow' !== 'confirm'/'block'); the outside-a-workspace test passes on the stub by design, as criterion 8's guard; GREEN: node --test tests/scope.test.ts → 6 pass; npm test → 625 tests: 614 pass, 11 skipped, 0 fail; tsc clean).
+- Ruling: Task 3's workspace is pushRepo()'s own folder (the bare origin.git beside the repository repo), not a new helper — cost if wrong: none. Task 3: complete (ed033f7..fix(guard) commit; RED: 'confirm' !== 'allow' for git -C repo push from the workspace; GREEN: node --test tests/guard.test.ts → 52 pass; npm test → 626 tests: 615 pass, 11 skipped, 0 fail; tsc clean).

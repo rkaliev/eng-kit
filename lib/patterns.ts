@@ -2,6 +2,7 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { projectRepos, repoOf } from "./repos.ts";
 import { baseBranch, currentBranch } from "./workdocs.ts";
 
 export type GuardAction = "allow" | "confirm" | "block";
@@ -389,9 +390,12 @@ export function ownBranchPush(command: string, cwd: string, env: NodeJS.ProcessE
 	if (positional.length > 2) return false;
 
 	if (git(dir, ["rev-parse", "--git-dir"]) === undefined) return false;
-	// Only the project's own repository (or one of its worktrees) is pushed silently.
+	// Only the project's own repository (or one of its worktrees) is pushed silently; in a workspace, the repository
+	// the push runs in.
 	const repoDir = commonDir(dir);
-	if (repoDir === undefined || repoDir !== commonDir(project)) return false;
+	const workspace = projectRepos(project);
+	const owner = workspace.kind === "workspace" ? repoOf(project, workspace.repos, dir) : project;
+	if (repoDir === undefined || owner === undefined || repoDir !== commonDir(owner)) return false;
 	const branch = currentBranch(dir);
 	const base = baseBranch(dir);
 	if (!branch || !base || branch === base || !WORK_BRANCH.test(branch)) return false;
