@@ -1,6 +1,6 @@
 # The guard protects every repository of a workspace as it protects one repository
 
-Status: plan approved (2026-11-03)
+Status: in progress
 Base: ecb93b9 (eng-kit), 4acc4d5 (pi)
 Links: follow-up 1 of `docs/tasks/2026-10-23-workspace-gates.md` (deleted in 4773b06; eng-kit) · FRAMEWORK-SOURCES §11.44 and the 0.34.x entries of both CHANGELOGs
 
@@ -114,13 +114,13 @@ Release 0.35.0 in both editions. Rollback: revert the release; no stored state c
 **Files:** Modify `src_claude/lib/repos.ts`, `src_claude/lib/shell.ts` · Test `src_claude/tests/repos.test.ts`, `src_claude/tests/reviews.test.ts`
 **Interfaces:** Produces `repoOf(projectDir: string, repos: string[], path: string): string | undefined` (absolute folder of the workspace repository holding the resolved `path`, else undefined) · `segmentFolders(command: string, cwd: string): Array<{ raw: string[]; dir: string | undefined; move: boolean }>`
 
-- [ ] Write failing tests with stubs (`repoOf` → undefined, `segmentFolders` → `[]`):
+- [x] Write failing tests with stubs (`repoOf` → undefined, `segmentFolders` → `[]`):
   - repos.test.ts `repoOf places a path in its workspace repository` → workspace `ws` with `a/.git`, `b/.git`: `ws/a/x/y` → `ws/a`; `ws/a` → `ws/a`; `ws/a/../b/x` → `ws/b`; `ws/ab/x` → undefined; `ws/notes/x` → undefined;
   - reviews.test.ts `segmentFolders follows moves and git -C` → in `ws`: `cd a && npm publish` → dirs `[ws, ws/a]`, moves `[true, false]`; `cd a && cd ../b && npm publish` → last dir `ws/b`; `git -C b status` → `[ws/b]`; `echo $(cd b && npm publish)` → every dir undefined.
-- [ ] Run `node --test tests/repos.test.ts tests/reviews.test.ts` → expect FAIL: `undefined !== '<ws>/a'` and `[] deepEqual [...]`
-- [ ] Implement `repoOf`: `resolve(path)`, then the first `r` of `repos` with `abs === join(projectDir, r)` or `abs.startsWith(join(projectDir, r) + sep)`. Implement `segmentFolders` with the review gate's loop (`Subshells`, `segmentsOf(tokenize(stripRedirects(command)))`, `enter` before reading `dir`, `move` after); a segment whose git call has `-C <x>` (git's options scanned as `landing` scans them) gets `follow(dir, x)`.
-- [ ] Run the two files → PASS; `npm test` → all pass
-- [ ] Commit `feat(guard): place a path and each command segment in a workspace repository`
+- [x] Run `node --test tests/repos.test.ts tests/reviews.test.ts` → expect FAIL: `undefined !== '<ws>/a'` and `[] deepEqual [...]`
+- [x] Implement `repoOf`: `resolve(path)`, then the first `r` of `repos` with `abs === join(projectDir, r)` or `abs.startsWith(join(projectDir, r) + sep)`. Implement `segmentFolders` with the review gate's loop (`Subshells`, `segmentsOf(tokenize(stripRedirects(command)))`, `enter` before reading `dir`, `move` after); a segment whose git call has `-C <x>` (git's options scanned as `landing` scans them) gets `follow(dir, x)`.
+- [x] Run the two files → PASS; `npm test` → all pass
+- [x] Commit `feat(guard): place a path and each command segment in a workspace repository`
 
 ### Task 2: the configs in force and how they combine (shared `lib/scope.ts`)
 
@@ -242,4 +242,5 @@ Release 0.35.0 in both editions. Rollback: revert the release; no stored state c
 
 ## Progress
 
-None yet
+- Baseline 2026-11-03 on eng-kit a6a6bc6 / pi 17b418b: workspace verify 4/4 PASS; eng-kit npm test 617 tests, 606 pass, 11 skipped, 0 fail; pi npm test 578 tests, 567 pass, 11 skipped, 0 fail. Drift since Base: only the plan commit.
+- Task 1: complete (a6a6bc6..feat(guard) commit; RED: repoOf returned undefined, segmentFolders []; GREEN: node --test tests/repos.test.ts tests/reviews.test.ts → 91 pass; npm test → 619 tests: 608 pass, 11 skipped, 0 fail; tsc clean).
