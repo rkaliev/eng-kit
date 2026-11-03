@@ -1091,6 +1091,39 @@ test("review gate: with a workspace repository that keeps hanging, SubagentStop 
 	}
 });
 
+test("review gate: a review of unverified edits whose commit a hanging repository can't be searched for holds each HEAD back in time", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "f.ts") } });
+	const slow = slowGit(realpathSync(join(projectDir, "b")), "deadbee", 20);
+	try {
+		const started = Date.now();
+		const out = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed BASE: deadbeef0\nReviewed HEAD: deadbeef1\nReady to merge: Yes", prompt_id: "p1", agent_id: "r1" });
+		assert.ok(Date.now() - started < 9500, `took ${Date.now() - started} ms, past the hook's 10 s`);
+		assert.match(String(out.warning), /in time/);
+	} finally {
+		slow.restore();
+	}
+	for (const repo of ["a", "b"]) assert.deepEqual(readReviews(join(projectDir, repo), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head(repo), "Inconclusive"]], repo);
+});
+
+test("SubagentStop: a hanging branch lookup for the token ledger doesn't cost the review gate its time", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "f.ts") } });
+	// One repository hangs on every lookup of the gate, which so takes its whole deadline, and on the ledger's branch.
+	const slow = slowGit(realpathSync(join(projectDir, "b")), ["deadbee", "HEAD^{commit}", "branch --show-current"], 20);
+	try {
+		const started = Date.now();
+		const out = call({ hook_event_name: "SubagentStop", cwd: join(projectDir, "b"), agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed BASE: deadbeef0\nReviewed HEAD: deadbeef1\nReady to merge: Yes", prompt_id: "p1", agent_id: "r1" });
+		assert.ok(Date.now() - started < 9500, `took ${Date.now() - started} ms, past the hook's 10 s`);
+		assert.match(String(out.warning), /in time/);
+	} finally {
+		slow.restore();
+	}
+	assert.deepEqual(readReviews(join(projectDir, "a"), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head("a"), "Inconclusive"]]);
+});
+
 test("review gate: a review of unverified edits that names no commit here falls back to each repository's HEAD", () => {
 	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
 	call({ hook_event_name: "SessionStart", source: "startup" });
@@ -1199,6 +1232,21 @@ test("guard: the implementer's own-branch push asks; the main agent's passes", (
 	assert.equal(pre("git status", "eng-kit:implementer"), undefined, "the implementer's other git calls are untouched");
 	const reason = (handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push" }, agent_type: "eng-kit:implementer" }, env).output!.hookSpecificOutput as Record<string, string>).permissionDecisionReason;
 	assert.match(String(reason), /implementer doesn't push; the coordinator does after review/);
+});
+
+test("token ledger: a reviewer's tokens are recorded on every SubagentStop path, sent back or not", () => {
+	const { env, call, projectDir } = setup();
+	env.usageRoot = mkdtempSync(join(tmpdir(), "hooks-usage-"));
+	spawnSync("git", ["init", "-q", "-b", "feat/r"], { cwd: projectDir });
+	const transcript = (input: number) => {
+		const path = join(mkdtempSync(join(tmpdir(), "hooks-tx-")), "t.jsonl");
+		writeFileSync(path, JSON.stringify({ type: "assistant", message: { id: "m1", model: "m", usage: { input_tokens: input, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } }));
+		return path;
+	};
+	const sentBack = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", agent_id: "r1", agent_transcript_path: transcript(9), last_assistant_message: "no verdict lines" });
+	assert.equal((sentBack.output as { decision?: string } | undefined)?.decision, "block");
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", agent_id: "r2", agent_transcript_path: transcript(19), last_assistant_message: "no verdict lines", stop_hook_active: true });
+	assert.deepEqual(branchSummary(projectDir, "feat/r", env.usageRoot).byAgent, { reviewer: 30 });
 });
 
 test("token ledger: SubagentStop records the subagent's tokens and Stop the session's, on the branch of the folder the work runs in", () => {

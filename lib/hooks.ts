@@ -419,7 +419,14 @@ function isKitScript(words: string[], root: string, cwd: string): boolean {
  * A report without the verdict lines sends the reviewer back once to add them; a handed-back one fails at once.
  */
 function subagentStop(input: HookInput, env: HookEnv): HookResult {
-	recordUsage(env, input, "subagent");
+	const entry = Date.now();
+	const result = reviewerStop(input, env, entry + LOOKUP_DEADLINE_MS);
+	// After the review gate, with only the hook's time left, so a slow branch lookup can't cost a verdict.
+	recordUsage(env, input, "subagent", entry + HOOK_BUDGET_MS);
+	return result;
+}
+
+function reviewerStop(input: HookInput, env: HookEnv, deadline: number): HookResult {
 	if (!REVIEWER.test(input.agent_type ?? "")) return {};
 	const ids = { promptId: input.prompt_id || input.session_id || "none", run: input.agent_id || "none" };
 	// A background reviewer delivers its report through a SubagentHandback call; what it writes after that (a short
@@ -430,11 +437,10 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir, { detect: false }).commands.length > 0;
 	const parsed = parseReview(report);
 	// Every lookup of this hook run shares one deadline inside the hook's timeout, so a warning always gets out.
-	const deadline = Date.now() + LOOKUP_DEADLINE_MS;
 	if (unverified && parsed) {
 		const held = recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report, deadline });
 		// Not recorded as written (its BASE or HEAD is no commit): the named commit, else each HEAD, so it is never lost.
-		const still = typeof held === "string" ? holdBack(env.projectDir, parsed.sha, ids, env.reviewsRoot, deadline) : held.missed === undefined ? undefined : holdBack(env.projectDir, parsed.sha, heldIds(ids), env.reviewsRoot, deadline);
+		const still = typeof held === "string" ? holdBack(env.projectDir, parsed.sha, ids, env.reviewsRoot, deadline, held) : held.missed === undefined ? undefined : holdBack(env.projectDir, parsed.sha, heldIds(ids), env.reviewsRoot, deadline);
 		const unverifiedWarning = "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again.";
 		return { warning: [unverifiedWarning, missedWarning(typeof held === "string" ? undefined : held.missed, still)].filter(Boolean).join("\n") };
 	}
@@ -450,7 +456,7 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	// A handed-back report is already delivered: sending the reviewer back can't change it, so it fails at once.
 	if (input.stop_hook_active || handedBack !== undefined) {
 		// A SHA that isn't a commit here (a typo) falls back to HEAD, so the failure is never lost.
-		const still = holdBack(env.projectDir, reviewedHead(report), ids, env.reviewsRoot, deadline);
+		const still = holdBack(env.projectDir, reviewedHead(report), ids, env.reviewsRoot, deadline, result);
 		return { warning: [warning, missedWarning(undefined, still)].filter(Boolean).join("\n") };
 	}
 	return {
@@ -467,8 +473,10 @@ function heldIds(ids: { promptId: string; run: string }): { promptId: string; ru
 	return { promptId: ids.promptId, run: `${ids.run}-held` };
 }
 
-/** How long the lookups of one SubagentStop run may take in all, inside its 10 s hook timeout. */
+/** How long the lookups of one SubagentStop run may take in all, from its start, inside its 10 s hook timeout. */
 const LOOKUP_DEADLINE_MS = 7000;
+/** Until when, from its start, a SubagentStop run may update the token ledger. */
+const HOOK_BUDGET_MS = 8000;
 
 /**
  * A warning when a verdict short of Yes could not be recorded in every repository that has the commit (`missed`), and
@@ -586,14 +594,19 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
  * Adds a transcript's tokens to the ledger (lib/usage.ts), on the branch of the folder the work runs in: a subagent
  * run as a whole, the session as what it added since its last snapshot. A convenience: it never fails the hook.
  */
-function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session"): void {
+function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session", until?: number): void {
 	try {
 		const id = kind === "session" ? input.session_id : input.agent_id;
 		const path = kind === "session" ? input.transcript_path : input.agent_transcript_path;
+		// Each git call gets the time left before `until`; with none left the ledger misses this run.
+		const branchOf = (dir: string) => {
+			const left = until === undefined ? undefined : Math.floor(until - Date.now());
+			return left !== undefined && left < 1 ? undefined : currentBranch(dir, left);
+		};
 		// One folder for the branch and the ledger: the one the work runs in when it is a repository (a worktree, or
 		// another repository than the project's), where the status line and usage-log read it.
-		const dir = input.cwd && currentBranch(input.cwd) ? input.cwd : env.projectDir;
-		const branch = currentBranch(dir);
+		const dir = input.cwd && branchOf(input.cwd) ? input.cwd : env.projectDir;
+		const branch = branchOf(dir);
 		const used = path && id ? readTranscriptUsage(path) : [];
 		if (!branch || !id || used.length === 0) return;
 		const tokens: Tokens = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
