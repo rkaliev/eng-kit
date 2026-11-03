@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
-import { approvalReminder, uncommittedApproved } from "./approvals.ts";
+import { approvalReminder, taskFileReminders, taskFileWarning } from "./approvals.ts";
 import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
@@ -22,7 +22,7 @@ import { guardScope, repoIn, scopedConfig, scopedPath } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
-import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
+import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 import { callChanges, ignoredPath, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
@@ -139,6 +139,9 @@ ${body}
 </EXTREMELY_IMPORTANT>`;
 	return { output: { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext } } };
 }
+
+/** Stop's task-file reminders stop visiting workspace repositories after this long (the hook timeout is 10 s). */
+const TASK_FILE_BUDGET_MS = 3000;
 
 /** A PreToolUse that has already spent this long takes no snapshot: the decision must arrive within the hook timeout. */
 const SNAPSHOT_BUDGET_MS = 2000;
@@ -584,24 +587,23 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 		}
 	}
 	const dirs = loadGuardConfig(env.projectDir).config.workDocs ?? WORK_DOC_DIRS;
-	if (!state.approvalReminded) {
-		const files = uncommittedApproved(env.projectDir, dirs);
-		if (files.length > 0) {
-			next.approvalReminded = true;
-			reasons.push(approvalReminder(files, onBaseBranch(env.projectDir)));
-		}
+	// A workspace repository's own task-file folders, else the session folder's.
+	const dirsFor = (root: string) => (root === env.projectDir ? dirs : (loadGuardConfig(root).config.workDocs ?? dirs));
+	const due = taskFileReminders(env.projectDir, dirsFor, Date.now() + TASK_FILE_BUDGET_MS, { approved: !state.approvalReminded, finished: !state.workDocsReminded }, state.slowParts);
+	if (due.approved.length > 0) {
+		next.approvalReminded = true;
+		reasons.push(approvalReminder(due.approved, due.onBase));
 	}
-	if (!state.workDocsReminded) {
-		const files = finishedWorkDocs(env.projectDir, dirs);
-		if (files.length > 0) {
-			next.workDocsReminded = true;
-			reasons.push(workDocsReminder(files));
-		}
+	if (due.finished.length > 0) {
+		next.workDocsReminded = true;
+		reasons.push(workDocsReminder(due.finished));
 	}
-	if (reasons.length === 0 && !systemMessage) return {};
+	const warning = taskFileWarning(due.skipped);
+	const warned = warning ? { warning } : {};
+	if (reasons.length === 0 && !systemMessage) return warned;
 	saveState(env.stateDir, sessionId, next);
-	if (reasons.length === 0) return { output: { systemMessage } };
-	return { output: { decision: "block", reason: reasons.join("\n\n"), ...(systemMessage ? { systemMessage } : {}) } };
+	if (reasons.length === 0) return { ...warned, output: { systemMessage } };
+	return { ...warned, output: { decision: "block", reason: reasons.join("\n\n"), ...(systemMessage ? { systemMessage } : {}) } };
 }
 
 /**

@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { taskFileReminders, taskFileWarning } from "../lib/approvals.ts";
 import { baseBranch, checkWorkDocs, finishedWorkDocs, landing, WORK_DOC_DIRS } from "../lib/workdocs.ts";
 
 const TASK = "docs/tasks/2026-01-01-a.md";
@@ -185,4 +186,12 @@ test("in a workspace, a landing whose folder the guard can't tell is blocked", (
 	const pr = workspace().check("cd $D && gh pr create");
 	assert.equal(pr?.action, "block");
 	assert.match(pr!.reason!, /can't tell which repository/);
+});
+
+test("taskFileReminders names the workspace repositories it had no time for or found slow", () => {
+	const { root } = workspace();
+	assert.deepEqual(taskFileReminders(root, () => WORK_DOC_DIRS, Date.now() - 1), { approved: [], finished: [], onBase: undefined, skipped: ["a", "b"] });
+	assert.deepEqual(taskFileReminders(root, () => WORK_DOC_DIRS, Date.now() + 60_000, undefined, ["a"]).skipped, ["a"], "a repository found slow");
+	assert.equal(taskFileWarning(["a", "b"]), "Task-file reminders skipped (no time left, or slow in this session): a, b");
+	assert.equal(taskFileWarning([]), undefined);
 });

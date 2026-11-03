@@ -545,6 +545,19 @@ test("guard: in a workspace, an invalid repository config warns with its path an
 	assert.match(String(write.warning), /a[\\/]\.claude[\\/]guard\.json/);
 });
 
+test("Stop names a workspace repository's approved and finished task files", () => {
+	const { call, git, projectDir } = setupWorkspace();
+	mkdirSync(join(projectDir, "a", "docs", "tasks"), { recursive: true });
+	writeFileSync(join(projectDir, "a", "docs", "tasks", "t.md"), "# T\n\nStatus: design approved (2026-11-03)\n");
+	mkdirSync(join(projectDir, "b", "docs", "tasks"), { recursive: true });
+	writeFileSync(join(projectDir, "b", "docs", "tasks", "done.md"), "# D\n\n## Plan\n\n- [x] one\n\n## Progress\n");
+	git("b", "add", "-A");
+	git("b", "commit", "-q", "-m", "done");
+	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /Approval gate: .*a\/docs\/tasks\/t\.md/);
+	assert.match(reason, /Working-docs gate: .*b\/docs\/tasks\/done\.md/);
+});
+
 test("verify gate: in a workspace, a redirect to an unknown variable path marks nothing", () => {
 	const { call, bash } = setupWorkspace();
 	call({ hook_event_name: "SessionStart", source: "startup" });
