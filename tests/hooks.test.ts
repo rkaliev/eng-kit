@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { slowGit } from "./slow-git.ts";
 import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
-import { readReviews, recordVerdict } from "../lib/reviews.ts";
+import { readReports, readReviews, recordVerdict, reviewsDir } from "../lib/reviews.ts";
 import { branchSummary } from "../lib/usage.ts";
 import { loadState, readRun, writeRun } from "../lib/state.ts";
 
@@ -469,6 +470,115 @@ test("verify gate: outside git the command's text decides", () => {
 	assert.deepEqual(call({ hook_event_name: "Stop", session_id: "t" }), {});
 });
 
+/** `setup` in a folder outside git that holds repositories `a` (committed `f.ts`) and `b` (committed `m.ts`). */
+function setupWorkspace() {
+	const ctx = setup();
+	const git = (repo: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: join(ctx.projectDir, repo), stdio: "pipe" });
+	for (const [repo, file] of [["a", "f.ts"], ["b", "m.ts"]] as const) {
+		mkdirSync(join(ctx.projectDir, repo));
+		git(repo, "init", "-q", "-b", "main");
+		writeFileSync(join(ctx.projectDir, repo, file), "export {};\n");
+		git(repo, "add", "-A");
+		git(repo, "commit", "-q", "-m", "initial");
+	}
+	let calls = 0;
+	const bash = (command: string, during = () => {}) => {
+		const tool_use_id = `toolu_${++calls}`;
+		ctx.call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id });
+		during();
+		return ctx.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id });
+	};
+	return { ...ctx, git, bash };
+}
+
+test("verify gate: in a workspace, a redirect to an unknown variable path marks nothing", () => {
+	const { call, bash } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	bash("cd a && true > $S/red.log");
+	bash('S=$(mktemp -d); for e in x y; do true > $S/t-$e.log; done');
+	assert.deepEqual(call({ hook_event_name: "Stop" }), {});
+});
+
+test("verify gate: in a workspace, a shell write in a repository marks it with its folder", () => {
+	const { call, bash, projectDir } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	bash("echo x > a/f.ts", () => writeFileSync(join(projectDir, "a", "f.ts"), "x\n"));
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /a\/f\.ts/);
+});
+
+test("verify gate: in a workspace, a write or a commit between calls is found at Stop", () => {
+	const { call, git, projectDir } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	writeFileSync(join(projectDir, "b", "c.ts"), "export {};\n");
+	git("b", "add", "c.ts");
+	git("b", "commit", "-q", "-m", "c");
+	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /b\/c\.ts/, "a subagent's commit in a repository");
+
+	call({ hook_event_name: "SessionStart", source: "startup", session_id: "s2" });
+	writeFileSync(join(projectDir, "loose.js"), "1;\n");
+	assert.match(String(call({ hook_event_name: "Stop", session_id: "s2" }).output?.reason), /loose\.js/, "a file outside the repositories");
+});
+
+test("verify gate: a workspace repository late twice running is remembered for the session, so later calls don't wait on it", () => {
+	const { call, projectDir, env } = setupWorkspace();
+	const { log, restore } = slowGit(realpathSync(join(projectDir, "a")));
+	try {
+		call({ hook_event_name: "SessionStart", source: "startup" });
+		assert.deepEqual(loadState(env.stateDir, "s1").slowParts, [], "late once");
+		call({ hook_event_name: "Stop" });
+		assert.deepEqual(loadState(env.stateDir, "s1").slowParts, ["a"], "late twice running");
+		const calls = readFileSync(log, "utf8");
+		call({ hook_event_name: "UserPromptSubmit" });
+		call({ hook_event_name: "Stop" });
+		assert.equal(readFileSync(log, "utf8"), calls, "no git in the remembered repository");
+	} finally {
+		restore();
+	}
+});
+
+test("verify gate: in a workspace, an edit a glob ignores by its path inside the repository isn't counted", () => {
+	const { call, projectDir } = setupWorkspace();
+	writeFileSync(join(projectDir, "CLAUDE.md"), "## Commands\n- `npm test`\n");
+	mkdirSync(join(projectDir, ".claude"));
+	writeFileSync(join(projectDir, ".claude", "verify.json"), JSON.stringify({ commands: ["npm test"], ignore: ["docs/**"] }));
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "docs", "d.svg") } });
+	assert.deepEqual(call({ hook_event_name: "Stop" }), {});
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "src", "d.ts") } });
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /a\/src\/d\.ts/);
+});
+
+test("verify gate: in a workspace, a repository's files follow its own ignore globs, in edits, shell writes and commits", () => {
+	const { call, projectDir, git, bash } = setupWorkspace();
+	mkdirSync(join(projectDir, ".claude"));
+	writeFileSync(join(projectDir, ".claude", "verify.json"), JSON.stringify({ commands: ["npm test"], ignore: ["scripts/**"] }));
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	bash("git -C a commit", () => {
+		mkdirSync(join(projectDir, "a", "docs"));
+		writeFileSync(join(projectDir, "a", "docs", "setup.yaml"), "x: 1\n");
+		git("a", "add", "docs/setup.yaml");
+		git("a", "commit", "-q", "-m", "docs");
+	});
+	assert.deepEqual(call({ hook_event_name: "Stop" }), {}, "a's default docs/** ignores its committed docs file");
+	call({ hook_event_name: "UserPromptSubmit" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "scripts", "build.ts") } });
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /a\/scripts\/build\.ts/, "the workspace's scripts/** is for the workspace's own folder");
+});
+
+test("verify gate: a saved tree from before workspaces loads; a malformed workspace field drops it", () => {
+	const { env } = setup();
+	const save = (tree: unknown) => writeFileSync(join(env.stateDir, "t.json"), JSON.stringify({ tree }));
+	save({ head: "abc", files: { "src/a.ts": "1 2" } });
+	assert.deepEqual(loadState(env.stateDir, "t").tree, { head: "abc", files: { "src/a.ts": "1 2" } });
+	save({ head: "", files: {}, heads: { a: "abc" }, blind: [""] });
+	assert.deepEqual(loadState(env.stateDir, "t").tree?.blind, [""]);
+	save({ head: "", files: {}, heads: { a: 1 }, blind: [] });
+	assert.equal(loadState(env.stateDir, "t").tree, undefined, "a non-string HEAD");
+	save({ head: "", files: {}, heads: {}, blind: "a" });
+	assert.equal(loadState(env.stateDir, "t").tree, undefined, "blind is a list");
+});
+
 test("verify gate: outside git, $HOME is the shell's in Bash and PowerShell's own variable in PowerShell", () => {
 	const { call } = setup();
 	const run = (tool_name: string, session_id: string) => call({ hook_event_name: "PostToolUse", tool_name, tool_input: { command: "echo x > $HOME/a.ts" }, session_id });
@@ -895,6 +1005,123 @@ test("review-log prints the stored reports of a commit's latest round; with none
 	assert.equal(afterFail.status, 0, afterFail.stderr);
 	assert.match(afterFail.stdout, new RegExp(`^Round 2 since the last Yes \\(the stop rule counts these\\)\\. Earlier rounds, newest first: ${failed.slice(0, 7)} Inconclusive\\.$`, "m"));
 	assert.match(afterFail.stdout, /\(no report stored for this run\)/);
+});
+
+/** `setupWorkspace` with its own record store, and each repository's HEAD. */
+function reviewWorkspace() {
+	const ctx = setupWorkspace();
+	ctx.env.reviewsRoot = mkdtempSync(join(tmpdir(), "hooks-reviews-"));
+	const head = (repo: string) => String(ctx.git(repo, "rev-parse", "HEAD")).trim();
+	return { ...ctx, reviewsRoot: ctx.env.reviewsRoot, head };
+}
+
+test("review gate: SubagentStop records a workspace reviewer's verdict in the repository that has the commit", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	const report = `### Verdict\nReviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: Yes`;
+	assert.deepEqual(call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: report, prompt_id: "p1", agent_id: "a1" }), {});
+	assert.deepEqual(readReviews(join(projectDir, "a"), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head("a"), "Yes"]]);
+});
+
+test("review gate: a malformed report in a workspace lands Inconclusive on each repository's HEAD", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed HEAD: deadbeef0", prompt_id: "p1", agent_id: "a1", stop_hook_active: true });
+	for (const repo of ["a", "b"]) assert.deepEqual(readReviews(join(projectDir, repo), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head(repo), "Inconclusive"]], repo);
+});
+
+test("review gate: a verdict short of Yes that misses a workspace repository warns without sending the reviewer back", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	writeFileSync(reviewsDir(join(projectDir, "a"), reviewsRoot), "not a folder");
+	const out = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `F1 the finding\nReviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
+	assert.equal(out.output, undefined, "its lines were fine");
+	assert.match(String(out.warning), /could not be recorded in every repository/);
+	assert.ok(readReports(join(projectDir, "c"), head("a"), reviewsRoot).some((r) => /F1 the finding/.test(r.report)), "the reviewer's record keeps its report");
+});
+
+test("review gate: a verdict short of Yes that misses a workspace repository is followed by an Inconclusive that holds the commit back", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	writeFileSync(reviewsDir(join(projectDir, "a"), reviewsRoot), "not a folder");
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
+	assert.deepEqual(readReports(join(projectDir, "c"), head("a"), reviewsRoot).map((r) => [r.run, r.verdict]).sort(), [["r1", "No"], ["r1-held", "Inconclusive"]]);
+});
+
+test("review gate: a hold-back after a missed workspace repository leaves unrelated repositories' verdicts alone", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	writeFileSync(reviewsDir(join(projectDir, "a"), reviewsRoot), "not a folder");
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
+	assert.deepEqual(readReviews(join(projectDir, "b"), reviewsRoot), []);
+});
+
+test("review gate: a review of unverified edits with a bad BASE holds back the commit it names, not HEAD", () => {
+	const { call, projectDir, reviewsRoot, head, git } = reviewWorkspace();
+	const named = head("a");
+	writeFileSync(join(projectDir, "a", "g.ts"), "export {};\n");
+	git("a", "add", "g.ts");
+	git("a", "commit", "-q", "-m", "g");
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "f.ts") } });
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: deadbeef0\nReviewed HEAD: ${named}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "r1" });
+	assert.deepEqual(readReviews(join(projectDir, "a"), reviewsRoot).map((r) => [r.sha, r.verdict]), [[named, "Inconclusive"]]);
+});
+
+test("review gate: a review of unverified edits that misses a workspace repository is held back there too", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	writeFileSync(reviewsDir(join(projectDir, "a"), reviewsRoot), "not a folder");
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "b", "f.ts") } });
+	const out = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "r1" });
+	assert.deepEqual(readReports(join(projectDir, "c"), head("a"), reviewsRoot).map((r) => [r.run, r.verdict]).sort(), [["r1", "Inconclusive"], ["r1-held", "Inconclusive"]]);
+	assert.match(String(out.warning), /could not be recorded/);
+});
+
+test("review gate: with a workspace repository that keeps hanging, SubagentStop ends in time and warns", () => {
+	const { call, projectDir, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	const slow = slowGit(realpathSync(join(projectDir, "c")), "rev-parse", 20);
+	try {
+		const started = Date.now();
+		const out = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${head("a")}\nReviewed HEAD: ${head("a")}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
+		assert.ok(Date.now() - started < 9500, `took ${Date.now() - started} ms, past the hook's 10 s`);
+		assert.match(String(out.warning), /could not be recorded/);
+	} finally {
+		slow.restore();
+	}
+});
+
+test("review gate: a review of unverified edits that names no commit here falls back to each repository's HEAD", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "f.ts") } });
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed BASE: deadbeef0\nReviewed HEAD: deadbeef1\nReady to merge: Yes", prompt_id: "p1", agent_id: "r1" });
+	for (const repo of ["a", "b"]) assert.deepEqual(readReviews(join(projectDir, repo), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head(repo), "Inconclusive"]], repo);
+});
+
+test("review-log reads a short SHA as the commit it abbreviates, never a branch of that name", () => {
+	const { call, projectDir, reviewsRoot, head, git } = reviewWorkspace();
+	const first = head("a");
+	writeFileSync(join(projectDir, "a", "g.ts"), "export {};\n");
+	git("a", "add", "g.ts");
+	git("a", "commit", "-q", "-m", "g");
+	const second = head("a");
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `WRONG-COMMIT\nReviewed BASE: ${first}\nReviewed HEAD: ${second}\nReady to merge: No`, prompt_id: "p1", agent_id: "r1" });
+	git("a", "branch", first.slice(0, 10), second);
+	const { CLAUDE_PROJECT_DIR: _unset, ...shellEnv } = process.env;
+	const printed = spawnSync(process.execPath, [join(root, "scripts", "review-log.ts"), first.slice(0, 10)], { cwd: join(projectDir, "a"), encoding: "utf8", env: { ...shellEnv, ENG_KIT_REVIEWS_ROOT: reviewsRoot } });
+	assert.doesNotMatch(printed.stdout, /WRONG-COMMIT/);
+	assert.equal(printed.status, 1);
+});
+
+test("review-log finds the commit's repository from the workspace folder", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	const report = `### Verdict\nReviewed BASE: ${head("b")}\nReviewed HEAD: ${head("b")}\nReady to merge: No`;
+	call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: report, prompt_id: "p1", agent_id: "r1" });
+	const { CLAUDE_PROJECT_DIR: _unset, ...shellEnv } = process.env;
+	const printed = spawnSync(process.execPath, [join(root, "scripts", "review-log.ts"), head("b")], { cwd: projectDir, encoding: "utf8", env: { ...shellEnv, ENG_KIT_REVIEWS_ROOT: reviewsRoot } });
+	assert.equal(printed.status, 0, printed.stderr);
+	assert.match(printed.stdout, /## Reviewer run r1 — No/);
 });
 
 test("review gate: a successful gh pr create registers its branch for the push gate; a failed one does not", () => {

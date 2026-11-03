@@ -15,14 +15,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
-import { commandMatches, isIgnored, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
+import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr } from "./reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { changedPaths, shellWriteTargets, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
+import { callChanges, ignoredPath, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -244,7 +244,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 			const rel = relative(env.projectDir, resolve(input.cwd || env.projectDir, path));
 			// Plans, memory and scratch files outside the project don't change what the checks verify.
 			if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return {};
-			if (isIgnored(rel, resolveIgnore(env.projectDir))) return {};
+			if (ignoredPath(env.projectDir, rel, resolveIgnore(env.projectDir))) return {};
 			label = rel.replaceAll("\\", "/");
 		}
 		const state = loadState(env.stateDir, sessionId);
@@ -305,7 +305,8 @@ const MAX_PENDING = 8;
  * Compares the working tree with the session's fingerprint and counts what changed as edits, then stores the new one.
  * With `callId` alone (before a shell call) it also keeps the tree for that call; with `after` (its result) it compares
  * with the tree taken before the call, and outside git, without a fingerprint or once git has failed in the session,
- * reads the files the command writes from its text. Taking the fingerprint before loading the state keeps a mark that
+ * reads the files the command writes from its text, as it does inside a workspace part the fingerprint is blind to
+ * (`callChanges`). Taking the fingerprint before loading the state keeps a mark that
  * another hook process saved meanwhile.
  */
 function trackTree(
@@ -315,14 +316,14 @@ function trackTree(
 	after?: { command: string; cwd: string; exempt: boolean; powershell?: boolean },
 ): { state: SessionState; marked: string[] } {
 	const ignore = resolveIgnore(env.projectDir);
-	const why: { slow?: boolean } = {};
-	const tree = loadState(env.stateDir, sessionId).gitOff ? undefined : treeFingerprint(env.projectDir, ignore, why);
+	const why: { slow?: boolean; slowParts?: string[] } = {};
+	const known = loadState(env.stateDir, sessionId);
+	const tree = known.gitOff ? undefined : treeFingerprint(env.projectDir, ignore, why, { skip: known.slowParts, previous: known.tree });
 	let state = loadState(env.stateDir, sessionId);
 	const own = after && callId !== undefined ? state.pending[callId] : undefined;
 	const before = own ?? state.tree;
-	let paths: string[] = [];
-	if (tree && before) paths = changedPaths(before, tree, env.projectDir, ignore);
-	else if (after) paths = shellWriteTargets(after.command, after.cwd, env.projectDir, process.env, after.powershell).filter((p) => !isIgnored(p, ignore));
+	const ignored = ignoreFilter(env.projectDir, ignore);
+	const paths = callChanges(before, tree, env.projectDir, after).filter((p) => !ignored(p));
 	// Only a call compared with its own snapshot can claim the changes as a verification run's own.
 	const marked = paths.length > 0 && !(after?.exempt && own) ? paths : [];
 	if (marked.length > 0) state = markEdited(state, marked);
@@ -330,7 +331,8 @@ function trackTree(
 	if (callId !== undefined) delete pending[callId];
 	if (callId !== undefined && !after && tree) pending[callId] = tree;
 	const kept = Object.fromEntries(Object.entries(pending).slice(-MAX_PENDING));
-	state = { ...state, tree: tree ?? state.tree, gitOff: state.gitOff || why.slow === true, pending: kept };
+	const slowParts = [...new Set([...state.slowParts, ...(why.slowParts ?? [])])];
+	state = { ...state, tree: tree ?? state.tree, gitOff: state.gitOff || why.slow === true, slowParts, pending: kept };
 	saveState(env.stateDir, sessionId, state);
 	return { state, marked };
 }
@@ -427,23 +429,29 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive.
 	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir, { detect: false }).commands.length > 0;
 	const parsed = parseReview(report);
+	// Every lookup of this hook run shares one deadline inside the hook's timeout, so a warning always gets out.
+	const deadline = Date.now() + LOOKUP_DEADLINE_MS;
 	if (unverified && parsed) {
-		recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report });
-		return { warning: "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again." };
+		const held = recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report, deadline });
+		// Not recorded as written (its BASE or HEAD is no commit): the named commit, else each HEAD, so it is never lost.
+		const still = typeof held === "string" ? holdBack(env.projectDir, parsed.sha, ids, env.reviewsRoot, deadline) : held.missed === undefined ? undefined : holdBack(env.projectDir, parsed.sha, heldIds(ids), env.reviewsRoot, deadline);
+		const unverifiedWarning = "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again.";
+		return { warning: [unverifiedWarning, missedWarning(typeof held === "string" ? undefined : held.missed, still)].filter(Boolean).join("\n") };
 	}
-	const result = recordReview(env.projectDir, report, ids, env.reviewsRoot);
-	if (typeof result !== "string") return {};
+	const result = recordReview(env.projectDir, report, ids, env.reviewsRoot, deadline);
+	if (typeof result !== "string") {
+		if (result.missed === undefined) return {};
+		// The reviewer's lines were fine: hold the commit back where the verdict may not have reached, keep its report.
+		return { warning: missedWarning(result.missed, holdBack(env.projectDir, result.sha, heldIds(ids), env.reviewsRoot, deadline)) };
+	}
 	const warning = `eng-kit review gate: no verdict recorded: ${result}.`;
 	// Sent back once already: the run failed. It counts as Inconclusive for the commit it reviewed, so a
 	// parallel reviewer's Yes on that commit can't stand alone; a review of a later commit is unaffected.
 	// A handed-back report is already delivered: sending the reviewer back can't change it, so it fails at once.
 	if (input.stop_hook_active || handedBack !== undefined) {
-		const named = reviewedHead(report);
 		// A SHA that isn't a commit here (a typo) falls back to HEAD, so the failure is never lost.
-		if (named === undefined || typeof recordVerdict(env.projectDir, named, "Inconclusive", ids, env.reviewsRoot) === "string") {
-			recordVerdict(env.projectDir, "HEAD", "Inconclusive", ids, env.reviewsRoot);
-		}
-		return { warning };
+		const still = holdBack(env.projectDir, reviewedHead(report), ids, env.reviewsRoot, deadline);
+		return { warning: [warning, missedWarning(undefined, still)].filter(Boolean).join("\n") };
 	}
 	return {
 		warning,
@@ -452,6 +460,26 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 			reason: `Review gate: ${result}. End your report with exactly three lines: \`Reviewed BASE: <the commit your range starts at>\`, \`Reviewed HEAD: <the SHA you reviewed>\` and \`Ready to merge: <one of Yes, No, With fixes, Inconclusive>\`.`,
 		},
 	};
+}
+
+/** The run id of the Inconclusive that holds a commit back after a verdict missed a repository (see `holdBack`). */
+function heldIds(ids: { promptId: string; run: string }): { promptId: string; run: string } {
+	return { promptId: ids.promptId, run: `${ids.run}-held` };
+}
+
+/** How long the lookups of one SubagentStop run may take in all, inside its 10 s hook timeout. */
+const LOOKUP_DEADLINE_MS = 7000;
+
+/**
+ * A warning when a verdict short of Yes could not be recorded in every repository that has the commit (`missed`), and
+ * when the Inconclusive meant to hold the commit back could not be recorded everywhere either (`still`).
+ */
+function missedWarning(missed: string | undefined, still: string | undefined): string | undefined {
+	if (missed === undefined && still === undefined) return undefined;
+	const verdict = missed === undefined ? "" : `the verdict could not be recorded in every repository that has the commit (${missed})`;
+	if (still === undefined) return `eng-kit review gate: ${verdict}; an Inconclusive now holds the commit back there.`;
+	const held = `the Inconclusive meant to hold the commit back could not be recorded everywhere either (${still}): a Yes recorded there earlier or in parallel still counts. Review again once it can be recorded.`;
+	return `eng-kit review gate: ${verdict === "" ? held.charAt(0).toUpperCase() + held.slice(1) : `${verdict}, and ${held}`}`;
 }
 
 /**

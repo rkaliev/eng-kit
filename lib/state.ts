@@ -26,6 +26,8 @@ export interface SessionState {
 	notified: boolean;
 	/** git timed out or listed too many files once: the command text decides for the rest of the session. */
 	gitOff: boolean;
+	/** Workspace parts over the entry limit or out of their share twice running: not fingerprinted again this session (see `treeFingerprint`). */
+	slowParts: string[];
 	/** The fingerprint taken before each running shell call, by `tool_use_id` (at most `MAX_PENDING`). */
 	pending: Record<string, Tree>;
 }
@@ -37,7 +39,7 @@ export interface RunRecord {
 	finishedAt: number;
 }
 
-const EMPTY: SessionState = { unverified: false, green: [], reminded: false, approvalReminded: false, workDocsReminded: false, edited: [], editedAt: 0, notified: false, gitOff: false, pending: {} };
+const EMPTY: SessionState = { unverified: false, green: [], reminded: false, approvalReminded: false, workDocsReminded: false, edited: [], editedAt: 0, notified: false, gitOff: false, slowParts: [], pending: {} };
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** `$CLAUDE_PLUGIN_DATA` when running as a plugin, else a folder in the OS temp dir. */
@@ -63,13 +65,14 @@ export function loadState(dir: string, sessionId: string): SessionState {
 			tree: isTree(raw.tree) ? raw.tree : undefined,
 			notified: raw.notified === true,
 			gitOff: raw.gitOff === true,
+			slowParts: Array.isArray(raw.slowParts) ? raw.slowParts.filter((p): p is string => typeof p === "string") : [],
 			pending:
 				raw.pending && typeof raw.pending === "object"
 					? Object.fromEntries(Object.entries(raw.pending).filter((e): e is [string, Tree] => isTree(e[1])))
 					: {},
 		};
 	} catch {
-		return { ...EMPTY, green: [], edited: [], pending: {} };
+		return { ...EMPTY, green: [], edited: [], slowParts: [], pending: {} };
 	}
 }
 
@@ -124,6 +127,16 @@ export function pruneStates(dir: string, now = Date.now()): void {
 
 function isTree(value: unknown): value is Tree {
 	if (!value || typeof value !== "object") return false;
-	const { head, files } = value as Partial<Tree>;
-	return typeof head === "string" && !!files && typeof files === "object" && Object.values(files).every((v) => typeof v === "string");
+	const { head, files, heads, blind, unseen, late, links } = value as Partial<Tree>;
+	const list = (v: unknown) => v === undefined || (Array.isArray(v) && v.every((b) => typeof b === "string"));
+	const strings = (record: unknown) => !!record && typeof record === "object" && Object.values(record).every((v) => typeof v === "string");
+	return (
+		typeof head === "string" &&
+		strings(files) &&
+		(heads === undefined || strings(heads)) &&
+		list(blind) &&
+		list(unseen) &&
+		list(late) &&
+		list(links)
+	);
 }
