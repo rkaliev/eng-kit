@@ -212,7 +212,7 @@ Patch release 0.34.1 in both editions. Rollback: install 0.34.0.
 
 ### Task 6: the other edition
 
-- [ ] The shared files and their tests are copied byte-identical in the other edition's own PR; `cmp` → identical.
+- [x] The shared files and their tests are copied byte-identical in the other edition's own PR; `cmp` → identical.
 
 ## Progress
 
@@ -227,3 +227,4 @@ Patch release 0.34.1 in both editions. Rollback: install 0.34.0.
 - Task 3: complete (c2bc75a..b345bc1, `npm test` → 609/598 pass, 0 fail).
 - Task 4: complete (b345bc1..8382c5b, `npm test` → 610/599 pass, 0 fail; the old hooks.ts fails the new test).
 - Task 5: complete (8382c5b..3c1edc6, `npm test` → 610/599 pass, 0 fail; `release.ts check` ok 0.34.1; `claude plugin validate .` passed).
+- Task 6: complete (the shared files copied byte-identical; the other edition's suite green).
