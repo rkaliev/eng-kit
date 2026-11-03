@@ -601,12 +601,50 @@ test("holdBack: a repository that times out again is named, not taken as held", 
 	const root = mkdtempSync(join(tmpdir(), "reviews-records-"));
 	const a = repo(join(ws, "a"), root);
 	assert.equal(spawnSync("git", ["clone", "-q", a.dir, join(ws, "c")]).status, 0);
-	const slow = slowGit(realpathSync(join(ws, "c")), "rev-parse", 8);
+	// Only the commit's lookup hangs: c answers everything else, so nothing but the timeout can keep it unheld.
+	const slow = slowGit(realpathSync(join(ws, "c")), a.head, 8);
 	try {
-		assert.match(String(holdBack(ws, a.head, { promptId: "p1", run: "x-held" }, root)), /in time/);
+		assert.match(String(holdBack(ws, a.head, { promptId: "p1", run: "x-held" }, root, Date.now() + 1500)), /in time/);
 	} finally {
 		slow.restore();
 	}
+	assert.equal(readReviews(a.dir, root)[0]?.verdict, "Inconclusive");
+	assert.deepEqual(readReviews(join(ws, "c"), root), [], "c was never reached");
+});
+
+test("recordVerdict: a commit not found because a repository didn't answer in time says so, not that it is no commit", () => {
+	const ws = mkdtempSync(join(tmpdir(), "reviews-ws-"));
+	const root = mkdtempSync(join(tmpdir(), "reviews-records-"));
+	const a = repo(join(ws, "a"), root);
+	assert.equal(spawnSync("git", ["clone", "-q", a.dir, join(ws, "c")]).status, 0);
+	const slow = slowGit(realpathSync(join(ws, "c")), "deadbee", 8);
+	let result: unknown;
+	try {
+		result = recordVerdict(ws, "deadbee0", "No", { promptId: "p1", run: "x" }, root, { deadline: Date.now() + 1500 });
+	} finally {
+		slow.restore();
+	}
+	assert.match(String(result), /could not be searched in time/);
+	assert.doesNotMatch(String(result), /is not a commit/);
+});
+
+test("holdBack: given the caller's timed-out lookup, it holds each HEAD back without searching again, and reports the miss", () => {
+	const ws = mkdtempSync(join(tmpdir(), "reviews-ws-"));
+	const root = mkdtempSync(join(tmpdir(), "reviews-records-"));
+	const a = repo(join(ws, "a"), root);
+	assert.equal(spawnSync("git", ["clone", "-q", a.dir, join(ws, "c")]).status, 0);
+	const failed = `Reviewed HEAD deadbee0 could not be searched in time in any repository here (a, c)`;
+	const slow = slowGit(realpathSync(join(ws, "c")), "deadbee", 8);
+	const started = Date.now();
+	let still: string | undefined;
+	try {
+		still = holdBack(ws, "deadbee0", { promptId: "p1", run: "x" }, root, Date.now() + 2000, failed);
+	} finally {
+		slow.restore();
+	}
+	assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+	assert.match(String(still), /in time/);
+	for (const r of ["a", "c"]) assert.equal(readReviews(join(ws, r), root)[0]?.verdict, "Inconclusive", `${r}'s HEAD is held back`);
 });
 
 test("holdBack: with its deadline spent it records nothing more and says so", () => {

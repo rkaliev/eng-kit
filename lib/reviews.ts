@@ -107,7 +107,8 @@ export function recordReview(projectDir: string, text: string, ids: { promptId: 
 /** Record a verdict for a commit directly: a reviewer run that failed counts as Inconclusive for the commit it reviewed. */
 export function recordVerdict(projectDir: string, rev: string, verdict: Verdict, ids: { promptId: string; run: string }, root?: string, extra: { base?: string; report?: string; deadline?: number } = {}): RecordResult | string {
 	const { found, complete } = lookup(projectDir, rev, extra.deadline);
-	if (found.length === 0) return `Reviewed HEAD ${rev} is not a commit in ${here(projectDir)}`;
+	// A repository that gave no answer may have the commit: that is a miss, not a commit that doesn't exist.
+	if (found.length === 0) return `Reviewed HEAD ${rev} ${complete ? "is not a commit" : "could not be searched in time"} in ${here(projectDir)}`;
 	// A SHA the reviewer wrote names one commit: different commits under one abbreviation get no verdict at all.
 	if (HEX.test(rev) && new Set(found.map((f) => f.sha)).size > 1) return `Reviewed HEAD ${rev} names different commits in different repositories; give the full SHA`;
 	// Each repository that has the commit (clones of one history share it) gets the record, with BASE resolved there.
@@ -145,22 +146,30 @@ export function recordVerdict(projectDir: string, rev: string, verdict: Verdict,
 
 /**
  * Hold a commit back where a verdict short of Yes may have missed it: Inconclusive for `rev` (callers pass their own
- * run id, so the reviewer's record keeps its report). Only when `rev` is missing or names no commit here does it fall
- * back to each repository's HEAD, so unrelated repositories keep their verdicts. Every lookup ends by `deadline`.
- * Returns why it could not hold the commit back everywhere, if so.
+ * run id, so the reviewer's record keeps its report). Only when `rev` is missing, names no commit here or couldn't be
+ * searched for in time does it fall back to each repository's HEAD, so unrelated repositories keep their verdicts.
+ * `failed` is the caller's own `recordVerdict` result for `rev`: a lookup that already failed isn't repeated. Every
+ * lookup ends by `deadline`. Returns why it could not hold the commit back everywhere, if so.
  */
-export function holdBack(projectDir: string, rev: string | undefined, ids: { promptId: string; run: string }, root?: string, deadline?: number): string | undefined {
+export function holdBack(projectDir: string, rev: string | undefined, ids: { promptId: string; run: string }, root?: string, deadline?: number, failed?: string): string | undefined {
 	const late = () => deadline !== undefined && deadline - Date.now() < MIN_LOOKUP_MS;
+	let unsearched: string | undefined;
 	if (rev !== undefined) {
-		if (late()) return "no time was left to hold it back";
-		const held = recordVerdict(projectDir, rev, "Inconclusive", ids, root, { deadline });
+		let held: RecordResult | string | undefined = failed?.startsWith(`Reviewed HEAD ${rev} `) ? failed : undefined;
+		if (held === undefined) {
+			if (late()) return "no time was left to hold it back";
+			held = recordVerdict(projectDir, rev, "Inconclusive", ids, root, { deadline });
+		}
 		if (typeof held !== "string") return held.missed;
 		// A record that couldn't be written is a miss; only a SHA that names no single commit here falls back to HEAD.
 		if (!held.startsWith(`Reviewed HEAD ${rev} `)) return held;
+		// The commit may be in the repository that didn't answer: holding each HEAD back doesn't cover it there.
+		if (held.includes("could not be searched in time")) unsearched = held;
 	}
-	if (late()) return "no time was left to hold each repository's HEAD back";
+	if (late()) return [unsearched, "no time was left to hold each repository's HEAD back"].filter(Boolean).join("; ");
 	const heads = recordVerdict(projectDir, "HEAD", "Inconclusive", ids, root, { deadline });
-	return typeof heads === "string" ? heads : heads.missed;
+	const missed = typeof heads === "string" ? heads : heads.missed;
+	return [unsearched, missed].filter(Boolean).join("; ") || undefined;
 }
 
 /** Below this much time left a lookup isn't started: it couldn't answer and would only delay the warning. */

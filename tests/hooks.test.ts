@@ -1091,6 +1091,23 @@ test("review gate: with a workspace repository that keeps hanging, SubagentStop 
 	}
 });
 
+test("review gate: a review of unverified edits whose commit a hanging repository can't be searched for holds each HEAD back in time", () => {
+	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
+	assert.equal(spawnSync("git", ["clone", "-q", join(projectDir, "a"), join(projectDir, "c")]).status, 0);
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "f.ts") } });
+	const slow = slowGit(realpathSync(join(projectDir, "c")), "deadbee", 20);
+	try {
+		const started = Date.now();
+		const out = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: "Reviewed BASE: deadbeef0\nReviewed HEAD: deadbeef1\nReady to merge: Yes", prompt_id: "p1", agent_id: "r1" });
+		assert.ok(Date.now() - started < 9500, `took ${Date.now() - started} ms, past the hook's 10 s`);
+		assert.match(String(out.warning), /in time/);
+	} finally {
+		slow.restore();
+	}
+	for (const repo of ["a", "c"]) assert.deepEqual(readReviews(join(projectDir, repo), reviewsRoot).map((r) => [r.sha, r.verdict]), [[head(repo), "Inconclusive"]], repo);
+});
+
 test("review gate: a review of unverified edits that names no commit here falls back to each repository's HEAD", () => {
 	const { call, projectDir, reviewsRoot, head } = reviewWorkspace();
 	call({ hook_event_name: "SessionStart", source: "startup" });

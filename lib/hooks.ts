@@ -434,7 +434,7 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	if (unverified && parsed) {
 		const held = recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report, deadline });
 		// Not recorded as written (its BASE or HEAD is no commit): the named commit, else each HEAD, so it is never lost.
-		const still = typeof held === "string" ? holdBack(env.projectDir, parsed.sha, ids, env.reviewsRoot, deadline) : held.missed === undefined ? undefined : holdBack(env.projectDir, parsed.sha, heldIds(ids), env.reviewsRoot, deadline);
+		const still = typeof held === "string" ? holdBack(env.projectDir, parsed.sha, ids, env.reviewsRoot, deadline, held) : held.missed === undefined ? undefined : holdBack(env.projectDir, parsed.sha, heldIds(ids), env.reviewsRoot, deadline);
 		const unverifiedWarning = "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again.";
 		return { warning: [unverifiedWarning, missedWarning(typeof held === "string" ? undefined : held.missed, still)].filter(Boolean).join("\n") };
 	}
@@ -450,7 +450,7 @@ function subagentStop(input: HookInput, env: HookEnv): HookResult {
 	// A handed-back report is already delivered: sending the reviewer back can't change it, so it fails at once.
 	if (input.stop_hook_active || handedBack !== undefined) {
 		// A SHA that isn't a commit here (a typo) falls back to HEAD, so the failure is never lost.
-		const still = holdBack(env.projectDir, reviewedHead(report), ids, env.reviewsRoot, deadline);
+		const still = holdBack(env.projectDir, reviewedHead(report), ids, env.reviewsRoot, deadline, result);
 		return { warning: [warning, missedWarning(undefined, still)].filter(Boolean).join("\n") };
 	}
 	return {
