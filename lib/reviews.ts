@@ -122,7 +122,12 @@ export function recordVerdict(projectDir: string, rev: string, verdict: Verdict,
 		// A Yes counts only with its range; a verdict short of Yes holds a landing back without one (a shallow clone).
 		if (extra.base !== undefined && !base && verdict === "Yes") continue;
 		const record: ReviewRecord = { sha, base, verdict, promptId: ids.promptId, at: Date.now(), report: extra.report?.slice(0, MAX_REPORT) };
-		const dir = reviewsDir(repo, root);
+		const dir = repoStore(repo, root, extra.deadline);
+		// The folder's own key is where nothing reads this repository's records: no answer is a miss.
+		if (dir === undefined) {
+			failure ??= `the store of ${repo} could not be resolved in time`;
+			continue;
+		}
 		try {
 			mkdirSync(dir, { recursive: true, mode: 0o700 });
 			if (!ownDir(dir)) {
@@ -184,6 +189,8 @@ function timeoutBefore(deadline: number | undefined): number {
 const HEX = /^[0-9a-f]{4,40}$/i;
 /** How long resolving a commit across a workspace's repositories may take, inside the hook's 10 s. */
 const LOOKUP_BUDGET_MS = 4000;
+/** What a lookup with a deadline leaves of it for resolving the stores it writes to. */
+const STORE_RESERVE_MS = 1000;
 
 /**
  * The commit `rev` names in `dir`, `undefined` when git says there is none, `null` when git gave no answer (a timeout).
@@ -209,7 +216,8 @@ export function commitRepos(projectDir: string, rev: string): Array<{ dir: strin
 function lookup(projectDir: string, rev: string, until?: number): { found: Array<{ dir: string; sha: string }>; complete: boolean } {
 	const { kind, repos } = projectRepos(projectDir);
 	const dirs = kind === "repo" ? [projectDir] : repos.map((r) => join(projectDir, r));
-	const deadline = Math.min(Date.now() + LOOKUP_BUDGET_MS, until ?? Number.POSITIVE_INFINITY);
+	// The time after the lookup is left for resolving and writing the stores of what it found.
+	const deadline = Math.min(Date.now() + LOOKUP_BUDGET_MS, (until ?? Number.POSITIVE_INFINITY) - STORE_RESERVE_MS);
 	let complete = true;
 	// Each repository gets an equal share of the time left, so one slow repository can't starve the others.
 	const found = dirs.flatMap((dir, i) => {
@@ -858,6 +866,14 @@ export function reviewsDir(projectDir: string, root = join(tmpdir(), "eng-kit", 
 	const dir = resolve(projectDir);
 	const common = git(dir, ["rev-parse", "--git-common-dir"]);
 	return join(root, hash(safeRealpath(common ? resolve(dir, common) : dir)));
+}
+
+/** `reviewsDir` of a repository, resolved by `deadline`: `undefined` when git gave no answer in time. */
+function repoStore(repo: string, root = join(tmpdir(), "eng-kit", "reviews"), deadline?: number): string | undefined {
+	if (deadline !== undefined && deadline - Date.now() < MIN_LOOKUP_MS) return undefined;
+	const dir = resolve(repo);
+	const common = git(dir, ["rev-parse", "--git-common-dir"], timeoutBefore(deadline));
+	return common ? join(root, hash(safeRealpath(resolve(dir, common)))) : undefined;
 }
 
 function decision(action: "block" | "confirm", problem: string, options: ReviewGateOptions): GuardDecision {

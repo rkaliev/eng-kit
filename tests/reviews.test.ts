@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { slowGit } from "./slow-git.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, readReviews, recordReview, reviewChain, roundNumber, highestFindingIds, holdBack, notePr, openPrBranches, recordVerdict, reviewsDir, settlePr, type ReviewGateOptions } from "../lib/reviews.ts";
@@ -604,12 +604,46 @@ test("holdBack: a repository that times out again is named, not taken as held", 
 	// Only the commit's lookup hangs: c answers everything else, so nothing but the timeout can keep it unheld.
 	const slow = slowGit(realpathSync(join(ws, "c")), a.head, 8);
 	try {
-		assert.match(String(holdBack(ws, a.head, { promptId: "p1", run: "x-held" }, root, Date.now() + 1500)), /in time/);
+		assert.match(String(holdBack(ws, a.head, { promptId: "p1", run: "x-held" }, root)), /in time/);
 	} finally {
 		slow.restore();
 	}
 	assert.equal(readReviews(a.dir, root)[0]?.verdict, "Inconclusive");
 	assert.deepEqual(readReviews(join(ws, "c"), root), [], "c was never reached");
+});
+
+test("recordVerdict: a commit found in one repository is recorded there even when another repository uses up the lookup's time", () => {
+	const ws = mkdtempSync(join(tmpdir(), "reviews-ws-"));
+	const root = mkdtempSync(join(tmpdir(), "reviews-records-"));
+	const a = repo(join(ws, "a"), root);
+	assert.equal(spawnSync("git", ["clone", "-q", a.dir, join(ws, "c")]).status, 0);
+	const slow = slowGit(realpathSync(join(ws, "c")), a.head, 8);
+	let result: unknown;
+	try {
+		result = recordVerdict(ws, a.head, "No", { promptId: "p1", run: "x" }, root, { deadline: Date.now() + 3000 });
+	} finally {
+		slow.restore();
+	}
+	assert.match(String((result as { missed?: string }).missed), /in time/, "c is a miss");
+	assert.equal(readReviews(a.dir, root)[0]?.verdict, "No", "a, found first, still gets its record");
+});
+
+test("recordVerdict: a repository whose store can't be resolved in time is a miss, not a write to a folder-keyed store", () => {
+	const ws = mkdtempSync(join(tmpdir(), "reviews-ws-"));
+	const root = mkdtempSync(join(tmpdir(), "reviews-records-"));
+	const a = repo(join(ws, "a"), root);
+	assert.equal(spawnSync("git", ["clone", "-q", a.dir, join(ws, "c")]).status, 0);
+	const slow = slowGit(realpathSync(join(ws, "c")), "--git-common-dir", 8);
+	const started = Date.now();
+	let result: unknown;
+	try {
+		result = recordVerdict(ws, a.head, "No", { promptId: "p1", run: "x" }, root, { deadline: Date.now() + 3000 });
+	} finally {
+		slow.restore();
+	}
+	assert.ok(Date.now() - started < 3500, `took ${Date.now() - started} ms`);
+	assert.match(String((result as { missed?: string }).missed), /in time/);
+	assert.deepEqual(readdirSync(root), [basename(reviewsDir(a.dir, root))], "only a's store: none keyed by c's folder");
 });
 
 test("recordVerdict: a commit not found because a repository didn't answer in time says so, not that it is no commit", () => {
