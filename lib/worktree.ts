@@ -325,7 +325,7 @@ export function changedPaths(before: Tree, after: Tree, projectDir: string, igno
  * fingerprinted before has no baseline, so its listed files don't count; its text targets do. With a blind part, a
  * command that moves the shell has its targets placed from every folder it may reach. One whose moves can't be
  * followed (a variable, `chdir`, `CDPATH`, any PowerShell command) or that may bind names it doesn't show (`source`,
- * `.` or `eval` as a plain command's command word, or anywhere in a function body, `case` arm or group) has every text
+ * `.`, `eval` or a declaration in a command position, see `bindsAsCommand`) has every text
  * target count while a repository or the outside files are blind, and those under a symlink while only symlinks are.
  * Without both fingerprints, only its text.
  */
