@@ -90,7 +90,7 @@ Patch release 0.34.1 in both editions. Rollback: install 0.34.0.
 
 ## Plan
 
-> Execute with the executing-plans skill. Only this section uses `- [ ]` checkboxes.
+> Execute with the executing-plans skill. Only this section uses `- [x]` checkboxes.
 
 **Goal:** close the 0.34.0 follow-ups (criteria 1–7, 10, 11) here; the other edition takes the shared files.
 **Architecture:**
@@ -123,13 +123,13 @@ Patch release 0.34.1 in both editions. Rollback: install 0.34.0.
 **Files:** Modify `lib/worktree.ts` · Test `tests/worktree.test.ts`
 **Interfaces:** unchanged (`bindsAsCommand(seg: string[]): boolean`, private)
 
-- [ ] Write the failing test `callChanges: with a blind part, source after a glued function header or a command prefix's options counts every target`. Its fixture is the one in the existing "count only in a command position" test (`blind: ["a"]`, cwd `/ws`). It asserts `["$S/x"]` for each of these commands:
+- [x] Write the failing test `callChanges: with a blind part, source after a glued function header or a command prefix's options counts every target`. Its fixture is the one in the existing "count only in a command position" test (`blind: ["a"]`, cwd `/ws`). It asserts `["$S/x"]` for each of these commands:
   - `f(){ . ./env; }; echo > $S/x`
   - `f()(source ./env); echo > $S/x`
   - `command -p source ./env; echo > $S/x`
   - `time -p . ./env; echo > $S/x`
   - `command -- eval x; echo > $S/x`
-- [ ] Write the failing test `callChanges: with a blind part, command -v and STARTERS or ) as arguments don't bind`. It asserts `[]` for:
+- [x] Write the failing test `callChanges: with a blind part, command -v and STARTERS or ) as arguments don't bind`. It asserts `[]` for:
   - `command -v source > $S/x`
   - `grep -rn "time" . > $S/x`
   - `rg "(A|B)" . > $S/x`
@@ -139,8 +139,8 @@ Patch release 0.34.1 in both editions. Rollback: install 0.34.0.
   - `case x in a) true;; b) . ./env;; esac; echo > $S/x`
   - `if true; then . ./env; fi; echo > $S/x`
   - `"source" ./env; echo > $S/x`
-- [ ] Run `node --test tests/worktree.test.ts` → expect FAIL in the first test (each new case returns `[]`) and in the second test on the `grep`/`rg` cases (they return `["$S/x"]`).
-- [ ] Implement `bindsAsCommand` with the following state:
+- [x] Run `node --test tests/worktree.test.ts` → expect FAIL in the first test (each new case returns `[]`) and in the second test on the `grep`/`rg` cases (they return `["$S/x"]`).
+- [x] Implement `bindsAsCommand` with the following state:
   - **`start`** (the next word is a command word) and **`pattern`** (after `case WORD in`, the next word is a `case` pattern).
   - **In a command position:**
     - STARTERS set `start`, and so does a token that is only an operator stripped to `""`;
@@ -152,63 +152,63 @@ Patch release 0.34.1 in both editions. Rollback: install 0.34.0.
   - **In a pattern position:** a token ending in `)` sets `start`.
   - **Anywhere else:** a word changes nothing.
   - **STARTERS:** drop `{`, `(`, `!` and `;;`, which never match (F39).
-- [ ] Run `node --test tests/worktree.test.ts` → expect PASS, then the full suite.
-- [ ] Commit `fix(verify): source after a glued function header or a prefix's options counts; arguments don't start a command`.
+- [x] Run `node --test tests/worktree.test.ts` → expect PASS, then the full suite.
+- [x] Commit `fix(verify): source after a glued function header or a prefix's options counts; arguments don't start a command`.
 
 ### Task 2: a lookup that ran out of time, and `holdBack` (criterion 4, S22, F28)
 
 **Files:** Modify `lib/reviews.ts`, `lib/hooks.ts` · Test `tests/reviews.test.ts`, `tests/hooks.test.ts`
 **Interfaces:** Produces `holdBack(projectDir, rev, ids, root?, deadline?, failed?: string): string | undefined`. `failed` is the caller's own `recordVerdict` result for `rev`. When it is a `Reviewed HEAD <rev> …` message, `rev` isn't looked up again.
 
-- [ ] Write the failing test `recordVerdict: a commit not found because a repository didn't answer in time says so, not "is not a commit"`.
+- [x] Write the failing test `recordVerdict: a commit not found because a repository didn't answer in time says so, not "is not a commit"`.
   - Setup: a workspace with `a` and its clone `c`; `slowGit(c, "rev-parse", 8)`; `a` hangs as well, so nothing is found.
   - Assert: the result matches `/could not be searched in time/` and doesn't match `/is not a commit/`.
-- [ ] Write the failing test `holdBack: given the caller's timed-out lookup, it holds each HEAD without searching again and reports the miss`.
+- [x] Write the failing test `holdBack: given the caller's timed-out lookup, it holds each HEAD without searching again and reports the miss`.
   - Setup: `slowGit(c, a.head, 8)` hangs only the SHA lookup in `c`; `failed` is the message from the previous test's shape.
   - Assert, with a 2 s deadline: `holdBack` returns a string matching `/in time/`, `readReviews(join(ws, "c"))[0].verdict` is `Inconclusive` (its HEAD was held), and the call took less than 2 s.
-- [ ] Rework the test "…times out again is named" (F37): hang only the SHA (`slowGit(c, a.head, 8)`) and assert the HEAD fallback ran. Run it on the parent commit's code and expect FAIL.
-- [ ] Run `node --test tests/reviews.test.ts` → expect FAIL on these three.
-- [ ] Implement:
+- [x] Rework the test "…times out again is named" (F37): hang only the SHA (`slowGit(c, a.head, 8)`) and assert the HEAD fallback ran. Run it on the parent commit's code and expect FAIL.
+- [x] Run `node --test tests/reviews.test.ts` → expect FAIL on these three.
+- [x] Implement:
   - `recordVerdict` returns ``Reviewed HEAD ${rev} could not be searched in time in ${here(projectDir)}`` when `found` is empty and `!complete`.
   - `holdBack` skips the `rev` lookup when `failed` starts with `Reviewed HEAD ${rev} `.
   - After the HEAD fallback, `holdBack` returns the "could not be searched in time" text (joined with the HEADs' own miss) whenever the `rev` search was incomplete.
-- [ ] In `lib/hooks.ts` subagentStop's unverified path, pass `held` as `failed`. Write a hooks test first: an unverified review naming a SHA, with `slowGit(c, sha, 8)`. It must leave `c`'s HEAD Inconclusive and warn within the hook's timeout. Expect it to FAIL on the old code.
-- [ ] Run the full suite → PASS. Commit `fix(review-gate): a commit not searched in time holds each HEAD back without a second search`.
+- [x] In `lib/hooks.ts` subagentStop's unverified path, pass `held` as `failed`. Write a hooks test first: an unverified review naming a SHA, with `slowGit(c, sha, 8)`. It must leave `c`'s HEAD Inconclusive and warn within the hook's timeout. Expect it to FAIL on the old code.
+- [x] Run the full suite → PASS. Commit `fix(review-gate): a commit not searched in time holds each HEAD back without a second search`.
 
 ### Task 3: the store path inside the deadline (criterion 5, S23)
 
 **Files:** Modify `lib/reviews.ts` · Test `tests/reviews.test.ts`
 **Interfaces:** Produces `reviewsDir(projectDir, root?, deadline?)`, unchanged for callers that pass no deadline. Adds a private `repoStore(repo, root, deadline): string | undefined`: `undefined` when `--git-common-dir` gives no answer.
 
-- [ ] Write the failing test `recordVerdict: a repository whose store can't be resolved in time is a miss, not a write to a folder-keyed store`.
+- [x] Write the failing test `recordVerdict: a repository whose store can't be resolved in time is a miss, not a write to a folder-keyed store`.
   - Setup: `slowGit(c, "--git-common-dir", 8)` and a 3 s deadline.
   - Assert: the result's `missed` is set; nothing is written under `reviewsDir(join(ws, "c"), root)` as resolved with the real git after `restore`, nor under the folder-keyed hash of `c`; the call took less than 3.5 s.
-- [ ] Run → expect FAIL: the call blocks for 5 s and writes under the folder key.
-- [ ] In `recordVerdict`, use `repoStore(repo, root, extra.deadline)`. On `undefined`, set ``failure ??= `${repo} store could not be resolved in time` `` and `continue`.
-- [ ] Run the full suite → PASS. Commit `fix(review-gate): resolve each repository's store within the deadline`.
+- [x] Run → expect FAIL: the call blocks for 5 s and writes under the folder key.
+- [x] In `recordVerdict`, use `repoStore(repo, root, extra.deadline)`. On `undefined`, set ``failure ??= `${repo} store could not be resolved in time` `` and `continue`.
+- [x] Run the full suite → PASS. Commit `fix(review-gate): resolve each repository's store within the deadline`.
 
 ### Task 4: SubagentStop's ledger after the gate (criterion 6, F36, F37 hooks)
 
 **Files:** Modify `lib/hooks.ts`, `lib/workdocs.ts` (`currentBranch(dir, timeout?)`) · Test `tests/hooks.test.ts`
 **Interfaces:** Produces `currentBranch(projectDir: string, timeout?: number)`, unchanged for callers that pass none.
 
-- [ ] Write the failing test `SubagentStop: a hanging branch lookup doesn't cost the review gate its deadline`.
+- [x] Write the failing test `SubagentStop: a hanging branch lookup doesn't cost the review gate its deadline`.
   - Setup: `slowGit(c, "branch --show-current", 20)` and a workspace whose verdict misses `c` (the three-lookup unverified path, F37).
   - Assert: the hook returns its warning in less than 9 s, and `c` is held Inconclusive.
-- [ ] Run → expect FAIL: more than 9 s, or no hold-back.
-- [ ] Implement:
+- [x] Run → expect FAIL: more than 9 s, or no hold-back.
+- [x] Implement:
   - `subagentStop` starts `deadline` at entry; its gate work moves into `reviewerStop(input, env, deadline)`.
   - `recordUsage(env, input, "subagent", entry + HOOK_BUDGET_MS)` runs after it on every path. `HOOK_BUDGET_MS = 9000`, inside the 10 s hook timeout.
   - `recordUsage` passes the time left to `currentBranch` and skips the ledger when none is left.
-- [ ] Run the full suite → PASS. Commit `fix(hooks): SubagentStop updates the token ledger after the review gate, inside the hook's time`.
+- [x] Run the full suite → PASS. Commit `fix(hooks): SubagentStop updates the token ledger after the review gate, inside the hook's time`.
 
 ### Task 5: docs and 0.34.1 in eng-kit (criteria 10–11)
 
 **Files:** Modify `lib/worktree.ts` (JSDoc), `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE.ru.md`, `README.md`, `CHANGELOG.md`, `package.json`, `package-lock.json`, `.claude-plugin/plugin.json`
 
-- [ ] Do the Post-implementation items for eng-kit.
-- [ ] Run `node .github/release.ts check` → `release metadata ok: 0.34.1`; run `claude plugin validate .` → valid.
-- [ ] Commit `docs: workspace gates follow-ups (0.34.1)`.
+- [x] Do the Post-implementation items for eng-kit.
+- [x] Run `node .github/release.ts check` → `release metadata ok: 0.34.1`; run `claude plugin validate .` → valid.
+- [x] Commit `docs: workspace gates follow-ups (0.34.1)`.
 
 ### Task 6: the other edition
 
@@ -216,4 +216,14 @@ Patch release 0.34.1 in both editions. Rollback: install 0.34.0.
 
 ## Progress
 
-None yet
+- Baseline (eng-kit 854c320): typecheck clean; `npm test` 602 tests, 591 pass, 11 skipped, 0 fail.
+- Ruling: `movesOrBinds` reads a token's word after its last `(`/`{` too (shared `wordOf`). Reason: `f()(source ./env)` never reached `bindsAsCommand` otherwise. Cost if wrong: `X=$(source env)` counts targets like a plain `source`, a false re-fire, not a miss.
+- Ruling: the reworked F37 test asserts that `c`, whose SHA lookup hangs, gets no record while `a` is held. The plan said "the HEAD fallback ran", which is wrong for a commit that was found. RED by mutation: `holdBack` returning `undefined` for a miss → FAIL.
+- Ruling: a lookup with a deadline leaves `STORE_RESERVE_MS` (1 s) of it for the stores. Found when Task 3 turned a full run red: a hanging repository used the whole deadline, and the stores of the repositories that had the commit got no time. Test "a commit found in one repository is recorded there even when another repository uses up the lookup's time", RED with the reserve set to 0.
+- Ruling: `slowGit` takes several patterns. The Task 4 test hangs every lookup of the gate and the ledger's branch lookup in one repository, so the old code (11.4 s) and the new (8.4 s) differ clearly; two nested stand-ins were flaky under load.
+- Ruling: `HOOK_BUDGET_MS` = 8000, not 9000. Reason: the 10 s hook timeout also covers node's start.
+- Task 1: complete (854c320..7f195b1, `npm test` → 604/593 pass, 0 fail).
+- Task 2: complete (7f195b1..c2bc75a, `npm test` → 607/596 pass, 0 fail).
+- Task 3: complete (c2bc75a..b345bc1, `npm test` → 609/598 pass, 0 fail).
+- Task 4: complete (b345bc1..8382c5b, `npm test` → 610/599 pass, 0 fail; the old hooks.ts fails the new test).
+- Task 5: complete (8382c5b..3c1edc6, `npm test` → 610/599 pass, 0 fail; `release.ts check` ok 0.34.1; `claude plugin validate .` passed).
