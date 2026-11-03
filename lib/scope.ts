@@ -33,7 +33,7 @@ const RANK: Record<GuardDecision["action"], number> = { allow: 0, confirm: 1, bl
 /** A path judged from the session folder with its config and, inside a workspace repository, from it with its own. */
 export function scopedPath(tool: "read" | "write" | "edit", path: string, scope: GuardScope): GuardDecision {
 	const own = checkPath(tool, path, scope.projectDir, scope.config);
-	const repo = holder(scope, path);
+	const repo = repoIn(scope, path);
 	return repo === undefined ? own : strictest(own, checkPath(tool, path, repo, scope.repos.get(repo)!));
 }
 
@@ -43,7 +43,7 @@ export function scopedConfig(command: string, cwd: string, scope: GuardScope): G
 	const segments = segmentFolders(command, cwd);
 	const unknown = segments.some((s) => s.dir === undefined);
 	// Where each working segment runs; a move only leads there.
-	const ran = segments.filter((s) => !s.move).map((s) => (s.dir === undefined ? undefined : holder(scope, s.dir)));
+	const ran = segments.filter((s) => !s.move).map((s) => (s.dir === undefined ? undefined : repoIn(scope, s.dir)));
 	const touched = unknown ? [...scope.repos.keys()] : [...new Set(ran.filter((r) => r !== undefined))];
 	const only = !unknown && ran.length > 0 && ran.every((r) => r !== undefined && r === ran[0]) ? ran[0] : undefined;
 	const rules = touched.map((dir) => scope.repos.get(dir)!);
@@ -56,6 +56,6 @@ export function scopedConfig(command: string, cwd: string, scope: GuardScope): G
 }
 
 /** The workspace repository holding `path`, as the absolute folder `scope.repos` keys it by. */
-function holder(scope: GuardScope, path: string): string | undefined {
+export function repoIn(scope: GuardScope, path: string): string | undefined {
 	return repoOf(scope.projectDir, [...scope.repos.keys()].map((dir) => basename(dir)), path);
 }

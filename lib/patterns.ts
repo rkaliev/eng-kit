@@ -64,8 +64,18 @@ export function isSecretPath(path: string): boolean {
 	return SECRET_PATTERNS.some((re) => re.test(p));
 }
 
-/** Decide what to do with a shell command. `cwd` is the project root; `dir` is where the command runs. */
-export function checkCommand(command: string, cwd: string, config: GuardConfig, dir: string = cwd, env: NodeJS.ProcessEnv = process.env): GuardDecision {
+/**
+ * Decide what to do with a shell command. `cwd` is the project root; `dir` is where the command runs. `judgeWrite`
+ * judges a heredoc's write target (in a workspace, from the repository it lands in).
+ */
+export function checkCommand(
+	command: string,
+	cwd: string,
+	config: GuardConfig,
+	dir: string = cwd,
+	env: NodeJS.ProcessEnv = process.env,
+	judgeWrite: (target: string) => GuardDecision = (target) => checkPath("write", target, cwd, config),
+): GuardDecision {
 	// A command that only writes a project file through a quoted heredoc runs nothing from its body: judge its first
 	// line, and its target as a Write would be. A target outside the project (a shell rc file) leaves it judged whole.
 	const heredoc = quotedHeredoc(command);
@@ -87,7 +97,7 @@ export function checkCommand(command: string, cwd: string, config: GuardConfig, 
 			return { action: "block", reason: `Blocked by project guard rule /${source}/ in .claude/guard.json.` };
 		}
 	}
-	const written = target ? checkPath("write", target, cwd, config) : ALLOW;
+	const written = target ? judgeWrite(target) : ALLOW;
 	if (written.action !== "allow") return written;
 	if ((config.allow ?? []).some((source) => new RegExp(source).test(command))) return ALLOW;
 

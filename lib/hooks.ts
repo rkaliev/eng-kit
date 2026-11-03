@@ -12,12 +12,13 @@
  * - UserPromptSubmit: re-arms the gate for the new prompt.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join, posix, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, uncommittedApproved } from "./approvals.ts";
 import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
-import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
+import { checkCommand, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
+import { guardScope, repoIn, scopedConfig, scopedPath } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
@@ -144,7 +145,14 @@ const SNAPSHOT_BUDGET_MS = 2000;
 
 function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	const started = Date.now();
-	const { config, warnings } = loadGuardConfig(env.projectDir);
+	const warnings: string[] = [];
+	// The session folder's config and, in a workspace, each repository's own (lib/scope.ts).
+	const scope = guardScope(env.projectDir, (root) => {
+		const loaded = loadGuardConfig(root, root === env.projectDir ? GUARD_FILE : `${relative(env.projectDir, root)}/${GUARD_FILE}`);
+		warnings.push(...loaded.warnings);
+		return loaded.config;
+	});
+	const config = scope.config;
 	const tool = input.tool_name ?? "";
 	const args = input.tool_input ?? {};
 	const cwd = input.cwd || env.projectDir;
@@ -161,24 +169,27 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 			: tool === "PowerShell"
 				? { action: "block" as const, reason: "The reviewer is read-only: its PowerShell calls aren't checked, so they are refused. Use Bash for inspection commands." }
 				: checkReviewerCommand(command, cwd, resolveVerifyCommands(env.projectDir, { detect: false }).commands, env.root);
-		decision = reviewer ?? checkCommand(command, env.projectDir, config, cwd);
+		decision = reviewer ?? checkCommand(command, env.projectDir, scopedConfig(command, cwd, scope), cwd, process.env, (target) => scopedPath("write", target, scope));
 		// The implementer hands its commit back; the coordinator pushes after review.
 		if (decision.action === "allow" && IMPLEMENTER.test(input.agent_type ?? "") && ownBranchPush(command, cwd, process.env, env.projectDir)) {
 			decision = { action: "confirm", reason: "The implementer doesn't push; the coordinator does after review." };
 		}
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
-		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
+		// A workspace repository's own task-file folders, else the session folder's.
+		const workspace = scope.repos.size === 0 ? undefined : { cwd, repos: [...scope.repos.keys()].map((dir) => basename(dir)), dirsFor: (repo: string) => scope.repos.get(repo)?.workDocs ?? workDocs };
+		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs, workspace) ?? decision;
 		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, ".claude/guard.json") ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {
-			const options = { missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir, { detect: false }).commands };
+			const waived = (checkout: string) => scope.repos.get(repoIn(scope, checkout) ?? "")?.reviewGate === false;
+			const options = { missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir, { detect: false }).commands, waived };
 			decision = checkReview(command, cwd, env.projectDir, options, env.reviewsRoot) ?? decision;
 		}
 	} else if (tool === "Read" || tool === "Grep") {
 		const path = String(args.file_path ?? args.path ?? "");
-		decision = path ? checkPath("read", resolve(cwd, path), env.projectDir, config) : { action: "allow" };
+		decision = path ? scopedPath("read", resolve(cwd, path), scope) : { action: "allow" };
 	} else if (EDIT_TOOLS.has(tool)) {
 		const path = String(args.file_path ?? args.notebook_path ?? "");
-		decision = path ? checkPath(tool === "Write" ? "write" : "edit", resolve(cwd, path), env.projectDir, config) : { action: "allow" };
+		decision = path ? scopedPath(tool === "Write" ? "write" : "edit", resolve(cwd, path), scope) : { action: "allow" };
 	} else {
 		return {};
 	}
@@ -204,7 +215,10 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	};
 }
 
-function loadGuardConfig(projectDir: string): { config: GuardConfig; warnings: string[] } {
+const GUARD_FILE = ".claude/guard.json";
+
+/** A root's guard config; `label` names its file in warnings. */
+function loadGuardConfig(projectDir: string, label = GUARD_FILE): { config: GuardConfig; warnings: string[] } {
 	const raw = readProjectJson<GuardConfig>(projectDir, "guard");
 	const warnings = raw.error ? [`Guard config ignored: ${raw.error}`] : [];
 	const regexes = (value: unknown) =>
@@ -213,7 +227,7 @@ function loadGuardConfig(projectDir: string): { config: GuardConfig; warnings: s
 				new RegExp(source);
 				return true;
 			} catch {
-				warnings.push(`Guard: invalid regex ignored in .claude/guard.json: ${source}`);
+				warnings.push(`Guard: invalid regex ignored in ${label}: ${source}`);
 				return false;
 			}
 		});

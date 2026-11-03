@@ -471,7 +471,8 @@ test("verify gate: outside git the command's text decides", () => {
 });
 
 /** `setup` in a folder outside git that holds repositories `a` (committed `f.ts`) and `b` (committed `m.ts`). */
-function setupWorkspace() {
+/** `guards`: each repository's `.claude/guard.json` text, written after its first commit. */
+function setupWorkspace(guards: Record<string, string> = {}) {
 	const ctx = setup();
 	const git = (repo: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: join(ctx.projectDir, repo), stdio: "pipe" });
 	for (const [repo, file] of [["a", "f.ts"], ["b", "m.ts"]] as const) {
@@ -480,6 +481,10 @@ function setupWorkspace() {
 		writeFileSync(join(ctx.projectDir, repo, file), "export {};\n");
 		git(repo, "add", "-A");
 		git(repo, "commit", "-q", "-m", "initial");
+	}
+	for (const [repo, text] of Object.entries(guards)) {
+		mkdirSync(join(ctx.projectDir, repo, ".claude"), { recursive: true });
+		writeFileSync(join(ctx.projectDir, repo, ".claude", "guard.json"), text);
 	}
 	let calls = 0;
 	const bash = (command: string, during = () => {}) => {
@@ -490,6 +495,55 @@ function setupWorkspace() {
 	};
 	return { ...ctx, git, bash };
 }
+
+test("guard: in a workspace, a Write of a repository's CI pipeline asks", () => {
+	const { call, projectDir } = setupWorkspace();
+	const write = call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", ".github", "workflows", "ci.yml"), content: "x" } });
+	assert.equal(decision(write), "ask");
+	assert.match((write.output!.hookSpecificOutput as Record<string, string>).permissionDecisionReason!, /CI\/release pipeline/);
+});
+
+test("guard: in a workspace, a shell write of a repository's guard config asks", () => {
+	const { call } = setupWorkspace();
+	for (const command of ["echo {} > a/.claude/guard.json", "cd a && echo {} > .claude/guard.json"]) {
+		assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } })), "ask", command);
+	}
+});
+
+test("guard: in a workspace, a repository's own rules judge what lands in it", () => {
+	const { call } = setupWorkspace({ a: JSON.stringify({ protectedPaths: ["secret/"], block: ["make release"] }) });
+	const bash = (command: string) => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } }));
+	assert.equal(bash("cat > a/secret/x <<'EOF'\nx\nEOF"), "deny", "a heredoc write under a's protected path");
+	assert.equal(bash("cat > b/secret/x <<'EOF'\nx\nEOF"), undefined);
+	assert.equal(bash("cd a && make release"), "deny");
+	assert.equal(bash("cd b && make release"), undefined);
+});
+
+test("guard: in a workspace, a repository's reviewGate waiver covers its own PRs only", () => {
+	const { call } = setupWorkspace({ a: JSON.stringify({ reviewGate: false }) });
+	const bash = (command: string) => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } }));
+	assert.equal(bash("cd a && gh pr create --fill"), undefined);
+	assert.equal(bash("cd b && gh pr create --fill"), "deny");
+});
+
+test("guard: in a workspace, the main agent pushes a repository's work branch; the implementer is asked", () => {
+	const { call, git, projectDir } = setupWorkspace();
+	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
+	git("a", "remote", "add", "origin", remote);
+	git("a", "push", "-q", "origin", "main");
+	git("a", "switch", "-qc", "feat/x");
+	const pre = (agent_type?: string) => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git -C a push" }, cwd: projectDir, agent_type }));
+	assert.equal(pre(), undefined);
+	assert.equal(pre("eng-kit:implementer"), "ask");
+});
+
+test("guard: in a workspace, an invalid repository config warns with its path and is ignored", () => {
+	const { call, projectDir } = setupWorkspace({ a: "{" });
+	const write = call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "x.ts"), content: "x" } });
+	assert.equal(decision(write), undefined);
+	assert.match(String(write.warning), /a[\\/]\.claude[\\/]guard\.json/);
+});
 
 test("verify gate: in a workspace, a redirect to an unknown variable path marks nothing", () => {
 	const { call, bash } = setupWorkspace();
