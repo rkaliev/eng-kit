@@ -439,28 +439,61 @@ function hidesPlace(command: string, powershell = false): boolean {
 }
 
 function movesOrBinds(segments: string[][]): boolean {
-	return segments.some((seg) => seg.some((t, i) => hidesBinding(t.replace(/^[({!]+/, ""), seg.slice(i + 1))));
+	return segments.some((seg) => seg.some((t, i) => hidesBinding(wordOf(t), seg.slice(i + 1))));
 }
 
-/** Words after which the next word is a command: reserved words and command prefixes. */
-const STARTERS = new Set(["{", "(", "!", "then", "do", "else", "elif", "if", "while", "until", "time", "builtin", "command", "exec", ";;"]);
+/** A token's word after the last `(` or `{` it holds and any leading `!`: `(source`, `f()(source`, `!eval`. */
+function wordOf(token: string): string {
+	return token.slice(Math.max(token.lastIndexOf("("), token.lastIndexOf("{")) + 1).replace(/^!+/, "");
+}
+
+/** Words that, as a command word, make the next word a command: reserved words and command prefixes. */
+const STARTERS = new Set(["then", "do", "else", "elif", "if", "while", "until", "time", "builtin", "command", "exec"]);
+/** Prefixes whose dash options come before the command they run. */
+const OPTION_PREFIXES = new Set(["time", "command", "exec"]);
 
 /**
  * Whether a segment runs `source`, `.`, `eval` or a declaration of unseen names as a command: its first word, or a word
- * after a reserved word, an opening `(` or `{`, a `case` pattern's `)`, a `name()` header or assignments.
+ * after a reserved word or prefix (and its options), assignments, an opening `(` or `{`, a `name()` header or a `case`
+ * pattern's `)`, each of them in a command position itself. A word in an argument position starts nothing.
  */
 function bindsAsCommand(seg: string[]): boolean {
 	let start = true;
+	// After `case WORD in` the next word is a pattern; `case` and its word are counted down to it.
+	let toPattern = 0;
+	let pattern = false;
+	let prefix: string | undefined;
 	for (const [i, token] of seg.entries()) {
-		const opens = /^[({!]/.test(token);
-		const word = token.replace(/^[({!]+/, "");
-		if (word === "" || STARTERS.has(word)) {
-			start = true;
+		if (pattern) {
+			pattern = false;
+			start = token.endsWith(")");
 			continue;
 		}
-		if ((start || opens) && /^[A-Za-z_]\w*=/.test(word)) continue;
-		if ((start || opens) && !MOVES.has(word) && hidesBinding(word, seg.slice(i + 1))) return true;
-		start = word.endsWith(")");
+		if (toPattern > 0) {
+			if (--toPattern === 0) pattern = token === "in";
+			continue;
+		}
+		if (!start) continue;
+		if (prefix !== undefined && (token === "--" || /^-/.test(token))) {
+			// `command -v`/`-V` only names the command; other options keep the position.
+			if (prefix === "command" && /^-[a-zA-Z]*[vV]/.test(token)) start = false;
+			continue;
+		}
+		prefix = undefined;
+		const word = wordOf(token);
+		if (word === "" || /[({)]$/.test(token)) continue;
+		if (STARTERS.has(word)) {
+			if (OPTION_PREFIXES.has(word)) prefix = word;
+			continue;
+		}
+		if (word === "case") {
+			start = false;
+			toPattern = 2;
+			continue;
+		}
+		if (/^[A-Za-z_]\w*=/.test(word)) continue;
+		if (!MOVES.has(word) && hidesBinding(word, seg.slice(i + 1))) return true;
+		start = false;
 	}
 	return false;
 }
