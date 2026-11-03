@@ -420,6 +420,13 @@ function workspaceRepos() {
 	return { ws, root, a, b, ids, check };
 }
 
+test("in a workspace, a repository's waiver lifts the review gate for its landings only", () => {
+	const { ws, root } = workspaceRepos();
+	const options: ReviewGateOptions = { ...OPTIONS, waived: (checkout) => checkout === join(ws, "a") };
+	assert.equal(checkReview("cd a && gh pr create", ws, ws, options, root), undefined);
+	assert.equal(checkReview("cd b && gh pr create", ws, ws, options, root)?.action, "block");
+});
+
 test("a workspace records the verdict in the repository that has the commit", () => {
 	const { ws, root, a, b, ids } = workspaceRepos();
 	assert.equal(typeof recordReview(ws, report(a.head, "Yes", a.base), ids, root), "object");

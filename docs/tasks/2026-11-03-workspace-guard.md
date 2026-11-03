@@ -174,11 +174,11 @@ Release 0.35.0 in both editions. Rollback: revert the release; no stored state c
 **Files:** Modify `src_claude/lib/reviews.ts` · Test `src_claude/tests/reviews.test.ts`
 **Interfaces:** Produces `ReviewGateOptions.waived?: (checkout: string) => boolean`
 
-- [ ] Write failing test `a repository's waiver lifts the gate for its landings only` → `workspaceRepos()`, no reviews recorded, options `{ missing: "block", …, waived: (c) => c === join(ws, "a") }`: `check("cd a && gh pr create", …, ws)` → undefined; `cd b && gh pr create` → `block`; criterion 5
-- [ ] Run `node --test tests/reviews.test.ts` → expect FAIL: the `a` case returns `block`
-- [ ] Implement in `checkSegments`: after the checkout is known to be git, `if (options.waived?.(where)) continue;`. A hidden landing still decides as today.
-- [ ] Run → PASS; `npm test` → all pass
-- [ ] Commit `feat(review-gate): a repository's waiver covers only its own landings`
+- [x] Write failing test `a repository's waiver lifts the gate for its landings only` → `workspaceRepos()`, no reviews recorded, options `{ missing: "block", …, waived: (c) => c === join(ws, "a") }`: `check("cd a && gh pr create", …, ws)` → undefined; `cd b && gh pr create` → `block`; criterion 5
+- [x] Run `node --test tests/reviews.test.ts` → expect FAIL: the `a` case returns `block`
+- [x] Implement in `checkSegments`: after the checkout is known to be git, `if (options.waived?.(where)) continue;`. A hidden landing still decides as today.
+- [x] Run → PASS; `npm test` → all pass
+- [x] Commit `feat(review-gate): a repository's waiver covers only its own landings`
 
 ### Task 6: Claude hooks judge per repository (PreToolUse)
 
@@ -247,3 +247,4 @@ Release 0.35.0 in both editions. Rollback: revert the release; no stored state c
 - Ruling: the judgeWrite parameter of checkCommand moves to Task 6 — its only test (a heredoc into a repository's protected path) is a hooks test there — cost if wrong: none, the parameter lands with its test. Ruling: the plan's scopedConfig test used npm publish, a built-in confirm, so cd b would ask; the test uses make release — cost if wrong: none. Task 2: complete (74bd222..feat(guard) commit; RED: 5 of 6 scope tests failed on assertions ('allow' !== 'confirm'/'block'); the outside-a-workspace test passes on the stub by design, as criterion 8's guard; GREEN: node --test tests/scope.test.ts → 6 pass; npm test → 625 tests: 614 pass, 11 skipped, 0 fail; tsc clean).
 - Ruling: Task 3's workspace is pushRepo()'s own folder (the bare origin.git beside the repository repo), not a new helper — cost if wrong: none. Task 3: complete (ed033f7..fix(guard) commit; RED: 'confirm' !== 'allow' for git -C repo push from the workspace; GREEN: node --test tests/guard.test.ts → 52 pass; npm test → 626 tests: 615 pass, 11 skipped, 0 fail; tsc clean).
 - Ruling: in a workspace only a landing whose folder is unknown is blocked; a known folder outside the workspace repositories (the workspace root, a repository elsewhere) is judged as it is, and one that isn't git lands nothing — the design's 'unknown landing folder blocks' read narrowly, so a stray git commit at the root isn't refused with a misleading reason — cost if wrong: a landing from a known non-workspace checkout is judged with the default task-file folders. repo() in workdocs.test.ts takes an optional folder. Task 4: complete (89db477..fix(guard) commit; RED: 3 workspace tests failed ('allow' !== 'block'); GREEN: node --test tests/workdocs.test.ts → 10 pass; npm test → 629 tests: 618 pass, 11 skipped, 0 fail; tsc clean).
+- Task 5: complete (25d0fa3..feat(review-gate) commit; RED: the waived repository's PR returned block ('no reviewer verdict recorded'); GREEN: node --test tests/reviews.test.ts → 87 pass; npm test → 630 tests: 619 pass, 11 skipped, 0 fail; tsc clean).
