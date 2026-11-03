@@ -84,6 +84,8 @@ Patch release 0.34.1 in both editions. Rollback: install 0.34.0.
 
 ## Follow-ups
 
+- Review gate: a parsed report whose commit couldn't be searched in time, or whose store couldn't be resolved or written for a commit only one repository has, comes back as a string, so a foreground reviewer is sent back for its lines and the hold-back waits for its second stop (the write-failure case is as on 0.34.0).
+- Token ledger: SubagentStop's ledger store path (`appendUsage` → `reviewsDir`, `git rev-parse --git-common-dir`, 5 s) isn't bound by the hook's remaining time.
 - Guard in a workspace, with S18 (non-Yes verdicts mirrored into the folder store).
 - Token ledger and kit-init command detection in a workspace.
 - Round-5 carried items listed under Out of scope.
@@ -229,3 +231,4 @@ Patch release 0.34.1 in both editions. Rollback: install 0.34.0.
 - Task 5: complete (b4281e2..47ec9a7, `npm test` → 610/599 pass, 0 fail; `release.ts check` ok 0.34.1; `claude plugin validate .` passed).
 - Task 6: complete (the shared files copied byte-identical; the other edition's suite green).
 - Review round 1 (With fixes): the narrowed command position missed `function f {`, `f () {`, a spaced case `)` and an assignment's substitution, and `wordOf` in `movesOrBinds` turned off a known variable's expansion after `$(. …)` in an argument (fixed, tests added; the ruling on `wordOf` above is withdrawn); the timing tests leaned on a sub-second share for a healthy repository (given room; "no second search" proven from the stand-in git's log; two parallel full runs green); `holdBack` started a lookup with less than the store reserve left (now "no time was left"); the store path is built once; README's hold-back order; `command -V` and the review-focus binding words are tested. Deferred to Follow-ups: a store failure for a commit only one repository has still sends a foreground reviewer back for its lines (pre-existing for a write failure); the ledger's own store path (`git rev-parse --git-common-dir`) isn't bound by the hook's time.
+- User ruling (2026-11-03, "Переосмыслить разбор"): after round 2 found new misses (S30) in the narrowed reader, `bindsAsCommand` reads the whole command, takes brackets, `$(`, `${` and backticks from the quote-blanked text with a stack for what each opening one hid, and restarts the command position after a closing one with no opening one; the case-pattern counting and the per-segment depth went. A lone bracket in quotes is data now (F51 closed), `shellWriteTargets` doesn't expand a variable when the reader finds a binding (S31), and `builtin` keeps the position across its options.
