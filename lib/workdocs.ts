@@ -102,8 +102,8 @@ export function onBaseBranch(projectDir: string): string | undefined {
 	return base !== undefined && currentBranch(projectDir) === base ? base : undefined;
 }
 
-export function currentBranch(projectDir: string): string | undefined {
-	return git(projectDir, ["branch", "--show-current"]) || undefined;
+export function currentBranch(projectDir: string, timeout?: number): string | undefined {
+	return git(projectDir, ["branch", "--show-current"], timeout) || undefined;
 }
 
 export function landing(raw: string[]): Landing | undefined {
@@ -208,7 +208,7 @@ function lines(out: string | undefined): string[] {
 	return (out ?? "").split("\n").filter(Boolean);
 }
 
-function git(cwd: string, args: string[]): string | undefined {
-	const r = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 5000 });
+function git(cwd: string, args: string[], timeout = 5000): string | undefined {
+	const r = spawnSync("git", args, { cwd, encoding: "utf8", timeout });
 	return r.status === 0 ? r.stdout.trim() : undefined;
 }
