@@ -213,32 +213,32 @@ Release 0.35.0 in both editions. Rollback: revert the release; no stored state c
 
 **Files:** Copy to `src/extensions/lib/`: `repos.ts`, `shell.ts`, `reviews.ts`, `approvals.ts`, `scope.ts` · Modify `src/extensions/lib/patterns.ts`, `src/extensions/lib/workdocs.ts` (Tasks 2–4 changes) · Copy and adapt tests: `src/tests/repos.test.ts`, `reviews.test.ts`, `scope.test.ts` (`.pi/guard.json`), `guard.test.ts`, `workdocs.test.ts`
 
-- [ ] Copy the shared files and their tests (their RED was seen in Tasks 1, 2, 5 and 7); copy Task 3's and Task 4's test cases into pi's `guard.test.ts` and `workdocs.test.ts`; run `node --test tests/guard.test.ts tests/workdocs.test.ts` → expect FAIL: `'confirm' !== 'allow'` (push) and `'allow' !== 'block'` (task file)
-- [ ] Port the `patterns.ts` and `workdocs.ts` changes (pi's `checkPath` still asks for writes outside the project)
-- [ ] Run `npm test --prefix src` → all pass; `for f in repos shell reviews approvals scope; do cmp src_claude/lib/$f.ts src/extensions/lib/$f.ts; done` → no output
-- [ ] Commit `feat(guard): place paths and commands in a workspace repository` (pi)
+- [x] Copy the shared files and their tests (their RED was seen in Tasks 1, 2, 5 and 7); copy Task 3's and Task 4's test cases into pi's `guard.test.ts` and `workdocs.test.ts`; run `node --test tests/guard.test.ts tests/workdocs.test.ts` → expect FAIL: `'confirm' !== 'allow'` (push) and `'allow' !== 'block'` (task file)
+- [x] Port the `patterns.ts` and `workdocs.ts` changes (pi's `checkPath` still asks for writes outside the project)
+- [x] Run `npm test --prefix src` → all pass; `for f in repos shell reviews approvals scope; do cmp src_claude/lib/$f.ts src/extensions/lib/$f.ts; done` → no output
+- [x] Commit `feat(guard): place paths and commands in a workspace repository` (pi)
 
 ### Task 9: pi edition — guard and verify extensions
 
 **Files:** Modify `src/extensions/guard.ts`, `src/extensions/verify.ts` · Test `src/tests/extensions.test.ts`
 
-- [ ] Write failing tests with `workspaceProject()` (per-repository `.pi/guard.json` when given):
+- [x] Write failing tests with `workspaceProject()` (per-repository `.pi/guard.json` when given):
   - `guard: in a workspace, a write of a repository's CI pipeline asks` → `tool_call` write `a/.github/workflows/ci.yml` with `confirm: false` → blocked, reason matches `/CI\/release pipeline/`; criterion 1;
   - `guard: an untrusted session ignores a repository's loosening` → `a` `{ allow: ["npm run deploy"], block: ["npm publish"] }`, `trusted: false`: `cd a && npm run deploy` asks; `cd a && npm publish` blocked; with `trusted: true` the deploy passes (review focus 5);
   - `verify: the reminder names a workspace repository's approved task file` → uncommitted `a/docs/tasks/t.md` with `Status: design approved (2026-11-03)` → the follow-up message contains `a/docs/tasks/t.md`; criterion 7.
-- [ ] Run `node --test tests/extensions.test.ts` → expect FAIL: the CI write isn't asked
-- [ ] Implement: `loadConfig(ctx, root = ctx.cwd)` reads `<root>/.pi/guard.json` with today's trust rule; `check` uses `guardScope`, `scopedPath`, `scopedConfig`, `checkWorkDocs` with `workspace`, `checkGateFiles` per repository, `checkReview` with `waived`, as Task 6; `verify.ts` uses `taskFileReminders` and notifies `taskFileWarning(skipped)`.
-- [ ] Run → PASS; `npm test --prefix src` → all pass
-- [ ] Commit `fix(guard): judge each workspace repository by its own rules` (pi)
+- [x] Run `node --test tests/extensions.test.ts` → expect FAIL: the CI write isn't asked
+- [x] Implement: `loadConfig(ctx, root = ctx.cwd)` reads `<root>/.pi/guard.json` with today's trust rule; `check` uses `guardScope`, `scopedPath`, `scopedConfig`, `checkWorkDocs` with `workspace`, `checkGateFiles` per repository, `checkReview` with `waived`, as Task 6; `verify.ts` uses `taskFileReminders` and notifies `taskFileWarning(skipped)`.
+- [x] Run → PASS; `npm test --prefix src` → all pass
+- [x] Commit `fix(guard): judge each workspace repository by its own rules` (pi)
 
 ### Task 10: docs, release 0.35.0, live check
 
 **Files:** Modify in both repositories `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE.ru.md`, `README.md`, `CHANGELOG.md`, `package.json` (+ `package-lock.json`), and in eng-kit `.claude-plugin/plugin.json`; workspace `docs/FRAMEWORK-SOURCES.ru.md`
 
-- [ ] Update the docs as Post-implementation says; version 0.35.0 in every file `node .github/release.ts check` compares
-- [ ] Run `node .github/release.ts check` in each repository → passes; the workspace verify script → 4/4 PASS
-- [ ] Criterion 9: a scratch workspace (repositories `a`, `b`), `claude -p --plugin-dir src_claude` from it with other plugins disabled, ask the agent to create `a/.github/workflows/ci.yml` → the permission request is refused in `-p` with the guard's CI reason; record the result in Progress
-- [ ] Commit `docs: guard in a workspace (0.35.0)` in each repository
+- [x] Update the docs as Post-implementation says; version 0.35.0 in every file `node .github/release.ts check` compares
+- [x] Run `node .github/release.ts check` in each repository → passes; the workspace verify script → 4/4 PASS
+- [x] Criterion 9: a scratch workspace (repositories `a`, `b`), `claude -p --plugin-dir src_claude` from it with other plugins disabled, ask the agent to create `a/.github/workflows/ci.yml` → the permission request is refused in `-p` with the guard's CI reason; record the result in Progress
+- [x] Commit `docs: guard in a workspace (0.35.0)` in each repository
 
 ## Progress
 
@@ -250,3 +250,6 @@ Release 0.35.0 in both editions. Rollback: revert the release; no stored state c
 - Task 5: complete (25d0fa3..feat(review-gate) commit; RED: the waived repository's PR returned block ('no reviewer verdict recorded'); GREEN: node --test tests/reviews.test.ts → 87 pass; npm test → 630 tests: 619 pass, 11 skipped, 0 fail; tsc clean).
 - Ruling: checkGateFiles is not called per repository — it already asks for any word ending in .claude/guard.json (a/.claude/guard.json, cd a && … > .claude/guard.json); the hooks test for it passed before the change and stays as criterion 1's regression guard — cost if wrong: none, the test pins it. Ruling: the implementer/main-agent push test passed already after Task 3 (it would have failed on Base) — kept as criterion 6's hooks-level guard. Ruling: a repository's task-file folders are its own workDocs, else the session folder's, else the default — cost if wrong: a workspace-wide workDocs: [] doesn't turn off a repository that names its folders. Task 6: complete (bbfd6e4..fix(guard) commit; RED: 4 of 6 workspace hooks tests failed (Write CI: undefined !== 'ask'; heredoc under a's protected path not denied; b's PR waived: 'deny' expected undefined; no warning naming a/.claude/guard.json); GREEN: node --test tests/hooks.test.ts → 80 pass; npm test → 636 tests: 625 pass, 11 skipped, 0 fail; tsc clean).
 - Ruling: taskFileReminders takes want ({ approved, finished }, so already-reminded parts run no git, as before) and slow (the session's slowParts: those repositories are skipped without git and named in the warning) — the existing test 'a workspace repository late twice running is remembered' failed (git status in the remembered repository) until slow was passed; uncommittedApproved takes an optional timeout, bounded by the time left — cost if wrong: a slow repository's task files aren't reminded in that session (the warning names it). Task 7: complete (6b6a753..fix(guard) commit; RED: Stop reason lacked a/docs/tasks/t.md; taskFileReminders returned skipped [] for a past deadline; the slow-skip assertion failed with the condition removed (and the remembered-repository test took 8.2 s, failing); GREEN: npm test → 638 tests: 627 pass, 11 skipped, 0 fail; tsc clean).
+- Task 8: complete (pi 17b418b..feat(guard) commit; the eng-kit test diffs applied with ../extensions/lib/ imports, scope.test.ts with .pi/guard.json; RED: node --test tests/guard.test.ts tests/workdocs.test.ts … → 4 fail ('confirm' !== 'allow' push; 'allow' !== 'block' ×3 task files); GREEN after porting patterns.ts and workdocs.ts: npm test --prefix src → 592 tests: 581 pass, 11 skipped, 0 fail; tsc clean; cmp of repos, shell, reviews, approvals, scope → identical).
+- Ruling: pi's paths now reach checkPath resolved (scopedPath judges one path from two roots), so pi's path reasons name the absolute path, as Claude's do — cost if wrong: longer reason text; no pi test matched the relative form. Ruling: pi names skipped repositories once per set (notify), not after every run. Task 9: complete (pi 94e33e3..fix(guard) commit; RED: 3 extension tests failed (CI write let through: 'the write is asked about'; trusted deploy declined 'This command deploys'; no approval reminder for a/docs/tasks/t.md); GREEN: node --test tests/extensions.test.ts → 66 pass; npm test --prefix src → 595 tests: 584 pass, 11 skipped, 0 fail; tsc clean).
+- Task 10: complete (docs: ARCHITECTURE en/ru guard rows and Stop rows, README guard paragraph, CHANGELOG 0.35.0 in both (pi's also carries the /kit-init deliverAs fix from pi PR #31, which promised it to the next version), version 0.35.0 in package.json, package-lock.json, plugin.json and pi's install pins; workspace FRAMEWORK-SOURCES §11.45; lint-skills caught a possessive 'The follow-up's' read as a skill name — reworded; node .github/release.ts check → 'release metadata ok: 0.35.0' in both; workspace verify 4/4 PASS. Criterion 9 live, claude 2.1.307, --plugin-dir src_claude, installed eng-kit disabled, temp workspace a/b: Write of a/.github/workflows/ci.yml refused in -p with 'Guard: … is a CI/release pipeline; it runs with repository credentials…', file not created, $0.19).
