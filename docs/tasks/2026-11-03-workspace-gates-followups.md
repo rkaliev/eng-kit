@@ -1,7 +1,7 @@
 # Workspace gates: close the open review findings of 0.34.0
 
 Status: in progress (plan approved 2026-11-03, inline)
-Base: 7ef667cb47c0eddf3e2a479e5b0a0a031612a163
+Base: d34ccdb0d59079e602ea34a9761f615820605b61
 Links: review findings after round 6 (kept outside the repo); PR #36
 
 <details><summary>Original request</summary>
@@ -216,15 +216,15 @@ Patch release 0.34.1 in both editions. Rollback: install 0.34.0.
 
 ## Progress
 
-- Baseline (eng-kit 854c320): typecheck clean; `npm test` 602 tests, 591 pass, 11 skipped, 0 fail.
+- Baseline (eng-kit 44afccd): typecheck clean; `npm test` 602 tests, 591 pass, 11 skipped, 0 fail.
 - Ruling: `movesOrBinds` reads a token's word after its last `(`/`{` too (shared `wordOf`). Reason: `f()(source ./env)` never reached `bindsAsCommand` otherwise. Cost if wrong: `X=$(source env)` counts targets like a plain `source`, a false re-fire, not a miss.
 - Ruling: the reworked F37 test asserts that `c`, whose SHA lookup hangs, gets no record while `a` is held. The plan said "the HEAD fallback ran", which is wrong for a commit that was found. RED by mutation: `holdBack` returning `undefined` for a miss → FAIL.
 - Ruling: a lookup with a deadline leaves `STORE_RESERVE_MS` (1 s) of it for the stores. Found when Task 3 turned a full run red: a hanging repository used the whole deadline, and the stores of the repositories that had the commit got no time. Test "a commit found in one repository is recorded there even when another repository uses up the lookup's time", RED with the reserve set to 0.
 - Ruling: `slowGit` takes several patterns. The Task 4 test hangs every lookup of the gate and the ledger's branch lookup in one repository, so the old code (11.4 s) and the new (8.4 s) differ clearly; two nested stand-ins were flaky under load.
 - Ruling: `HOOK_BUDGET_MS` = 8000, not 9000. Reason: the 10 s hook timeout also covers node's start.
-- Task 1: complete (854c320..7f195b1, `npm test` → 604/593 pass, 0 fail).
-- Task 2: complete (7f195b1..c2bc75a, `npm test` → 607/596 pass, 0 fail).
-- Task 3: complete (c2bc75a..b345bc1, `npm test` → 609/598 pass, 0 fail).
-- Task 4: complete (b345bc1..8382c5b, `npm test` → 610/599 pass, 0 fail; the old hooks.ts fails the new test).
-- Task 5: complete (8382c5b..3c1edc6, `npm test` → 610/599 pass, 0 fail; `release.ts check` ok 0.34.1; `claude plugin validate .` passed).
+- Task 1: complete (44afccd..7cd2c02, `npm test` → 604/593 pass, 0 fail).
+- Task 2: complete (7cd2c02..2e420b4, `npm test` → 607/596 pass, 0 fail).
+- Task 3: complete (2e420b4..0f4943b, `npm test` → 609/598 pass, 0 fail).
+- Task 4: complete (0f4943b..b4281e2, `npm test` → 610/599 pass, 0 fail; the old hooks.ts fails the new test).
+- Task 5: complete (b4281e2..47ec9a7, `npm test` → 610/599 pass, 0 fail; `release.ts check` ok 0.34.1; `claude plugin validate .` passed).
 - Task 6: complete (the shared files copied byte-identical; the other edition's suite green).
