@@ -133,16 +133,16 @@ Release 0.35.0 in both editions. Rollback: revert the release; no stored state c
 - `scopedConfig(command: string, cwd: string, scope: GuardScope): GuardConfig` (outside a workspace: `scope.config`; inside: `block`/`confirm` = the workspace's plus those of each repository a segment runs in, all repositories when any `dir` is undefined; `allow` = the workspace's plus the one repository's when every non-move segment runs in that repository and no `dir` is undefined; `protectedPaths`, `workDocs`, `reviewGate` = the workspace's);
 - `checkCommand(…, env, judgeWrite = (target) => checkPath("write", target, cwd, config))` judges a heredoc write target with `judgeWrite`.
 
-- [ ] Write failing tests (stub module returning `scope.config` and `checkPath` from `projectDir` only), each in a temp workspace with repositories `a`, `b` and configs passed through `load`:
+- [x] Write failing tests (stub module returning `scope.config` and `checkPath` from `projectDir` only), each in a temp workspace with repositories `a`, `b` and configs passed through `load`:
   - `a CI pipeline or guard config in a workspace repository asks` → `scopedPath("write", ws/a/.github/workflows/ci.yml)` → `confirm`; `ws/a/.claude/guard.json` → `confirm`; criterion 1;
   - `a repository's protected paths block under it, measured from it` → `a` `{ protectedPaths: ["secret/"] }`: `ws/a/secret/x` → `block`, `ws/b/secret/x` → `allow`; criterion 2;
   - `a repository's rules apply where the command runs` → `a` `{ block: ["npm publish"] }`, through `checkCommand(cmd, ws, scopedConfig(cmd, ws, scope), ws)`: `cd a && npm publish` → `block`; `cd b && npm publish` → `allow`; `echo $(cd b) && npm publish` → `block`; criterion 2;
   - `a repository's allow applies only when the whole command runs in it` → `a` `{ allow: ["npm run deploy"] }`: `cd a && npm run deploy` → `allow`; `cd b && npm run deploy` → `confirm`; `cd a && npm run deploy && cd ../b && npm run deploy` → `confirm`; workspace `{ allow: ["npm run deploy"] }` → `cd b && npm run deploy` → `allow`; criterion 3;
   - `outside a workspace the scope is the project's config` → a single repository: `scopedConfig` returns `scope.config` unchanged, `scopedPath` equals `checkPath`; criterion 8.
-- [ ] Run `node --test tests/scope.test.ts` → expect FAIL: `'allow' !== 'confirm'` on the CI case
-- [ ] Implement `lib/scope.ts`; `guardScope` uses `projectRepos(projectDir)`.
-- [ ] Run → PASS; `npm test` → all pass (guard.test.ts unchanged)
-- [ ] Commit `feat(guard): combine the workspace's and its repositories' guard configs`
+- [x] Run `node --test tests/scope.test.ts` → expect FAIL: `'allow' !== 'confirm'` on the CI case
+- [x] Implement `lib/scope.ts`; `guardScope` uses `projectRepos(projectDir)`.
+- [x] Run → PASS; `npm test` → all pass (guard.test.ts unchanged)
+- [x] Commit `feat(guard): combine the workspace's and its repositories' guard configs`
 
 ### Task 3: own-branch push from a workspace (`ownBranchPush`)
 
@@ -244,3 +244,4 @@ Release 0.35.0 in both editions. Rollback: revert the release; no stored state c
 
 - Baseline 2026-11-03 on eng-kit a6a6bc6 / pi 17b418b: workspace verify 4/4 PASS; eng-kit npm test 617 tests, 606 pass, 11 skipped, 0 fail; pi npm test 578 tests, 567 pass, 11 skipped, 0 fail. Drift since Base: only the plan commit.
 - Task 1: complete (a6a6bc6..feat(guard) commit; RED: repoOf returned undefined, segmentFolders []; GREEN: node --test tests/repos.test.ts tests/reviews.test.ts → 91 pass; npm test → 619 tests: 608 pass, 11 skipped, 0 fail; tsc clean).
+- Ruling: the judgeWrite parameter of checkCommand moves to Task 6 — its only test (a heredoc into a repository's protected path) is a hooks test there — cost if wrong: none, the parameter lands with its test. Ruling: the plan's scopedConfig test used npm publish, a built-in confirm, so cd b would ask; the test uses make release — cost if wrong: none. Task 2: complete (74bd222..feat(guard) commit; RED: 5 of 6 scope tests failed on assertions ('allow' !== 'confirm'/'block'); the outside-a-workspace test passes on the stub by design, as criterion 8's guard; GREEN: node --test tests/scope.test.ts → 6 pass; npm test → 625 tests: 614 pass, 11 skipped, 0 fail; tsc clean).
