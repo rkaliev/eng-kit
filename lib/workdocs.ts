@@ -38,9 +38,9 @@ const PUSH_VALUE_FLAGS = new Set(["-o", "--push-option", "--repo", "--receive-pa
  * In a workspace (`workspace` given), each landing is judged in the folder it runs in, with that repository's
  * task-file folders; a landing whose folder the guard can't tell is blocked.
  */
-export function checkWorkDocs(command: string, projectDir: string, dirs = WORK_DOC_DIRS, workspace?: { cwd: string; repos: string[]; dirsFor: (repo: string) => string[] }): GuardDecision | undefined {
+export function checkWorkDocs(command: string, projectDir: string, dirs = WORK_DOC_DIRS, workspace?: { cwd: string; repos: string[]; dirsFor: (repo: string) => string[]; powershell?: boolean }): GuardDecision | undefined {
 	if (!workspace) return judge(splitSegments(tokenize(command)).map(landing).filter((l): l is Landing => l !== undefined), projectDir, dirs);
-	for (const { raw, dir } of segmentFolders(command, workspace.cwd)) {
+	for (const { raw, dir } of segmentFolders(command, workspace.cwd, workspace.powershell)) {
 		const l = landing(raw.map((t) => t.replace(/^\(+|\)+$/g, "")));
 		if (!l) continue;
 		if (dir === undefined) {

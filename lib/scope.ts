@@ -46,15 +46,27 @@ export function scopedPath(tool: "read" | "write" | "edit", path: string, scope:
 	return strictest(placed, { action: "confirm", reason: `${path} is the guard config of ${rel.slice(0, slash)}: it decides what the guard blocks there. Loosening it is the user's call; show them the change first.` });
 }
 
-/** The config a shell command is judged by: see the module comment. Outside a workspace, the session folder's. */
-export function scopedConfig(command: string, cwd: string, scope: GuardScope): GuardConfig {
+/**
+ * The config a shell command is judged by: see the module comment. A repository a segment names by a path (`--prefix a`,
+ * `make -C a`, `./a/bin/x`) adds its restrictions, never its loosening. Outside a workspace, the session folder's.
+ */
+export function scopedConfig(command: string, cwd: string, scope: GuardScope, powershell = false): GuardConfig {
 	if (scope.repos.size === 0) return scope.config;
-	const segments = segmentFolders(command, cwd);
+	const segments = segmentFolders(command, cwd, powershell);
 	const unknown = segments.some((s) => s.dir === undefined);
 	// Where each working segment runs; a move only leads there.
-	const ran = segments.filter((s) => !s.move).map((s) => (s.dir === undefined ? undefined : repoIn(scope, s.dir)));
-	const touched = unknown ? [...scope.repos.keys()] : [...new Set(ran.filter((r) => r !== undefined))];
-	const only = !unknown && ran.length > 0 && ran.every((r) => r !== undefined && r === ran[0]) ? ran[0] : undefined;
+	const working = segments.filter((s) => !s.move);
+	const ran = working.map((s) => (s.dir === undefined ? undefined : repoIn(scope, s.dir)));
+	const named = new Set<string>();
+	for (const { raw, dir } of working) {
+		if (dir === undefined) continue;
+		for (const word of raw.flatMap((t) => [t, t.slice(t.indexOf("=") + 1)])) {
+			const repo = /[$`]/.test(word) ? undefined : repoIn(scope, resolve(dir, word.replace(/^['"(]+|['")]+$/g, "")));
+			if (repo !== undefined) named.add(repo);
+		}
+	}
+	const touched = unknown ? [...scope.repos.keys()] : [...new Set([...ran.filter((r) => r !== undefined), ...named])];
+	const only = !unknown && ran.length > 0 && ran.every((r) => r !== undefined && r === ran[0]) && [...named].every((r) => r === ran[0]) ? ran[0] : undefined;
 	const rules = touched.map((dir) => scope.repos.get(dir)!);
 	return {
 		...scope.config,

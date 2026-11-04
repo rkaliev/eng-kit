@@ -172,14 +172,15 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 			: tool === "PowerShell"
 				? { action: "block" as const, reason: "The reviewer is read-only: its PowerShell calls aren't checked, so they are refused. Use Bash for inspection commands." }
 				: checkReviewerCommand(command, cwd, resolveVerifyCommands(env.projectDir, { detect: false }).commands, env.root);
-		decision = reviewer ?? checkCommand(command, env.projectDir, scopedConfig(command, cwd, scope), cwd, process.env, (target) => scopedPath("write", target, scope));
+		const powershell = tool === "PowerShell";
+		decision = reviewer ?? checkCommand(command, env.projectDir, scopedConfig(command, cwd, scope, powershell), cwd, process.env, (target) => scopedPath("write", target, scope));
 		// The implementer hands its commit back; the coordinator pushes after review.
 		if (decision.action === "allow" && IMPLEMENTER.test(input.agent_type ?? "") && ownBranchPush(command, cwd, process.env, env.projectDir)) {
 			decision = { action: "confirm", reason: "The implementer doesn't push; the coordinator does after review." };
 		}
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
 		// A workspace repository's own task-file folders, else the session folder's.
-		const workspace = scope.repos.size === 0 ? undefined : { cwd, repos: [...scope.repos.keys()].map((dir) => basename(dir)), dirsFor: (repo: string) => scope.repos.get(repo)?.workDocs ?? workDocs };
+		const workspace = scope.repos.size === 0 ? undefined : { cwd, repos: [...scope.repos.keys()].map((dir) => basename(dir)), dirsFor: (repo: string) => scope.repos.get(repo)?.workDocs ?? workDocs, powershell };
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs, workspace) ?? decision;
 		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, GUARD_FILE, scope.kind !== "repo") ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {

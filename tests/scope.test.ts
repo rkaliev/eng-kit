@@ -11,7 +11,7 @@ function workspace(configs: Record<string, GuardConfig> = {}) {
 	const ws = mkdtempSync(join(tmpdir(), "scope-"));
 	for (const r of ["a", "b"]) mkdirSync(join(ws, r, ".git"), { recursive: true });
 	const scope = guardScope(ws, (root) => configs[root === ws ? "" : root.slice(ws.length + 1)] ?? {}, ".claude/guard.json");
-	const command = (cmd: string) => checkCommand(cmd, ws, scopedConfig(cmd, ws, scope), ws).action;
+	const command = (cmd: string, powershell = false) => checkCommand(cmd, ws, scopedConfig(cmd, ws, scope, powershell), ws).action;
 	return { ws, scope, command };
 }
 
@@ -65,4 +65,23 @@ test("scopedPath: outside git, a guard config in any first-level folder asks, al
 	const { ws, scope } = workspace();
 	assert.equal(scopedPath("write", join(ws, "x", ".claude", "guard.json"), scope).action, "confirm", "x has no .git yet");
 	assert.equal(scopedPath("write", join(ws, "x", "deep", ".claude", "guard.json"), scope).action, "allow", "only a first-level folder's");
+});
+
+test("scopedConfig: a command the guard can't place gets every repository's restrictions and no repository's loosening", () => {
+	const { command } = workspace({ a: { block: ["make release"] }, b: { allow: ["npm run deploy"] } });
+	for (const cmd of ["bash -c 'cd a && make release'", 'eval "cd a && make release"', "env -C a make release", "git --git-dir=a/.git log && make release"]) {
+		assert.equal(command(cmd), "block", cmd);
+	}
+	assert.equal(command("Set-Location a; make release", true), "block", "any PowerShell command");
+	assert.equal(command("npm run deploy git -C b"), "confirm", "-C of a git word that isn't the command");
+	assert.equal(command("cd b && GIT_DIR=../a/.git npm run deploy"), "confirm");
+	assert.equal(command("cd b && npm run deploy"), "allow", "b's own, placed");
+});
+
+test("scopedConfig: a path into a repository adds its restrictions, never its loosening", () => {
+	const { command } = workspace({ a: { block: ["npm run release"], confirm: ["make docs"] }, b: { allow: ["npm run deploy"] } });
+	assert.equal(command("npm run release --prefix a"), "block");
+	assert.equal(command("cd b && npm run deploy --prefix ../a"), "confirm", "b's allow doesn't cover a command reaching into a");
+	assert.equal(command("git -C a status && make docs"), "confirm", "a's confirm through git -C");
+	assert.equal(command("git -C b status && make docs"), "allow");
 });

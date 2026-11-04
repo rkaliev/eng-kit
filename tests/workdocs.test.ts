@@ -160,7 +160,7 @@ function workspace(aDirs?: string[]) {
 	b.git("switch", "-qc", "feat/y");
 	b.commit({ "src/b.ts": "x\n" });
 	const dirsFor = (r: string) => (r === join(root, "a") && aDirs ? aDirs : WORK_DOC_DIRS);
-	const check = (command: string, cwd = root) => checkWorkDocs(command, root, undefined, { cwd, repos: ["a", "b"], dirsFor });
+	const check = (command: string, cwd = root, powershell = false) => checkWorkDocs(command, root, undefined, { cwd, repos: ["a", "b"], dirsFor, powershell });
 	return { root, a, check };
 }
 
@@ -183,6 +183,7 @@ test("in a workspace, a repository's workDocs folders decide its task files", ()
 });
 
 test("in a workspace, a landing whose folder the guard can't tell is blocked", () => {
+	assert.equal(workspace().check("Set-Location a; gh pr create", undefined, true)?.action, "block", "any PowerShell landing");
 	const pr = workspace().check("cd $D && gh pr create");
 	assert.equal(pr?.action, "block");
 	assert.match(pr!.reason!, /can't tell which repository/);
