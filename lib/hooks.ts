@@ -119,7 +119,7 @@ function sessionStart(input: HookInput, env: HookEnv): HookResult {
 	// changed since its last fingerprint.
 	bestEffort(() => trackTree(env, input.session_id ?? ""));
 	// The workspace repositories that may loosen the guard: those there now, once per session.
-	bestEffort(() => sessionBaseline(env, input.session_id ?? ""));
+	bestEffort(() => takeBaseline(env, input.session_id ?? ""));
 	// Plugin: <root>/skills. Project install: skills sit in .claude/skills next to .claude/eng-kit.
 	const file = [join(env.root, "skills"), join(env.root, "..", "skills")]
 		.map((dir) => join(dir, "using-skills", "SKILL.md"))
@@ -189,7 +189,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		// A workspace repository's own task-file folders, else the session folder's.
 		const workspace = scope.repos.size === 0 ? undefined : { cwd, repos: [...scope.repos.keys()].map((dir) => basename(dir)), dirsFor: (repo: string) => scope.repos.get(repo)?.workDocs ?? workDocs, powershell };
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs, workspace) ?? decision;
-		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, GUARD_FILE, scope.kind !== "repo") ?? decision;
+		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, GUARD_FILE, scope.kind !== "repo", env.stateDir) ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {
 			const waived = (checkout: string) => scope.repos.get(repoIn(scope, checkout) ?? "")?.reviewGate === false;
 			const options = { missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir, { detect: false }).commands, waived };
@@ -200,7 +200,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		decision = path ? scopedPath("read", resolve(cwd, path), scope) : { action: "allow" };
 	} else if (EDIT_TOOLS.has(tool)) {
 		const path = String(args.file_path ?? args.notebook_path ?? "");
-		decision = path ? scopedPath(tool === "Write" ? "write" : "edit", resolve(cwd, path), scope) : { action: "allow" };
+		decision = !path ? { action: "allow" } : inState(env, resolve(cwd, path)) ? STATE_WRITE : scopedPath(tool === "Write" ? "write" : "edit", resolve(cwd, path), scope);
 	} else {
 		return {};
 	}
@@ -228,18 +228,22 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 
 const GUARD_FILE = ".claude/guard.json";
 
-/** The session's guard baseline (lib/scope.ts), taken the first time it is asked for and kept in the session state. */
-function sessionBaseline(env: HookEnv, sessionId: string): GuardBaseline {
+const STATE_WRITE: GuardDecision = { action: "block", reason: "The kit's session state is written only by its hooks." };
+
+function inState(env: HookEnv, path: string): boolean {
+	const rel = relative(env.stateDir, path);
+	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/** Takes the session's guard baseline (lib/scope.ts) at SessionStart, unless the session already has one. */
+function takeBaseline(env: HookEnv, sessionId: string): void {
 	const state = loadState(env.stateDir, sessionId);
-	if (state.guardBaseline) return state.guardBaseline;
-	const baseline = guardBaseline(env.projectDir, GUARD_FILE);
-	try {
-		saveState(env.stateDir, sessionId, { ...state, guardBaseline: baseline });
-		return baseline;
-	} catch {
-		// Unsaved, it would be retaken after a clone: no repository loosens anything.
-		return {};
-	}
+	if (!state.guardBaseline) saveState(env.stateDir, sessionId, { ...state, guardBaseline: guardBaseline(env.projectDir, GUARD_FILE, (root) => loadGuardConfig(root).config) });
+}
+
+/** The baseline SessionStart took. None (lost, unwritable, never taken): no repository loosens anything or pushes silently. */
+function sessionBaseline(env: HookEnv, sessionId: string): GuardBaseline {
+	return loadState(env.stateDir, sessionId).guardBaseline ?? {};
 }
 
 /** A root's guard config; `label` names its file in warnings. */
@@ -611,7 +615,9 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 	}
 	const dirs = loadGuardConfig(env.projectDir).config.workDocs ?? WORK_DOC_DIRS;
 	// A workspace repository's own task-file folders, else the session folder's.
-	const dirsFor = (root: string) => (root === env.projectDir ? dirs : (loadGuardConfig(root).config.workDocs ?? dirs));
+	// A repository's own folders only from the config the session started with (lib/scope.ts).
+	const scope = guardScope(env.projectDir, (root) => loadGuardConfig(root).config, GUARD_FILE, sessionBaseline(env, sessionId));
+	const dirsFor = (root: string) => (root === env.projectDir ? dirs : (scope.repos.get(root)?.workDocs ?? dirs));
 	const due = taskFileReminders(env.projectDir, dirsFor, Date.now() + TASK_FILE_BUDGET_MS, { approved: !state.approvalReminded, finished: !state.workDocsReminded }, state.slowParts);
 	if (due.approved.length > 0) {
 		next.approvalReminded = true;

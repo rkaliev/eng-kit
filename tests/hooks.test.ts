@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -521,6 +521,7 @@ test("guard: in a workspace, a repository's own rules judge what lands in it", (
 
 test("guard: in a workspace, a repository's reviewGate waiver covers its own PRs only", () => {
 	const { call } = setupWorkspace({ a: JSON.stringify({ reviewGate: false }) });
+	call({ hook_event_name: "SessionStart", source: "startup" });
 	const bash = (command: string) => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } }));
 	assert.equal(bash("cd a && gh pr create --fill"), undefined);
 	assert.equal(bash("cd b && gh pr create --fill"), "deny");
@@ -528,6 +529,7 @@ test("guard: in a workspace, a repository's reviewGate waiver covers its own PRs
 
 test("guard: in a workspace, the main agent pushes a repository's work branch; the implementer is asked", () => {
 	const { call, git, projectDir } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
 	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
 	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
 	git("a", "remote", "add", "origin", remote);
@@ -558,6 +560,36 @@ test("guard: in a workspace, an invalid regex in a repository config is named wi
 	const { call, projectDir } = setupWorkspace({ a: JSON.stringify({ block: ["(unclosed"] }) });
 	const write = call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "x.ts"), content: "x" } });
 	assert.match(String(write.warning), /invalid regex ignored in a\/\.claude\/guard\.json: \(unclosed/);
+});
+
+test("guard: in a workspace, a lost session state lets no repository loosen the guard or push silently", () => {
+	const { call, env, git } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
+	git("a", "remote", "add", "origin", remote);
+	git("a", "push", "-q", "origin", "main");
+	git("a", "switch", "-qc", "feat/x");
+	for (const f of readdirSync(env.stateDir)) rmSync(join(env.stateDir, f));
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git -C a push" } })), "ask");
+});
+
+test("guard: the kit's session state can't be written by a tool call", () => {
+	const { call, env } = setupWorkspace();
+	const file = join(env.stateDir, "s1.json");
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: file, content: "{}" } })), "deny");
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: `rm ${file}` } })), "deny");
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: `echo '{}' > ${file}` } })), "deny");
+});
+
+test("Stop: a repository config that appeared after the session started can't silence its task-file reminders", () => {
+	const { call, projectDir } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	mkdirSync(join(projectDir, "a", ".claude"));
+	writeFileSync(join(projectDir, "a", ".claude", "guard.json"), JSON.stringify({ workDocs: ["plans"] }));
+	mkdirSync(join(projectDir, "a", "docs", "tasks"), { recursive: true });
+	writeFileSync(join(projectDir, "a", "docs", "tasks", "t.md"), "# T\n\nStatus: design approved (2026-11-04)\n");
+	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /a\/docs\/tasks\/t\.md/);
 });
 
 test("guard: in a workspace, an invalid repository config warns with its path and is ignored", () => {

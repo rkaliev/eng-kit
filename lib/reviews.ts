@@ -651,7 +651,7 @@ function inTemp(path: string): boolean {
  * `children`: outside git, a first-level folder's `guardConfig` (a workspace repository's, or one made before its
  * `git init`) is a gate file too.
  */
-export function checkGateFiles(command: string, cwd: string, projectDir: string, guardConfig: string, children = false): GuardDecision | undefined {
+export function checkGateFiles(command: string, cwd: string, projectDir: string, guardConfig: string, children = false, stateDir?: string): GuardDecision | undefined {
 	const redirects = writes(command);
 	const config = resolve(projectDir, guardConfig).replaceAll("\\", "/");
 	const records = [join(tmpdir(), "eng-kit", "reviews"), safeRealpath(tmpdir()) + "/eng-kit/reviews"].map((p) => p.replaceAll("\\", "/"));
@@ -679,6 +679,10 @@ export function checkGateFiles(command: string, cwd: string, projectDir: string,
 		const named = candidates.some((t) => [t, posix.normalize(t)].some((p) => /^\$\{?TMPDIR\}?\/*eng-kit\/reviews(\/|$)/.test(p)));
 		if (named || paths.some((p) => records.some((r) => p === r || p.startsWith(`${r}/`)))) {
 			return { action: "block", reason: "Review records are written only by the guard, from the reviewer's own report. Dispatch the reviewer instead." };
+		}
+		const state = stateDir === undefined ? undefined : stateDir.replaceAll("\\", "/");
+		if (state !== undefined && paths.some((p) => p === state || p.startsWith(`${state}/`))) {
+			return { action: "block", reason: "The kit's session state is written only by its hooks." };
 		}
 		if (paths.includes(config) || tokens.some((t) => t.endsWith(guardConfig)) || (children && paths.some((p) => childConfig(projectDir, p, guardConfig)))) {
 			ask ??= { action: "confirm", reason: `This command may change ${guardConfig}, which decides what the guard blocks. Loosening it is the user's call; show them the change first.` };
