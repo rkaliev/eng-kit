@@ -244,6 +244,7 @@ test("approvalReminder: in a workspace, the commit it suggests runs in each repo
 	assert.match(text, /git -C a add docs\/tasks\/t\.md && git -C a commit/);
 	assert.match(text, /git -C b add docs\/tasks\/u\.md && git -C b commit/);
 	assert.match(text, /You are on main in a/);
+	assert.match(text, /git -C <repo> switch -c/, "a work branch is created in the repository, not the workspace folder");
 	assert.match(approvalReminder(["docs/tasks/t.md"]), /git add docs\/tasks\/t\.md && git commit/, "one repository, as before");
 });
 

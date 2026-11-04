@@ -574,6 +574,23 @@ test("guard: in a workspace, a lost session state lets no repository loosen the 
 	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git -C a push" } })), "ask");
 });
 
+test("guard: a resumed session keeps the baseline it started with", () => {
+	const { call, projectDir } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
+	const c = join(projectDir, "c");
+	const run = (...args: string[]) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: c });
+	mkdirSync(c);
+	run("init", "-q", "-b", "main");
+	run("commit", "-q", "--allow-empty", "-m", "init");
+	run("remote", "add", "origin", remote);
+	run("push", "-q", "origin", "main");
+	run("switch", "-qc", "feat/x");
+	call({ hook_event_name: "SessionStart", source: "resume" });
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git -C c push" } })), "ask");
+});
+
 test("guard: the kit's session state can't be written by a tool call", () => {
 	const { call, env } = setupWorkspace();
 	const file = join(env.stateDir, "s1.json");
