@@ -138,6 +138,16 @@ export function guardBaseline(projectDir: string, guardFile: string, load: (root
 	return baseline;
 }
 
+/** Whether `value` has a baseline's shape (read back from a session state or a parent process). */
+export function isGuardBaseline(value: unknown): value is GuardBaseline {
+	const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === "string");
+	const repo = (v: unknown) => {
+		const r = v as Partial<BaselineRepo> | null;
+		return !!r && typeof r === "object" && (r.id === null || typeof r.id === "string") && (r.config === null || typeof r.config === "string") && strings(r.block) && strings(r.confirm) && strings(r.protectedPaths);
+	};
+	return !!value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(repo);
+}
+
 /** The identity of a repository's `.git` entry: a folder replaced by a clone under the same name has another. */
 function repoId(dir: string): string | null {
 	try {

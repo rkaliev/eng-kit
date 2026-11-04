@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { BaselineRepo, GuardBaseline } from "./scope.ts";
+import { isGuardBaseline, type GuardBaseline } from "./scope.ts";
 import type { Tree } from "./worktree.ts";
 
 /** Verify-gate state for one Claude Code session. */
@@ -73,7 +73,7 @@ export function loadState(dir: string, sessionId: string): SessionState {
 				raw.pending && typeof raw.pending === "object"
 					? Object.fromEntries(Object.entries(raw.pending).filter((e): e is [string, Tree] => isTree(e[1])))
 					: {},
-			guardBaseline: isBaseline(raw.guardBaseline) ? raw.guardBaseline : undefined,
+			guardBaseline: isGuardBaseline(raw.guardBaseline) ? raw.guardBaseline : undefined,
 		};
 	} catch {
 		return { ...EMPTY, green: [], edited: [], slowParts: [], pending: {} };
@@ -143,13 +143,4 @@ function isTree(value: unknown): value is Tree {
 		list(late) &&
 		list(links)
 	);
-}
-
-function isBaseline(value: unknown): value is GuardBaseline {
-	const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === "string");
-	const repo = (v: unknown) => {
-		const r = v as Partial<BaselineRepo> | null;
-		return !!r && typeof r === "object" && (r.id === null || typeof r.id === "string") && (r.config === null || typeof r.config === "string") && strings(r.block) && strings(r.confirm) && strings(r.protectedPaths);
-	};
-	return !!value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(repo);
 }
