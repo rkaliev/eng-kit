@@ -3,10 +3,22 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { approvalReminder, taskFileReminders, taskFileWarning } from "../lib/approvals.ts";
 import { slowGit } from "./slow-git.ts";
 import { baseBranch, checkWorkDocs, finishedWorkDocs, landing, WORK_DOC_DIRS } from "../lib/workdocs.ts";
+
+/** Temp folders this file makes, removed when its tests end. */
+const made: string[] = [];
+after(() => {
+	for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
+function temp(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	made.push(dir);
+	return dir;
+}
+
 
 const TASK = "docs/tasks/2026-01-01-a.md";
 
@@ -153,7 +165,7 @@ test("push options that take a separate value don't name the remote or a refspec
 
 /** A folder outside git holding `a` on `feat/x` with a committed task file, and `b` on `feat/y` without one. */
 function workspace(aDirs?: string[]) {
-	const root = mkdtempSync(join(tmpdir(), "workdocs-ws-"));
+	const root = temp("workdocs-ws-");
 	const a = repo(join(root, "a"));
 	a.git("switch", "-qc", "feat/x");
 	a.commit({ [TASK]: "# A\n" });

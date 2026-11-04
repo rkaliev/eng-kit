@@ -3,12 +3,24 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { slowGit } from "./slow-git.ts";
 import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
 import { readReports, readReviews, recordVerdict, reviewsDir } from "../lib/reviews.ts";
 import { branchSummary } from "../lib/usage.ts";
 import { loadState, readRun, writeRun } from "../lib/state.ts";
+
+/** Temp folders this file makes, removed when its tests end. */
+const made: string[] = [];
+after(() => {
+	for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
+function temp(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	made.push(dir);
+	return dir;
+}
+
 
 // Isolate git from the machine's own config (the guard's git calls inherit this process's environment).
 process.env.HOME = mkdtempSync(join(tmpdir(), "home-"));
@@ -530,7 +542,7 @@ test("guard: in a workspace, a repository's reviewGate waiver covers its own PRs
 test("guard: in a workspace, the main agent pushes a repository's work branch; the implementer is asked", () => {
 	const { call, git, projectDir } = setupWorkspace();
 	call({ hook_event_name: "SessionStart", source: "startup" });
-	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	const remote = temp("hooks-remote-");
 	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
 	git("a", "remote", "add", "origin", remote);
 	git("a", "push", "-q", "origin", "main");
@@ -543,7 +555,7 @@ test("guard: in a workspace, the main agent pushes a repository's work branch; t
 test("guard: in a workspace, a repository cloned after the session started pushes only with a question", () => {
 	const { call, projectDir } = setupWorkspace();
 	call({ hook_event_name: "SessionStart", source: "startup" });
-	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	const remote = temp("hooks-remote-");
 	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
 	const c = join(projectDir, "c");
 	const run = (...args: string[]) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: c });
@@ -565,7 +577,7 @@ test("guard: in a workspace, an invalid regex in a repository config is named wi
 test("guard: in a workspace, a lost session state lets no repository loosen the guard or push silently", () => {
 	const { call, env, git } = setupWorkspace();
 	call({ hook_event_name: "SessionStart", source: "startup" });
-	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	const remote = temp("hooks-remote-");
 	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
 	git("a", "remote", "add", "origin", remote);
 	git("a", "push", "-q", "origin", "main");
@@ -577,7 +589,7 @@ test("guard: in a workspace, a lost session state lets no repository loosen the 
 test("guard: a resumed session keeps the baseline it started with", () => {
 	const { call, projectDir } = setupWorkspace();
 	call({ hook_event_name: "SessionStart", source: "startup" });
-	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	const remote = temp("hooks-remote-");
 	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
 	const c = join(projectDir, "c");
 	const run = (...args: string[]) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: c });
@@ -594,7 +606,7 @@ test("guard: a resumed session keeps the baseline it started with", () => {
 test("guard: the kit's session state can't be written by another spelling of its path either", () => {
 	const { call, env } = setupWorkspace();
 	// As in plugin mode, the state is a `sessions` folder inside the kit's own data folder.
-	env.stateDir = join(mkdtempSync(join(tmpdir(), "hooks-data-")), "sessions");
+	env.stateDir = join(temp("hooks-data-"), "sessions");
 	mkdirSync(env.stateDir);
 	const real = join(realpathSync(env.stateDir), "s1.json");
 	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: real, content: "{}" } })), "deny", "its real path");
@@ -606,7 +618,7 @@ test("guard: the kit's session state can't be written by another spelling of its
 test("guard: a compaction after the baseline was lost stays strict", () => {
 	const { call, env, git } = setupWorkspace();
 	call({ hook_event_name: "SessionStart", source: "startup" });
-	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	const remote = temp("hooks-remote-");
 	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
 	git("a", "remote", "add", "origin", remote);
 	git("a", "push", "-q", "origin", "main");
@@ -768,7 +780,7 @@ test("hook.ts end to end: stdin JSON in, hook JSON out", () => {
 		spawnSync(process.execPath, [join(root, "hooks", "hook.ts")], {
 			input: JSON.stringify({ session_id: "e2e", cwd: projectDir, ...input }),
 			encoding: "utf8",
-			env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir, CLAUDE_PLUGIN_DATA: mkdtempSync(join(tmpdir(), "hooks-data-")) },
+			env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir, CLAUDE_PLUGIN_DATA: temp("hooks-data-") },
 		});
 	const denied = run({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "cat .env" } });
 	assert.equal(denied.status, 0, denied.stderr);
@@ -1324,7 +1336,7 @@ test("review-log finds the commit's repository from the workspace folder", () =>
 test("review gate: a successful gh pr create registers its branch for the push gate; a failed one does not", () => {
 	const projectDir = gitRepo({});
 	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
-	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	const remote = temp("hooks-remote-");
 	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
 	git("remote", "add", "origin", remote);
 	git("push", "-q", "origin", "main");
@@ -1381,7 +1393,7 @@ test("a crash while handling PreToolUse asks with the error instead of failing o
 test("guard: the implementer's own-branch push asks; the main agent's passes", () => {
 	const projectDir = gitRepo({});
 	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
-	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	const remote = temp("hooks-remote-");
 	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
 	git("remote", "add", "origin", remote);
 	git("push", "-q", "origin", "main");

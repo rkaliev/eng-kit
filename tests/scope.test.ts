@@ -3,13 +3,25 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { checkCommand, checkPath, type GuardConfig } from "../lib/patterns.ts";
 import { guardBaseline, guardScope, scopedConfig, scopedPath, strictest } from "../lib/scope.ts";
 
+/** Temp folders this file makes, removed when its tests end. */
+const made: string[] = [];
+after(() => {
+	for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
+function temp(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	made.push(dir);
+	return dir;
+}
+
+
 /** A folder outside git holding repositories `a` and `b`, each root's config taken from `configs` (by `""`, `a`, `b`). */
 function workspace(configs: Record<string, GuardConfig> = {}) {
-	const ws = mkdtempSync(join(tmpdir(), "scope-"));
+	const ws = temp("scope-");
 	for (const r of ["a", "b"]) mkdirSync(join(ws, r, ".git"), { recursive: true });
 	const scope = guardScope(ws, (root) => configs[root === ws ? "" : root.slice(ws.length + 1)] ?? {}, ".claude/guard.json");
 	const command = (cmd: string, powershell = false) => checkCommand(cmd, ws, scopedConfig(cmd, ws, scope, powershell), ws).action;
@@ -54,7 +66,7 @@ test("strictest: block, then confirm, then allow; a tie keeps the first", () => 
 });
 
 test("guardScope: outside a workspace the scope is the session folder's config alone", () => {
-	const dir = mkdtempSync(join(tmpdir(), "scope-"));
+	const dir = temp("scope-");
 	const config: GuardConfig = { protectedPaths: ["db/"], allow: ["npm run deploy"] };
 	const scope = guardScope(dir, () => config, ".claude/guard.json");
 	assert.equal(scope.repos.size, 0);
@@ -103,7 +115,7 @@ test("a repository's rule names its own config in the reason", () => {
 });
 
 test("guardScope: a repository or a config that appeared after the session started restricts but never loosens", () => {
-	const ws = mkdtempSync(join(tmpdir(), "scope-"));
+	const ws = temp("scope-");
 	for (const r of ["a", "b"]) mkdirSync(join(ws, r, ".git"), { recursive: true });
 	const deploy: GuardConfig = { allow: ["npm run deploy"], block: ["make release"] };
 	mkdirSync(join(ws, "b", ".claude"));
@@ -133,7 +145,7 @@ test("scopedConfig: a segment that runs outside every repository gets every repo
 
 /** A workspace of `a` and `b` (a `.git` folder each), its baseline taken with `configs` (by name) as at the start. */
 function started(configs: Record<string, GuardConfig> = {}) {
-	const ws = mkdtempSync(join(tmpdir(), "scope-"));
+	const ws = temp("scope-");
 	for (const r of ["a", "b"]) mkdirSync(join(ws, r, ".git"), { recursive: true });
 	const load = (root: string) => configs[root === ws ? "" : root.slice(ws.length + 1)] ?? {};
 	const baseline = guardBaseline(ws, ".claude/guard.json", load);
