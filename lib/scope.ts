@@ -164,6 +164,19 @@ export function guardBaseline(projectDir: string, guardFile: string, load: (root
 	return baseline;
 }
 
+/**
+ * For a session started inside a folder of the workspace this baseline records (a subagent sent into a repository):
+ * whether that folder's repository is the one the workspace session started with (`owner`), and with the same
+ * config (`loosens`). Anything else is new to the session: it restricts, nothing more.
+ */
+export function underBaseline(baseline: GuardBaseline, workspace: string, cwd: string, guardFile: string): { owner: boolean; loosens: boolean } {
+	const name = relative(workspace, cwd).split(/[\\/]/)[0] ?? "";
+	const entry = name !== "" && Object.hasOwn(baseline, name) ? baseline[name] : undefined;
+	const dir = join(workspace, name);
+	const owner = entry !== undefined && entry.id !== null && entry.id === repoId(dir);
+	return { owner, loosens: owner && entry.config === configHash(join(dir, guardFile)) };
+}
+
 /** Whether `value` has a baseline's shape (read back from a session state or a parent process). */
 export function isGuardBaseline(value: unknown): value is GuardBaseline {
 	const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === "string");
