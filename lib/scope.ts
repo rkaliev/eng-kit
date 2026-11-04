@@ -3,24 +3,28 @@
  * Restrictions add up, each measured from its own root; loosening (`allow`) counts only where it is written: the
  * session folder's everywhere, a repository's only for a command that runs in that repository alone.
  */
-import { basename, join } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { checkPath, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { projectRepos, repoOf } from "./repos.ts";
 import { segmentFolders } from "./shell.ts";
 
 export interface GuardScope {
 	projectDir: string;
+	/** What the session folder is (see `projectRepos`). */
+	kind: "repo" | "workspace" | "none";
+	/** The guard config's path inside a root (`.claude/guard.json`, `.pi/guard.json`). */
+	guardFile: string;
 	config: GuardConfig;
 	/** Each workspace repository's own config, by absolute folder; empty outside a workspace. */
 	repos: Map<string, GuardConfig>;
 }
 
 /** The session folder's config and, in a workspace, each repository's, read by `load` from that root. */
-export function guardScope(projectDir: string, load: (root: string) => GuardConfig): GuardScope {
+export function guardScope(projectDir: string, load: (root: string) => GuardConfig, guardFile: string): GuardScope {
 	const { kind, repos } = projectRepos(projectDir);
 	const configs = new Map<string, GuardConfig>();
 	if (kind === "workspace") for (const name of repos) configs.set(join(projectDir, name), load(join(projectDir, name)));
-	return { projectDir, config: load(projectDir), repos: configs };
+	return { projectDir, kind, guardFile, config: load(projectDir), repos: configs };
 }
 
 /** The stricter of two decisions: block, then confirm, then allow; a tie keeps `a`. */
@@ -34,7 +38,12 @@ const RANK: Record<GuardDecision["action"], number> = { allow: 0, confirm: 1, bl
 export function scopedPath(tool: "read" | "write" | "edit", path: string, scope: GuardScope): GuardDecision {
 	const own = checkPath(tool, path, scope.projectDir, scope.config);
 	const repo = repoIn(scope, path);
-	return repo === undefined ? own : strictest(own, checkPath(tool, path, repo, scope.repos.get(repo)!));
+	const placed = repo === undefined ? own : strictest(own, checkPath(tool, path, repo, scope.repos.get(repo)!));
+	// Outside git, a first-level folder's guard config is a repository's, or will be one after `git init`.
+	const rel = relative(scope.projectDir, resolve(path)).replaceAll("\\", "/");
+	const slash = rel.indexOf("/");
+	if (tool === "read" || scope.kind === "repo" || slash <= 0 || rel.startsWith("../") || rel.slice(slash + 1) !== scope.guardFile) return placed;
+	return strictest(placed, { action: "confirm", reason: `${path} is the guard config of ${rel.slice(0, slash)}: it decides what the guard blocks there. Loosening it is the user's call; show them the change first.` });
 }
 
 /** The config a shell command is judged by: see the module comment. Outside a workspace, the session folder's. */

@@ -505,7 +505,7 @@ test("guard: in a workspace, a Write of a repository's CI pipeline asks", () => 
 
 test("guard: in a workspace, a shell write of a repository's guard config asks", () => {
 	const { call } = setupWorkspace();
-	for (const command of ["echo {} > a/.claude/guard.json", "cd a && echo {} > .claude/guard.json"]) {
+	for (const command of ["echo {} > a/.claude/guard.json", "cd a && echo {} > .claude/guard.json", "cd a/.claude && echo '{}' > guard.json"]) {
 		assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } })), "ask", command);
 	}
 });

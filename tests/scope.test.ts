@@ -10,7 +10,7 @@ import { guardScope, scopedConfig, scopedPath, strictest } from "../lib/scope.ts
 function workspace(configs: Record<string, GuardConfig> = {}) {
 	const ws = mkdtempSync(join(tmpdir(), "scope-"));
 	for (const r of ["a", "b"]) mkdirSync(join(ws, r, ".git"), { recursive: true });
-	const scope = guardScope(ws, (root) => configs[root === ws ? "" : root.slice(ws.length + 1)] ?? {});
+	const scope = guardScope(ws, (root) => configs[root === ws ? "" : root.slice(ws.length + 1)] ?? {}, ".claude/guard.json");
 	const command = (cmd: string) => checkCommand(cmd, ws, scopedConfig(cmd, ws, scope), ws).action;
 	return { ws, scope, command };
 }
@@ -55,8 +55,14 @@ test("strictest: block, then confirm, then allow; a tie keeps the first", () => 
 test("guardScope: outside a workspace the scope is the session folder's config alone", () => {
 	const dir = mkdtempSync(join(tmpdir(), "scope-"));
 	const config: GuardConfig = { protectedPaths: ["db/"], allow: ["npm run deploy"] };
-	const scope = guardScope(dir, () => config);
+	const scope = guardScope(dir, () => config, ".claude/guard.json");
 	assert.equal(scope.repos.size, 0);
 	assert.equal(scopedConfig("npm run deploy", dir, scope), config);
 	assert.deepEqual(scopedPath("write", join(dir, "db", "x.sql"), scope), checkPath("write", join(dir, "db", "x.sql"), dir, config));
+});
+
+test("scopedPath: outside git, a guard config in any first-level folder asks, also before the folder is a repository", () => {
+	const { ws, scope } = workspace();
+	assert.equal(scopedPath("write", join(ws, "x", ".claude", "guard.json"), scope).action, "confirm", "x has no .git yet");
+	assert.equal(scopedPath("write", join(ws, "x", "deep", ".claude", "guard.json"), scope).action, "allow", "only a first-level folder's");
 });

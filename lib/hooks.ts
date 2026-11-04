@@ -154,7 +154,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		const loaded = loadGuardConfig(root, root === env.projectDir ? GUARD_FILE : `${relative(env.projectDir, root)}/${GUARD_FILE}`);
 		warnings.push(...loaded.warnings);
 		return loaded.config;
-	});
+	}, GUARD_FILE);
 	const config = scope.config;
 	const tool = input.tool_name ?? "";
 	const args = input.tool_input ?? {};
@@ -181,7 +181,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		// A workspace repository's own task-file folders, else the session folder's.
 		const workspace = scope.repos.size === 0 ? undefined : { cwd, repos: [...scope.repos.keys()].map((dir) => basename(dir)), dirsFor: (repo: string) => scope.repos.get(repo)?.workDocs ?? workDocs };
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs, workspace) ?? decision;
-		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, ".claude/guard.json") ?? decision;
+		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, GUARD_FILE, scope.kind !== "repo") ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {
 			const waived = (checkout: string) => scope.repos.get(repoIn(scope, checkout) ?? "")?.reviewGate === false;
 			const options = { missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir, { detect: false }).commands, waived };
