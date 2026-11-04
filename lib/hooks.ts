@@ -194,7 +194,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, GUARD_FILE, scope.kind !== "repo", env.stateDir) ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {
 			const waived = (checkout: string) => scope.repos.get(repoIn(scope, checkout) ?? "")?.reviewGate === false;
-			const options = { missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir, { detect: false }).commands, waived, workspace: scope.repos.size > 0, powershell };
+			const options = { missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir, { detect: false }).commands, waived, workspace: scope.repos.size > 0, powershell, repoOf: (dir: string) => repoIn(scope, dir) };
 			decision = checkReview(command, cwd, env.projectDir, options, env.reviewsRoot) ?? decision;
 		}
 	} else if (tool === "Read" || tool === "Grep") {

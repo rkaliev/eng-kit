@@ -429,11 +429,25 @@ test("in a workspace, a repository's waiver lifts the review gate for its landin
 
 test("in a workspace, a landing whose folder the guard can't tell is held before any waiver", () => {
 	const { ws, root } = workspaceRepos();
-	const options: ReviewGateOptions = { ...OPTIONS, workspace: true, waived: (checkout) => checkout === join(ws, "b") };
+	const repoOf = (dir: string) => [join(ws, "a"), join(ws, "b")].find((r) => dir === r || dir.startsWith(`${r}/`));
+	const options: ReviewGateOptions = { ...OPTIONS, workspace: true, repoOf, waived: (checkout) => checkout === join(ws, "b") };
 	assert.equal(checkReview("Set-Location a; gh pr create --fill", ws, ws, { ...options, powershell: true }, root)?.action, "block");
 	const reason = checkReview("cd b && GIT_DIR=../a/.git gh pr create -H feat/a", ws, ws, options, root)?.reason;
 	assert.match(String(reason), /can't tell which checkout/);
 	assert.equal(checkReview("cd b && gh pr create --fill", ws, ws, options, root), undefined, "b's own waiver still holds");
+});
+
+test("in a workspace, the review gate holds a PR that names its repository, starts outside git, or runs in a nested checkout", () => {
+	const { ws, root, a } = workspaceRepos();
+	const repoOf = (dir: string) => [join(ws, "a"), join(ws, "b")].find((r) => dir === r || dir.startsWith(`${r}/`));
+	const options: ReviewGateOptions = { ...OPTIONS, workspace: true, repoOf, waived: (checkout) => checkout.startsWith(join(ws, "b")) };
+	const held = (command: string) => checkReview(command, ws, ws, options, root)?.action;
+	assert.equal(held("GH_REPO=org/a gh pr create -H feat/a --fill"), "block", "from the workspace folder");
+	assert.equal(held("gh pr merge https://github.com/org/a/pull/7 --squash"), "block");
+	assert.equal(held("cd b && GH_REPO=org/a gh pr create -H feat/a --fill"), "block", "b's waiver doesn't cover a");
+	spawnSync("git", ["-C", a.dir, "worktree", "add", "-q", join(ws, "b", "wt"), "-b", "feat/w"], { encoding: "utf8" });
+	assert.equal(held("cd b/wt && gh pr create --fill"), "block", "a worktree of a inside b isn't b");
+	assert.equal(held("cd b && gh pr create --fill"), undefined, "b's own PR, waived");
 });
 
 test("a workspace records the verdict in the repository that has the commit", () => {

@@ -58,6 +58,8 @@ export interface ReviewGateOptions {
 	workspace?: boolean;
 	/** The command is PowerShell, which the guard can't place. */
 	powershell?: boolean;
+	/** In a workspace: the repository folder holding a folder, so a checkout nested in another repository is told apart. */
+	repoOf?: (dir: string) => string | undefined;
 }
 
 const RANK: Record<Verdict, number> = { Yes: 0, "With fixes": 1, Inconclusive: 2, No: 3 };
@@ -517,6 +519,16 @@ function checkSegments(command: string, cwd: string, projectDir: string, options
 		const where = dir === undefined ? undefined : "dir" in l && l.dir ? follow(dir, l.dir) : dir;
 		if (where === undefined || (l.kind === "pr" && l.repo) || (options.workspace && placed[index]?.dir === undefined)) {
 			return decision(options.missing, "can't tell which checkout this command lands from (a variable, `$(…)`, a nested subshell, a missing folder or another repository). Run it from the checkout itself.", options);
+		}
+		if (options.workspace) {
+			// A PR naming its repository another way, a folder outside git, or a checkout nested in another repository's
+			// folder: the landing's repository isn't the one this folder belongs to.
+			const named = l.kind === "pr" && (/(^|[\s;&|(])(export\s+)?GH_REPO\b/.test(command) || /^https?:\/\//.test(l.target ?? ""));
+			const top = git(where, ["rev-parse", "--show-toplevel"]);
+			const repo = options.repoOf?.(where);
+			if (named || top === undefined || repo === undefined || safeRealpath(top) !== safeRealpath(repo)) {
+				return decision(options.missing, "can't tell which repository this command lands in (a repository named by GH_REPO or a URL, a folder outside git, or a checkout nested in another repository). Run it from the repository's folder without naming the repository.", options);
+			}
 		}
 		if (git(where, ["rev-parse", "--git-dir"]) === undefined) {
 			if (where !== cwd) return decision(options.missing, `${where} is not a git checkout, so the guard can't see what this command lands.`, options);
