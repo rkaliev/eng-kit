@@ -18,6 +18,7 @@ import { approvalReminder, taskFileReminders, taskFileWarning } from "./approval
 import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
+import { canonical } from "./repos.ts";
 import { guardBaseline, guardScope, repoIn, scopedConfig, scopedPath, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
@@ -119,7 +120,8 @@ function sessionStart(input: HookInput, env: HookEnv): HookResult {
 	// changed since its last fingerprint.
 	bestEffort(() => trackTree(env, input.session_id ?? ""));
 	// The workspace repositories that may loosen the guard: those there now, once per session.
-	bestEffort(() => takeBaseline(env, input.session_id ?? ""));
+	// Only a new session takes it: a resumed or compacted one that lost it stays strict (no repository loosens anything).
+	if (input.source === undefined || input.source === "startup" || input.source === "clear") bestEffort(() => takeBaseline(env, input.session_id ?? ""));
 	// Plugin: <root>/skills. Project install: skills sit in .claude/skills next to .claude/eng-kit.
 	const file = [join(env.root, "skills"), join(env.root, "..", "skills")]
 		.map((dir) => join(dir, "using-skills", "SKILL.md"))
@@ -233,8 +235,10 @@ const GUARD_FILE = ".claude/guard.json";
 const STATE_WRITE: GuardDecision = { action: "block", reason: "The kit's session state is written only by its hooks." };
 
 function inState(env: HookEnv, path: string): boolean {
-	const rel = relative(env.stateDir, path);
-	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+	return [[env.stateDir, path], [canonical(env.stateDir), canonical(path)]].some(([dir, p]) => {
+		const rel = relative(dir!, p!);
+		return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+	});
 }
 
 /** Takes the session's guard baseline (lib/scope.ts) at SessionStart, unless the session already has one. */

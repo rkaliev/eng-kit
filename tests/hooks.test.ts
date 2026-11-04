@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { slowGit } from "./slow-git.ts";
 import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
@@ -589,6 +589,31 @@ test("guard: a resumed session keeps the baseline it started with", () => {
 	run("switch", "-qc", "feat/x");
 	call({ hook_event_name: "SessionStart", source: "resume" });
 	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git -C c push" } })), "ask");
+});
+
+test("guard: the kit's session state can't be written by another spelling of its path either", () => {
+	const { call, env } = setupWorkspace();
+	// As in plugin mode, the state is a `sessions` folder inside the kit's own data folder.
+	env.stateDir = join(mkdtempSync(join(tmpdir(), "hooks-data-")), "sessions");
+	mkdirSync(env.stateDir);
+	const real = join(realpathSync(env.stateDir), "s1.json");
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: real, content: "{}" } })), "deny", "its real path");
+	const rel = relative(realpathSync(tmpdir()), realpathSync(env.stateDir));
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: `echo '{}' > $TMPDIR/${rel}/s1.json` } })), "deny", "through $TMPDIR");
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: `mv ${dirname(env.stateDir)} /tmp/moved` } })), "deny", "a parent folder");
+});
+
+test("guard: a compaction after the baseline was lost stays strict", () => {
+	const { call, env, git } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
+	git("a", "remote", "add", "origin", remote);
+	git("a", "push", "-q", "origin", "main");
+	git("a", "switch", "-qc", "feat/x");
+	for (const f of readdirSync(env.stateDir)) rmSync(join(env.stateDir, f));
+	call({ hook_event_name: "SessionStart", source: "compact" });
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git -C a push" } })), "ask");
 });
 
 test("guard: the kit's session state can't be written by a tool call", () => {

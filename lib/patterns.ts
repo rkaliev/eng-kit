@@ -417,8 +417,9 @@ export function ownBranchPush(command: string, cwd: string, env: NodeJS.ProcessE
 	const workspace = projectRepos(project);
 	const owner = workspace.kind === "workspace" ? repoOf(project, workspace.repos, dir) : project;
 	if (repoDir === undefined || owner === undefined || repoDir !== commonDir(owner)) return false;
-	// In a workspace, only a repository that was there when the session started (a clone made since asks).
-	if (workspace.kind === "workspace" && owners !== undefined && !owners.includes(owner)) return false;
+	// Given owners (a workspace session): only a repository that was there when the session started, whatever the
+	// session folder has become since (a clone made since, or a `.git` at the workspace root, asks).
+	if (owners !== undefined && !owners.includes(owner)) return false;
 	const branch = currentBranch(dir);
 	const base = baseBranch(dir);
 	if (!branch || !base || branch === base || !WORK_BRANCH.test(branch)) return false;

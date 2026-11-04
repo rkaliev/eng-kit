@@ -78,7 +78,7 @@ function rootOf(repo: string): string {
 }
 
 /** The real path of the deepest folder of `path` that exists, with the rest appended as written. */
-function canonical(path: string): string {
+export function canonical(path: string): string {
 	let head = resolve(path);
 	const rest: string[] = [];
 	while (!existsSync(head) && dirname(head) !== head) {
