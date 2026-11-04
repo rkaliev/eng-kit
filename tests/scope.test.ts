@@ -170,3 +170,17 @@ test("scopedPath: a repository's rules hold for a path written inside it that a 
 	symlinkSync(join(ws, "shared-config"), join(ws, "a", "shared"));
 	assert.equal(scopedPath("write", join(ws, "a", "shared", "x"), scope).action, "block");
 });
+
+test("scopedConfig: a word that reaches a repository through a symlink, a case-swapped name or an expansion adds its restrictions", () => {
+	const { ws, command } = workspace({ b: { block: ["release"] } });
+	symlinkSync(join(ws, "b"), join(ws, "a", "lnk"));
+	assert.equal(command("cd a && make -C lnk release"), "block", "a symlink in a to b");
+	assert.equal(command("cd a && make -C ../$R release"), "block", "an expansion next to ..");
+	if (existsSync(join(ws, "B"))) assert.equal(command("cd a && make -C ../B release"), "block", "a case-insensitive volume");
+});
+
+test("scopedConfig: a repository's name in a message doesn't take its allow from a command that runs in it", () => {
+	const { command } = workspace({ b: { allow: ["npm run deploy"] } });
+	assert.equal(command('cd b && npm run deploy -- --note "a"'), "allow");
+	assert.equal(command("cd b && npm run deploy --prefix ../a"), "confirm", "a path into a still does");
+});

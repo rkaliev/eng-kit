@@ -80,11 +80,22 @@ export function scopedConfig(command: string, cwd: string, scope: GuardScope, po
 	if (scope.repos.size === 0) return scope.config;
 	const segments = segmentFolders(command, cwd, powershell);
 	// Where each working segment runs; a move only leads there.
-	const ran = segments.filter((s) => !s.move).map((s) => (s.dir === undefined ? undefined : repoIn(scope, s.dir)));
+	const working = segments.filter((s) => !s.move);
+	const ran = working.map((s) => (s.dir === undefined ? undefined : repoIn(scope, s.dir)));
 	const anywhere = ran.some((r) => r === undefined) || segments.some((s) => s.dir === undefined);
+	// A path word placed by its real location (a symlink, a case-swapped name) from the folder its segment runs in.
+	const reached = new Set<string>();
+	for (const { raw, dir } of anywhere ? [] : working) {
+		for (const word of raw.flatMap((t) => [t, t.slice(t.indexOf("=") + 1)]).map((t) => t.replace(/^['"(]+|['")]+$/g, ""))) {
+			if (!pathLike(word, dir!, scope)) continue;
+			const repo = placeIn(scope.projectDir, names(scope), resolve(dir!, word))?.repo;
+			if (repo !== undefined) reached.add(repo);
+		}
+	}
+	// The text match only adds restrictions: a repository's name in a message is no reason to drop the allow.
 	const named = [...scope.repos.keys()].filter((dir) => mentions(command, basename(dir)));
-	const touched = anywhere ? [...scope.repos.keys()] : [...new Set([...ran.filter((r) => r !== undefined), ...named])];
-	const only = !anywhere && ran.length > 0 && ran.every((r) => r === ran[0]) && named.every((r) => r === ran[0]) ? ran[0] : undefined;
+	const touched = anywhere ? [...scope.repos.keys()] : [...new Set([...ran.filter((r) => r !== undefined), ...reached, ...named])];
+	const only = !anywhere && ran.length > 0 && ran.every((r) => r === ran[0]) && [...reached].every((r) => r === ran[0]) ? ran[0] : undefined;
 	const rules = touched.map((dir) => scope.repos.get(dir)!);
 	// Which file each rule came from, for the reason; the session folder's first.
 	const sources: Record<string, string> = {};
@@ -99,10 +110,21 @@ export function scopedConfig(command: string, cwd: string, scope: GuardScope, po
 	};
 }
 
-/** Whether `text` names the folder `name` as a path segment (`a`, `a/x`, `../a`, `--prefix=a`, `-Ca`). */
+/** Whether `text` names the folder `name` as a path segment (`a`, `a/x`, `../a`, `--prefix=a`, `-Ca`), in any case. */
 function mentions(text: string, name: string): boolean {
 	const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	return new RegExp(`(^|[\\s'"=:/(\`]|-C)${escaped}($|[\\s'"/)\`;|&])`).test(text);
+	return new RegExp(`(^|[\\s'"=:/(\`]|-C)${escaped}($|[\\s'"/)\`;|&])`, "i").test(text);
+}
+
+/** A word that may be a path into another repository: it has a `/`, starts with `..`, is a repository's name, or is a symlink in `dir`. */
+function pathLike(word: string, dir: string, scope: GuardScope): boolean {
+	if (word === "" || word.startsWith("-") || /[$`]/.test(word)) return false;
+	if (word.includes("/") || word.startsWith("..") || names(scope).some((n) => n.toLowerCase() === word.toLowerCase())) return true;
+	try {
+		return lstatSync(join(dir, word)).isSymbolicLink();
+	} catch {
+		return false;
+	}
 }
 
 /** The workspace repository holding `path`, as the absolute folder `scope.repos` keys it by. */
