@@ -92,3 +92,10 @@ test("scopedPath: a repository's rules hold through a symlink and a case-swapped
 	assert.equal(scopedPath("write", join(ws, "link", ".github", "workflows", "ci.yml"), scope).action, "confirm");
 	if (existsSync(join(ws, "A"))) assert.equal(scopedPath("write", join(ws, "A", ".github", "workflows", "ci.yml"), scope).action, "confirm", "a case-insensitive volume");
 });
+
+test("a repository's rule names its own config in the reason", () => {
+	const { ws, scope } = workspace({ a: { block: ["make release"], protectedPaths: ["secret/"], label: "a/.claude/guard.json" }, "": { label: ".claude/guard.json" } });
+	const cmd = "echo $(cd b) && make release";
+	assert.match(String(checkCommand(cmd, ws, scopedConfig(cmd, ws, scope), ws).reason), /a\/\.claude\/guard\.json/);
+	assert.match(String(scopedPath("write", join(ws, "a", "secret", "x"), scope).reason), /protected by a\/\.claude\/guard\.json/);
+});

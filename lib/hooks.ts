@@ -237,6 +237,7 @@ function loadGuardConfig(projectDir: string, label = GUARD_FILE): { config: Guar
 		});
 	return {
 		config: {
+			label,
 			block: regexes(raw.block),
 			confirm: regexes(raw.confirm),
 			allow: regexes(raw.allow),

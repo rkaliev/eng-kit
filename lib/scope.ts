@@ -68,8 +68,12 @@ export function scopedConfig(command: string, cwd: string, scope: GuardScope, po
 	const touched = unknown ? [...scope.repos.keys()] : [...new Set([...ran.filter((r) => r !== undefined), ...named])];
 	const only = !unknown && ran.length > 0 && ran.every((r) => r !== undefined && r === ran[0]) && [...named].every((r) => r === ran[0]) ? ran[0] : undefined;
 	const rules = touched.map((dir) => scope.repos.get(dir)!);
+	// Which file each rule came from, for the reason; the session folder's first.
+	const sources: Record<string, string> = {};
+	for (const c of [scope.config, ...rules]) for (const rule of [...(c.block ?? []), ...(c.confirm ?? [])]) sources[rule] ??= c.label ?? scope.guardFile;
 	return {
 		...scope.config,
+		sources,
 		block: [...(scope.config.block ?? []), ...rules.flatMap((c) => c.block ?? [])],
 		confirm: [...(scope.config.confirm ?? []), ...rules.flatMap((c) => c.confirm ?? [])],
 		allow: [...(scope.config.allow ?? []), ...(only === undefined ? [] : (scope.repos.get(only)!.allow ?? []))],

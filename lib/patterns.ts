@@ -26,6 +26,10 @@ export interface GuardConfig {
 	workDocs?: string[];
 	/** Code reaches the base branch only with a passing reviewer verdict for it. `false` turns the check off. */
 	reviewGate?: boolean;
+	/** The file this config was read from, as the reasons name it (default `.claude/guard.json`). */
+	label?: string;
+	/** For a combined config (lib/scope.ts): the file each `block`/`confirm` rule came from. */
+	sources?: Record<string, string>;
 }
 
 const ALLOW: GuardDecision = { action: "allow" };
@@ -94,7 +98,7 @@ export function checkCommand(
 	}
 	for (const source of config.block ?? []) {
 		if (new RegExp(source).test(command)) {
-			return { action: "block", reason: `Blocked by project guard rule /${source}/ in .claude/guard.json.` };
+			return { action: "block", reason: `Blocked by project guard rule /${source}/ in ${config.sources?.[source] ?? config.label ?? ".claude/guard.json"}.` };
 		}
 	}
 	const written = target ? judgeWrite(target) : ALLOW;
@@ -107,7 +111,7 @@ export function checkCommand(
 		if (re.test(text)) return { action: "confirm", reason: `This command ${what}.` };
 	}
 	for (const source of config.confirm ?? []) {
-		if (new RegExp(source).test(command)) return { action: "confirm", reason: `Matches project confirm rule /${source}/.` };
+		if (new RegExp(source).test(command)) return { action: "confirm", reason: `Matches project confirm rule /${source}/ in ${config.sources?.[source] ?? config.label ?? ".claude/guard.json"}.` };
 	}
 	if (segments.some((segment) => segment.some(isSecretPath))) {
 		return { action: "confirm", reason: "This command touches a secret file; its contents would be sent to the model provider." };
@@ -145,7 +149,7 @@ export function checkPath(tool: "read" | "write" | "edit", path: string, cwd: st
 		return { action: "confirm", reason: "The guard config decides what the guard blocks. Loosening it is the user's call; show them the change first." };
 	}
 	const hit = (config.protectedPaths ?? []).find((prefix) => inside && rel.startsWith(prefix.replace(/^\.\//, "")));
-	if (hit) return { action: "block", reason: `${path} is protected by .claude/guard.json (${hit}). Ask the user before changing it.` };
+	if (hit) return { action: "block", reason: `${path} is protected by ${config.label ?? ".claude/guard.json"} (${hit}). Ask the user before changing it.` };
 	if (inside && CI_PIPELINE.test(rel)) {
 		return { action: "confirm", reason: `${path} is a CI/release pipeline; it runs with repository credentials. Show the user the design before editing it.` };
 	}
