@@ -513,7 +513,7 @@ export function segmentFolders(command: string, cwd: string, powershell = false)
 		const words = raw.map((t) => unwrapToken(t.replace(/^\(+|\)+$/g, ""))).filter(Boolean);
 		if (hidesFolder(words)) dir = undefined;
 		// git's own options come before its subcommand; `-C` (relative to the one before) and `-c` take a value.
-		const at = words.findIndex((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
+		const at = commandIndex(words);
 		for (let i = at + 1; dir !== undefined && words[at] === "git" && i < words.length && words[i]!.startsWith("-"); i += words[i] === "-C" || words[i] === "-c" ? 2 : 1) {
 			if (words[i] === "-C") dir = follow(dir, words[i + 1]);
 		}
@@ -523,7 +523,7 @@ export function segmentFolders(command: string, cwd: string, powershell = false)
 
 /** Words that run the segment, or a git call in it, somewhere the folder doesn't show. */
 function hidesFolder(words: string[]): boolean {
-	const command = words.find((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
+	const command = words[commandIndex(words)];
 	return words.some((w, i) => {
 		if (/^GIT_(DIR|WORK_TREE)=/.test(w) || w === "eval") return true;
 		if (/^(ba|z|da|k)?sh$/.test(w.slice(w.lastIndexOf("/") + 1)) && words.slice(i + 1).some((a) => /^-[a-z]*c[a-z]*$/.test(a))) return true;

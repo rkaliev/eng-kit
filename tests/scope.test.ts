@@ -83,7 +83,7 @@ test("scopedConfig: a path into a repository adds its restrictions, never its lo
 	assert.equal(command("npm run release --prefix a"), "block");
 	assert.equal(command("cd b && npm run deploy --prefix ../a"), "confirm", "b's allow doesn't cover a command reaching into a");
 	assert.equal(command("git -C a status && make docs"), "confirm", "a's confirm through git -C");
-	assert.equal(command("git -C b status && make docs"), "allow");
+	assert.equal(command("cd b && git -C ../b status && make docs"), "allow", "every segment runs in b");
 });
 
 test("scopedPath: a repository's rules hold through a symlink and a case-swapped name", () => {
@@ -117,4 +117,14 @@ test("guardScope: a repository or a config that appeared after the session start
 	assert.equal(command("cd c && npm run deploy"), "confirm", "c appeared later");
 	assert.equal(command("cd c && make release"), "block", "its restrictions still apply");
 	assert.deepEqual(scopedConfig("ls", ws, scope).pushOwners, [join(ws, "a"), join(ws, "b")], "only repositories there at the start push silently");
+});
+
+test("scopedConfig: a segment that runs outside every repository gets every repository's restrictions, whatever its form", () => {
+	const { command } = workspace({ a: { block: ["make release"] }, b: { allow: ["npm run deploy"] } });
+	for (const cmd of ["fish -c 'cd a; make release'", "python3 -c \"import os; os.chdir('a'); os.system('make release')\"", "echo 'cd a && make release' | sh", "bash <<< 'cd a; make release'"]) {
+		assert.equal(command(cmd), "block", cmd);
+	}
+	assert.equal(command("cd b && fish -c 'cd ../a; make release'"), "block", "inside b, naming a adds a's");
+	assert.equal(command("ls -la"), "allow", "no repository's rule matches");
+	assert.equal(command("cd b && npm run deploy"), "allow", "b's own allow, every segment in b");
 });

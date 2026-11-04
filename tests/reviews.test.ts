@@ -1259,6 +1259,14 @@ test("highestFindingIds names the highest finding number of each prefix (F, S, T
 	assert.deepEqual(highestFindingIds(dir, [], root), {});
 });
 
+test("segmentFolders: git's -C counts after a prefix or reserved word in command position", () => {
+	const ws = mkdtempSync(join(tmpdir(), "reviews-ws-"));
+	for (const r of ["a", "b"]) mkdirSync(join(ws, r));
+	assert.equal(segmentFolders("time git -C b status", ws)[0]!.dir, join(ws, "b"));
+	assert.equal(segmentFolders("command git -C b status", ws)[0]!.dir, join(ws, "b"));
+	assert.equal(segmentFolders("if true; then git -C b status; fi", ws)[1]!.dir, join(ws, "b"));
+});
+
 test("checkGateFiles: with children, a first-level folder's guard config is a gate file in every form", () => {
 	const ws = mkdtempSync(join(tmpdir(), "reviews-ws-"));
 	for (const dir of ["a/.claude", "x/.claude"]) mkdirSync(join(ws, dir), { recursive: true });
