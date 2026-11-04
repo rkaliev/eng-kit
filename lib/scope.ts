@@ -31,7 +31,8 @@ export interface GuardScope {
  */
 export function guardScope(projectDir: string, load: (root: string) => GuardConfig, guardFile: string, baseline?: GuardBaseline): GuardScope {
 	const found = projectRepos(projectDir);
-	const kept = baseline === undefined ? [] : Object.keys(baseline).filter((name) => existsSync(join(projectDir, name, ".git")));
+	// A repository of the start keeps its restrictions while its folder exists, with or without `.git`.
+	const kept = baseline === undefined ? [] : Object.keys(baseline).filter((name) => existsSync(join(projectDir, name)));
 	const names = [...new Set([...(found.kind === "workspace" ? found.repos : []), ...kept])].sort();
 	const kind = found.kind === "workspace" || kept.length === 0 ? found.kind : "workspace";
 	const configs = new Map<string, GuardConfig>();
@@ -39,9 +40,12 @@ export function guardScope(projectDir: string, load: (root: string) => GuardConf
 	for (const name of names) {
 		const dir = join(projectDir, name);
 		const config = load(dir);
-		const was = baseline !== undefined && Object.hasOwn(baseline, name) ? baseline[name] : undefined;
-		const same = was !== undefined && was.id !== null && was.id === repoId(dir);
-		const known = baseline === undefined || (same && was.config === configHash(join(dir, guardFile)));
+		const id = repoId(dir);
+		const byName = baseline !== undefined && Object.hasOwn(baseline, name) ? baseline[name] : undefined;
+		const same = byName !== undefined && byName.id !== null && byName.id === id;
+		// A repository renamed since the start is found by its `.git`: its restrictions follow it, nothing else does.
+		const was = byName ?? (baseline === undefined || id === null ? undefined : Object.values(baseline).find((entry) => entry.id === id));
+		const known = baseline === undefined || (same && byName.config === configHash(join(dir, guardFile)));
 		const own = known ? config : { ...config, allow: [], workDocs: undefined, reviewGate: true };
 		const union = (now: string[] | undefined, then: string[]) => [...new Set([...(now ?? []), ...then])];
 		configs.set(dir, was === undefined ? own : { ...own, block: union(own.block, was.block), confirm: union(own.confirm, was.confirm), protectedPaths: union(own.protectedPaths, was.protectedPaths) });
@@ -99,7 +103,7 @@ export function scopedConfig(command: string, cwd: string, scope: GuardScope, po
 	const rules = touched.map((dir) => scope.repos.get(dir)!);
 	// Which file each rule came from, for the reason; the session folder's first.
 	const sources: Record<string, string> = {};
-	for (const c of [scope.config, ...rules]) for (const rule of [...(c.block ?? []), ...(c.confirm ?? [])]) sources[rule] ??= c.label ?? scope.guardFile;
+	for (const c of [scope.config, ...rules]) for (const rule of [...(c.block ?? []), ...(c.confirm ?? [])]) if (!Object.hasOwn(sources, rule)) sources[rule] = c.label ?? scope.guardFile;
 	return {
 		...scope.config,
 		sources,
@@ -173,8 +177,9 @@ export function isGuardBaseline(value: unknown): value is GuardBaseline {
 /** The identity of a repository's `.git` entry: a folder replaced by a clone under the same name has another. */
 function repoId(dir: string): string | null {
 	try {
+		// The birth time tells a new `.git` from an old one whose freed inode number a file system reused.
 		const stat = lstatSync(join(dir, ".git"));
-		return `${stat.dev}:${stat.ino}`;
+		return `${stat.dev}:${stat.ino}:${stat.birthtimeMs}`;
 	} catch {
 		return null;
 	}

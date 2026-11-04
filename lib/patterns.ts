@@ -100,7 +100,7 @@ export function checkCommand(
 	}
 	for (const source of config.block ?? []) {
 		if (new RegExp(source).test(command)) {
-			return { action: "block", reason: `Blocked by project guard rule /${source}/ in ${config.sources?.[source] ?? config.label ?? ".claude/guard.json"}.` };
+			return { action: "block", reason: `Blocked by project guard rule /${source}/ in ${sourceOf(config, source)}.` };
 		}
 	}
 	const written = target ? judgeWrite(target) : ALLOW;
@@ -113,12 +113,17 @@ export function checkCommand(
 		if (re.test(text)) return { action: "confirm", reason: `This command ${what}.` };
 	}
 	for (const source of config.confirm ?? []) {
-		if (new RegExp(source).test(command)) return { action: "confirm", reason: `Matches project confirm rule /${source}/ in ${config.sources?.[source] ?? config.label ?? ".claude/guard.json"}.` };
+		if (new RegExp(source).test(command)) return { action: "confirm", reason: `Matches project confirm rule /${source}/ in ${sourceOf(config, source)}.` };
 	}
 	if (segments.some((segment) => segment.some(isSecretPath))) {
 		return { action: "confirm", reason: "This command touches a secret file; its contents would be sent to the model provider." };
 	}
 	return ALLOW;
+}
+
+/** The file a rule came from, as its reason names it. */
+function sourceOf(config: GuardConfig, rule: string): string {
+	return (config.sources && Object.hasOwn(config.sources, rule) ? config.sources[rule] : undefined) ?? config.label ?? ".claude/guard.json";
 }
 
 /** CI and release pipelines run with repository credentials, so edits to them need a human look. */

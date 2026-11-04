@@ -184,3 +184,24 @@ test("scopedConfig: a repository's name in a message doesn't take its allow from
 	assert.equal(command('cd b && npm run deploy -- --note "a"'), "allow");
 	assert.equal(command("cd b && npm run deploy --prefix ../a"), "confirm", "a path into a still does");
 });
+
+test("guardScope: a repository whose .git was moved away, or that was renamed, keeps its restrictions from the start", () => {
+	const restricted = { a: { protectedPaths: ["secret/"], block: ["make release"] } };
+	const moved = started(restricted);
+	renameSync(join(moved.ws, "a", ".git"), join(moved.ws, "a", ".git-off"));
+	const scope = guardScope(moved.ws, () => ({}), ".claude/guard.json", moved.baseline);
+	assert.equal(scopedPath("write", join(moved.ws, "a", "secret", "x"), scope).action, "block");
+	assert.equal(scopedPath("write", join(moved.ws, "a", ".github", "workflows", "ci.yml"), scope).action, "confirm");
+	const renamed = started(restricted);
+	renameSync(join(renamed.ws, "a"), join(renamed.ws, "a2"));
+	const after = guardScope(renamed.ws, () => ({}), ".claude/guard.json", renamed.baseline);
+	const cmd = "cd a2 && make release";
+	assert.equal(checkCommand(cmd, renamed.ws, scopedConfig(cmd, renamed.ws, after), renamed.ws).action, "block");
+	assert.deepEqual(after.owners, [join(renamed.ws, "b")], "a renamed repository pushes only with a question");
+});
+
+test("scopedConfig: a rule spelled like an Object property names its own config", () => {
+	const { ws, scope } = workspace({ a: { block: ["constructor"], label: "a/.claude/guard.json" }, "": { label: ".claude/guard.json" } });
+	const cmd = "echo constructor";
+	assert.match(String(checkCommand(cmd, ws, scopedConfig(cmd, ws, scope), ws).reason), /in a\/\.claude\/guard\.json/);
+});
