@@ -36,18 +36,37 @@ const PUSH_VALUE_FLAGS = new Set(["-o", "--push-option", "--repo", "--receive-pa
  * Block a command that would put working documents on the base branch: opening or merging a PR/MR,
  * merging into the base, pushing to the base, or committing them on the base. Pushing a work branch is fine.
  * In a workspace (`workspace` given), each landing is judged in the folder it runs in, with that repository's
- * task-file folders; a landing whose folder the guard can't tell is blocked.
+ * task-file folders; a PR, merge or push whose repository the guard can't tell is blocked, and a commit it can't place
+ * is judged in every repository.
  */
 export function checkWorkDocs(command: string, projectDir: string, dirs = WORK_DOC_DIRS, workspace?: { cwd: string; repos: string[]; dirsFor: (repo: string) => string[]; powershell?: boolean }): GuardDecision | undefined {
 	if (!workspace) return judge(splitSegments(tokenize(command)).map(landing).filter((l): l is Landing => l !== undefined), projectDir, dirs);
+	const folders = workspace.repos.map((name) => join(projectDir, name));
+	// `"workDocs": []` everywhere turns the rule off, even where a landing can't be placed.
+	const watched = folders.some((repo) => workspace.dirsFor(repo).length > 0);
 	for (const { raw, dir } of segmentFolders(command, workspace.cwd, workspace.powershell)) {
 		const l = landing(raw.map((t) => t.replace(/^\(+|\)+$/g, "")));
 		if (!l) continue;
-		if (dir === undefined) {
-			return { action: "block", reason: "Task-file guard: can't tell which repository this command lands in. Run it from the repository's folder (`cd <repo> && …`)." };
+		// A commit lands where it runs: one that can't be placed is judged in every repository.
+		if (l.kind === "commit" && dir === undefined) {
+			for (const repo of folders) {
+				const found = judge([l], repo, workspace.dirsFor(repo));
+				if (found) return found;
+			}
+			continue;
 		}
-		// A folder outside the workspace repositories is judged as it is; one that isn't git lands nothing.
-		const checkout = repoOf(projectDir, workspace.repos, dir) ?? dir;
+		// A folder outside the workspace repositories is judged as it is; one that isn't git lands nothing, unless a PR
+		// names its repository another way (`-R`, `GH_REPO`, a URL) or starts there.
+		const checkout = dir === undefined ? undefined : (repoOf(projectDir, workspace.repos, dir) ?? dir);
+		const selector = l.kind === "pr" && (l.repo === true || /^https?:\/\//.test(l.target ?? "") || raw.some((t) => /^GH_REPO=/.test(t)));
+		const unplaced = checkout === undefined || selector || (l.kind === "pr" && git(checkout, ["rev-parse", "--git-dir"]) === undefined);
+		if (unplaced) {
+			if (!watched) continue;
+			return {
+				action: "block",
+				reason: "Task-file guard: can't tell which repository this command lands in (a folder the guard can't follow, a repository named by -R, GH_REPO or a URL, or a folder outside git). Run it from the repository's folder (`cd <repo> && …`) without naming the repository.",
+			};
+		}
 		const found = judge([l], checkout, workspace.dirsFor(checkout));
 		if (found) return found;
 	}

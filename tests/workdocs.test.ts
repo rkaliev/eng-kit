@@ -161,7 +161,7 @@ function workspace(aDirs?: string[]) {
 	b.commit({ "src/b.ts": "x\n" });
 	const dirsFor = (r: string) => (r === join(root, "a") && aDirs ? aDirs : WORK_DOC_DIRS);
 	const check = (command: string, cwd = root, powershell = false) => checkWorkDocs(command, root, undefined, { cwd, repos: ["a", "b"], dirsFor, powershell });
-	return { root, a, check };
+	return { root, a, b, check };
 }
 
 test("in a workspace, a landing is judged in the repository it lands in", () => {
@@ -195,4 +195,22 @@ test("taskFileReminders names the workspace repositories it had no time for or f
 	assert.deepEqual(taskFileReminders(root, () => WORK_DOC_DIRS, Date.now() + 60_000, undefined, ["a"]).skipped, ["a"], "a repository found slow");
 	assert.equal(taskFileWarning(["a", "b"]), "Task-file reminders skipped (no time left, or slow in this session): a, b");
 	assert.equal(taskFileWarning([]), undefined);
+});
+
+test("in a workspace, a PR that names its repository, or starts outside git, can't be placed and is blocked", () => {
+	const { check } = workspace();
+	for (const command of ["gh pr create -R org/a -H feat/x", "GH_REPO=org/a gh pr create -H feat/x", "gh pr merge https://github.com/org/a/pull/12", "cd a && gh pr create -R org/a"]) {
+		assert.equal(check(command)?.action, "block", command);
+	}
+});
+
+test("in a workspace, an unplaced commit is judged in every repository, and no task-file folders anywhere means no block", () => {
+	const { root, b, check } = workspace();
+	assert.equal(check("cd $D && git commit -m x")?.action ?? "allow", "allow", "no repository is on its base with a staged task file");
+	b.git("switch", "-q", "main");
+	b.write({ "docs/tasks/s.md": "# S\n" });
+	b.git("add", "docs/tasks/s.md");
+	assert.equal(check("cd $D && git commit -m x")?.action, "block", "b is on main with a staged task file");
+	const off = checkWorkDocs("cd $D && gh pr create", root, [], { cwd: root, repos: ["a", "b"], dirsFor: () => [] });
+	assert.equal(off, undefined, '"workDocs": [] everywhere turns the rule off');
 });
