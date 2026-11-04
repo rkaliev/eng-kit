@@ -275,3 +275,22 @@ test("in a workspace, an unplaced commit is judged within a deadline, and a slow
 		slow.restore();
 	}
 });
+
+test("in a workspace, a landing after a heredoc or a quoted <<, or in a shell's heredoc, is still judged", () => {
+	const { check } = workspace();
+	for (const command of ["bash <<'EOF'\ncd a && gh pr create --fill\nEOF", "echo '<<X'\ncd a && gh pr create --fill", "gh pr create --fill"]) {
+		assert.equal(check(command)?.action, "block", command);
+	}
+});
+
+test("in a workspace, an unplaced commit with no task-file folders anywhere isn't held, even with a slow repository", () => {
+	const { root } = workspace();
+	const off = checkWorkDocs("cd $D && git commit -m x", root, [], { cwd: root, repos: ["a", "b"], dirsFor: () => [], slow: ["a"] });
+	assert.equal(off, undefined);
+});
+
+test("in a workspace, a landing from a checkout nested in another repository's folder can't be placed", () => {
+	const { root, a, check } = workspace();
+	a.git("worktree", "add", "-q", join(root, "b", "wt"), "-b", "feat/w");
+	assert.equal(check("cd b/wt && gh pr create --fill")?.action, "block");
+});

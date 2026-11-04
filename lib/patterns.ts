@@ -214,7 +214,7 @@ const INTERPRETER_HEAD = new RegExp(String.raw`^(?:python3?|node)(?:[ \t]+-)?[ \
  * path, a second command on any line, a missing delimiter) returns undefined, and the command is judged whole. So does
  * a carriage return or another control character: some shells (Cygwin's `igncr`) end a heredoc where this wouldn't.
  */
-function quotedHeredoc(command: string): { head: string; target?: string } | undefined {
+export function quotedHeredoc(command: string): { head: string; target?: string } | undefined {
 	if (/[\0-\x08\x0b-\x1f\x7f]/.test(command)) return undefined;
 	const lines = command.split("\n");
 	if (lines.length > 2 && lines[lines.length - 1] === "") lines.pop();
