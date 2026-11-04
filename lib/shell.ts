@@ -507,11 +507,15 @@ export function quotedSubstitutions(command: string): string[] {
  */
 export function segmentFolders(command: string, cwd: string, powershell = false): Array<{ raw: string[]; dir: string | undefined; move: boolean }> {
 	const shell = new Subshells(cwd, command);
+	// `export GIT_DIR=…` (or a bare assignment) moves every git call after it.
+	let exported = false;
 	return segmentsOf(tokenize(stripRedirects(command))).map(({ raw, alone, before }) => {
 		shell.enter(raw, before);
-		let dir = powershell ? undefined : shell.dir;
+		let dir = powershell || exported ? undefined : shell.dir;
 		const words = raw.map((t) => unwrapToken(t.replace(/^\(+|\)+$/g, ""))).filter(Boolean);
 		if (hidesFolder(words)) dir = undefined;
+		const head = words[commandIndex(words)];
+		if (words.some((w) => /^GIT_(DIR|WORK_TREE)=/.test(w)) && (head === undefined || ["export", "declare", "typeset", "readonly"].includes(head))) exported = true;
 		// git's own options come before its subcommand; `-C` (relative to the one before) and `-c` take a value.
 		const at = commandIndex(words);
 		for (let i = at + 1; dir !== undefined && words[at] === "git" && i < words.length && words[i]!.startsWith("-"); i += words[i] === "-C" || words[i] === "-c" ? 2 : 1) {

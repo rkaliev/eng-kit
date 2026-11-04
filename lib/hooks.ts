@@ -151,6 +151,8 @@ const SNAPSHOT_BUDGET_MS = 2000;
 function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	const started = Date.now();
 	const warnings: string[] = [];
+	// No baseline (lost, unwritable, never taken): no repository loosens anything or pushes silently (lib/scope.ts).
+	const session = loadState(env.stateDir, input.session_id ?? "");
 	// The session folder's config and, in a workspace, each repository's own (lib/scope.ts).
 	const scope = guardScope(
 		env.projectDir,
@@ -160,7 +162,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 			return loaded.config;
 		},
 		GUARD_FILE,
-		sessionBaseline(env, input.session_id ?? ""),
+		session.guardBaseline ?? {},
 	);
 	const config = scope.config;
 	const tool = input.tool_name ?? "";
@@ -187,7 +189,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		}
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
 		// A workspace repository's own task-file folders, else the session folder's.
-		const workspace = scope.repos.size === 0 ? undefined : { cwd, repos: [...scope.repos.keys()].map((dir) => basename(dir)), dirsFor: (repo: string) => scope.repos.get(repo)?.workDocs ?? workDocs, powershell };
+		const workspace = scope.repos.size === 0 ? undefined : { cwd, repos: [...scope.repos.keys()].map((dir) => basename(dir)), dirsFor: (repo: string) => scope.repos.get(repo)?.workDocs ?? workDocs, powershell, slow: session.slowParts };
 		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs, workspace) ?? decision;
 		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, GUARD_FILE, scope.kind !== "repo", env.stateDir) ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {
