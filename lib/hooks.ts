@@ -16,7 +16,7 @@ import { basename, isAbsolute, join, posix, relative, resolve } from "node:path"
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, taskFileReminders, taskFileWarning } from "./approvals.ts";
 import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
-import { checkCommand, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
+import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
 import { canonical } from "./repos.ts";
 import { guardBaseline, guardScope, repoIn, scopedConfig, scopedPath, type GuardBaseline } from "./scope.ts";
@@ -153,6 +153,16 @@ const SNAPSHOT_BUDGET_MS = 2000;
 function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	const started = Date.now();
 	const warnings: string[] = [];
+	const tool = input.tool_name ?? "";
+	// A read is judged by the session folder's secret rules alone: the session state and the repositories only matter to
+	// shell calls and edits.
+	if (tool === "Read" || tool === "Grep") {
+		const loaded = loadGuardConfig(env.projectDir);
+		const path = String(input.tool_input?.file_path ?? input.tool_input?.path ?? "");
+		const read = path ? checkPath("read", resolve(input.cwd || env.projectDir, path), env.projectDir, loaded.config) : { action: "allow" as const };
+		return respondTo(read, loaded.warnings);
+	}
+	if (!SHELL_TOOLS.has(tool) && !EDIT_TOOLS.has(tool)) return {};
 	// No baseline (lost, unwritable, never taken): no repository loosens anything or pushes silently (lib/scope.ts).
 	const session = loadState(env.stateDir, input.session_id ?? "");
 	// The session folder's config and, in a workspace, each repository's own (lib/scope.ts).
@@ -167,7 +177,6 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		session.guardBaseline ?? {},
 	);
 	const config = scope.config;
-	const tool = input.tool_name ?? "";
 	const args = input.tool_input ?? {};
 	const cwd = input.cwd || env.projectDir;
 	let decision: GuardDecision;
@@ -199,14 +208,9 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 			const options = { missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir, { detect: false }).commands, waived, workspace: scope.repos.size > 0, powershell, repoOf: (dir: string) => repoIn(scope, dir) };
 			decision = checkReview(command, cwd, env.projectDir, options, env.reviewsRoot) ?? decision;
 		}
-	} else if (tool === "Read" || tool === "Grep") {
-		const path = String(args.file_path ?? args.path ?? "");
-		decision = path ? scopedPath("read", resolve(cwd, path), scope) : { action: "allow" };
-	} else if (EDIT_TOOLS.has(tool)) {
+	} else {
 		const path = String(args.file_path ?? args.notebook_path ?? "");
 		decision = !path ? { action: "allow" } : inState(env, resolve(cwd, path)) ? STATE_WRITE : scopedPath(tool === "Write" ? "write" : "edit", resolve(cwd, path), scope);
-	} else {
-		return {};
 	}
 
 	// The working tree before a shell call the guard allows, so its result can name what this call changed. Only
@@ -215,8 +219,12 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && Date.now() - started < SNAPSHOT_BUDGET_MS) {
 		bestEffort(() => trackTree(env, input.session_id ?? "", input.tool_use_id ?? ""));
 	}
+	return respondTo(decision, warnings);
+}
+
+/** PreToolUse's answer: no opinion on an allowed call (Claude Code's own permission rules still apply), else deny or ask. */
+function respondTo(decision: GuardDecision, warnings: string[]): HookResult {
 	const warning = warnings.length > 0 ? warnings.join("\n") : undefined;
-	// No opinion on allowed calls: Claude Code's own permission rules still apply.
 	if (decision.action === "allow") return { warning };
 	return {
 		warning,
