@@ -30,6 +30,8 @@ export interface SessionState {
 	slowParts: string[];
 	/** The fingerprint taken before each running shell call, by `tool_use_id` (at most `MAX_PENDING`). */
 	pending: Record<string, Tree>;
+	/** The workspace repositories and their guard configs' hashes when the session started (lib/scope.ts). */
+	guardBaseline?: Record<string, string | null>;
 }
 
 /** What the verify script records about its own run, so a piped call still proves the result. */
@@ -70,6 +72,10 @@ export function loadState(dir: string, sessionId: string): SessionState {
 				raw.pending && typeof raw.pending === "object"
 					? Object.fromEntries(Object.entries(raw.pending).filter((e): e is [string, Tree] => isTree(e[1])))
 					: {},
+			guardBaseline:
+				raw.guardBaseline && typeof raw.guardBaseline === "object"
+					? Object.fromEntries(Object.entries(raw.guardBaseline).filter((e): e is [string, string | null] => typeof e[1] === "string" || e[1] === null))
+					: undefined,
 		};
 	} catch {
 		return { ...EMPTY, green: [], edited: [], slowParts: [], pending: {} };

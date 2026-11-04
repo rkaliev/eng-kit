@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { checkCommand, checkPath, type GuardConfig } from "../lib/patterns.ts";
-import { guardScope, scopedConfig, scopedPath, strictest } from "../lib/scope.ts";
+import { guardBaseline, guardScope, scopedConfig, scopedPath, strictest } from "../lib/scope.ts";
 
 /** A folder outside git holding repositories `a` and `b`, each root's config taken from `configs` (by `""`, `a`, `b`). */
 function workspace(configs: Record<string, GuardConfig> = {}) {
@@ -98,4 +98,23 @@ test("a repository's rule names its own config in the reason", () => {
 	const cmd = "echo $(cd b) && make release";
 	assert.match(String(checkCommand(cmd, ws, scopedConfig(cmd, ws, scope), ws).reason), /a\/\.claude\/guard\.json/);
 	assert.match(String(scopedPath("write", join(ws, "a", "secret", "x"), scope).reason), /protected by a\/\.claude\/guard\.json/);
+});
+
+test("guardScope: a repository or a config that appeared after the session started restricts but never loosens", () => {
+	const ws = mkdtempSync(join(tmpdir(), "scope-"));
+	for (const r of ["a", "b"]) mkdirSync(join(ws, r, ".git"), { recursive: true });
+	const deploy: GuardConfig = { allow: ["npm run deploy"], block: ["make release"] };
+	mkdirSync(join(ws, "b", ".claude"));
+	writeFileSync(join(ws, "b", ".claude", "guard.json"), JSON.stringify(deploy));
+	const baseline = guardBaseline(ws, ".claude/guard.json");
+	mkdirSync(join(ws, "a", ".claude"));
+	writeFileSync(join(ws, "a", ".claude", "guard.json"), JSON.stringify(deploy));
+	mkdirSync(join(ws, "c", ".git"), { recursive: true });
+	const scope = guardScope(ws, (root) => (root === ws ? {} : deploy), ".claude/guard.json", baseline);
+	const command = (cmd: string) => checkCommand(cmd, ws, scopedConfig(cmd, ws, scope), ws).action;
+	assert.equal(command("cd b && npm run deploy"), "allow", "b's config was there at the start");
+	assert.equal(command("cd a && npm run deploy"), "confirm", "a's config appeared later");
+	assert.equal(command("cd c && npm run deploy"), "confirm", "c appeared later");
+	assert.equal(command("cd c && make release"), "block", "its restrictions still apply");
+	assert.deepEqual(scopedConfig("ls", ws, scope).pushOwners, [join(ws, "a"), join(ws, "b")], "only repositories there at the start push silently");
 });

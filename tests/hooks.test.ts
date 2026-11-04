@@ -538,6 +538,22 @@ test("guard: in a workspace, the main agent pushes a repository's work branch; t
 	assert.equal(pre("eng-kit:implementer"), "ask");
 });
 
+test("guard: in a workspace, a repository cloned after the session started pushes only with a question", () => {
+	const { call, projectDir } = setupWorkspace();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	const remote = mkdtempSync(join(tmpdir(), "hooks-remote-"));
+	spawnSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: remote });
+	const c = join(projectDir, "c");
+	const run = (...args: string[]) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: c });
+	mkdirSync(c);
+	run("init", "-q", "-b", "main");
+	run("commit", "-q", "--allow-empty", "-m", "init");
+	run("remote", "add", "origin", remote);
+	run("push", "-q", "origin", "main");
+	run("switch", "-qc", "feat/x");
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git -C c push" }, cwd: projectDir })), "ask");
+});
+
 test("guard: in a workspace, an invalid repository config warns with its path and is ignored", () => {
 	const { call, projectDir } = setupWorkspace({ a: "{" });
 	const write = call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "x.ts"), content: "x" } });

@@ -3,6 +3,8 @@
  * Restrictions add up, each measured from its own root; loosening (`allow`) counts only where it is written: the
  * session folder's everywhere, a repository's only for a command that runs in that repository alone.
  */
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { checkPath, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { placeIn, projectRepos, repoOf } from "./repos.ts";
@@ -17,14 +19,27 @@ export interface GuardScope {
 	config: GuardConfig;
 	/** Each workspace repository's own config, by absolute folder; empty outside a workspace. */
 	repos: Map<string, GuardConfig>;
+	/** The workspace repositories that were there when the session started (all of them without a baseline). */
+	owners: string[];
 }
 
-/** The session folder's config and, in a workspace, each repository's, read by `load` from that root. */
-export function guardScope(projectDir: string, load: (root: string) => GuardConfig, guardFile: string): GuardScope {
+/**
+ * The session folder's config and, in a workspace, each repository's, read by `load` from that root. With a
+ * `baseline`, a repository or a config that wasn't there as it is now when the session started (a clone, a `git init`,
+ * an edited config) keeps its restrictions and loses its loosening.
+ */
+export function guardScope(projectDir: string, load: (root: string) => GuardConfig, guardFile: string, baseline?: GuardBaseline): GuardScope {
 	const { kind, repos } = projectRepos(projectDir);
 	const configs = new Map<string, GuardConfig>();
-	if (kind === "workspace") for (const name of repos) configs.set(join(projectDir, name), load(join(projectDir, name)));
-	return { projectDir, kind, guardFile, config: load(projectDir), repos: configs };
+	const owners: string[] = [];
+	for (const name of kind === "workspace" ? repos : []) {
+		const dir = join(projectDir, name);
+		const config = load(dir);
+		const known = baseline === undefined || (name in baseline && baseline[name] === configHash(join(dir, guardFile)));
+		configs.set(dir, known ? config : { ...config, allow: [], workDocs: undefined, reviewGate: true });
+		if (baseline === undefined || name in baseline) owners.push(dir);
+	}
+	return { projectDir, kind, guardFile, config: load(projectDir), repos: configs, owners };
 }
 
 /** The stricter of two decisions: block, then confirm, then allow; a tie keeps `a`. */
@@ -74,6 +89,7 @@ export function scopedConfig(command: string, cwd: string, scope: GuardScope, po
 	return {
 		...scope.config,
 		sources,
+		pushOwners: scope.owners,
 		block: [...(scope.config.block ?? []), ...rules.flatMap((c) => c.block ?? [])],
 		confirm: [...(scope.config.confirm ?? []), ...rules.flatMap((c) => c.confirm ?? [])],
 		allow: [...(scope.config.allow ?? []), ...(only === undefined ? [] : (scope.repos.get(only)!.allow ?? []))],
@@ -87,4 +103,21 @@ export function repoIn(scope: GuardScope, path: string): string | undefined {
 
 function names(scope: GuardScope): string[] {
 	return [...scope.repos.keys()].map((dir) => basename(dir));
+}
+
+/** The workspace repositories when the session started, each with its guard config's content hash (null: none). */
+export type GuardBaseline = Record<string, string | null>;
+
+/** The workspace repositories now, with their guard configs' hashes: taken when the session starts. */
+export function guardBaseline(projectDir: string, guardFile: string): GuardBaseline {
+	const { kind, repos } = projectRepos(projectDir);
+	return Object.fromEntries((kind === "workspace" ? repos : []).map((name) => [name, configHash(join(projectDir, name, guardFile))]));
+}
+
+function configHash(file: string): string | null {
+	try {
+		return createHash("sha1").update(readFileSync(file)).digest("hex");
+	} catch {
+		return null;
+	}
 }

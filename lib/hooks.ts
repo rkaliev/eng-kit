@@ -18,7 +18,7 @@ import { approvalReminder, taskFileReminders, taskFileWarning } from "./approval
 import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
-import { guardScope, repoIn, scopedConfig, scopedPath } from "./scope.ts";
+import { guardBaseline, guardScope, repoIn, scopedConfig, scopedPath, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
@@ -118,6 +118,8 @@ function sessionStart(input: HookInput, env: HookEnv): HookResult {
 	// The baseline the verify gate compares shell commands against; a resumed or compacted session first counts what
 	// changed since its last fingerprint.
 	bestEffort(() => trackTree(env, input.session_id ?? ""));
+	// The workspace repositories that may loosen the guard: those there now, once per session.
+	bestEffort(() => sessionBaseline(env, input.session_id ?? ""));
 	// Plugin: <root>/skills. Project install: skills sit in .claude/skills next to .claude/eng-kit.
 	const file = [join(env.root, "skills"), join(env.root, "..", "skills")]
 		.map((dir) => join(dir, "using-skills", "SKILL.md"))
@@ -150,11 +152,16 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	const started = Date.now();
 	const warnings: string[] = [];
 	// The session folder's config and, in a workspace, each repository's own (lib/scope.ts).
-	const scope = guardScope(env.projectDir, (root) => {
-		const loaded = loadGuardConfig(root, root === env.projectDir ? GUARD_FILE : `${relative(env.projectDir, root)}/${GUARD_FILE}`);
-		warnings.push(...loaded.warnings);
-		return loaded.config;
-	}, GUARD_FILE);
+	const scope = guardScope(
+		env.projectDir,
+		(root) => {
+			const loaded = loadGuardConfig(root, root === env.projectDir ? GUARD_FILE : `${relative(env.projectDir, root)}/${GUARD_FILE}`);
+			warnings.push(...loaded.warnings);
+			return loaded.config;
+		},
+		GUARD_FILE,
+		sessionBaseline(env, input.session_id ?? ""),
+	);
 	const config = scope.config;
 	const tool = input.tool_name ?? "";
 	const args = input.tool_input ?? {};
@@ -220,6 +227,20 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 }
 
 const GUARD_FILE = ".claude/guard.json";
+
+/** The session's guard baseline (lib/scope.ts), taken the first time it is asked for and kept in the session state. */
+function sessionBaseline(env: HookEnv, sessionId: string): GuardBaseline {
+	const state = loadState(env.stateDir, sessionId);
+	if (state.guardBaseline) return state.guardBaseline;
+	const baseline = guardBaseline(env.projectDir, GUARD_FILE);
+	try {
+		saveState(env.stateDir, sessionId, { ...state, guardBaseline: baseline });
+		return baseline;
+	} catch {
+		// Unsaved, it would be retaken after a clone: no repository loosens anything.
+		return {};
+	}
+}
 
 /** A root's guard config; `label` names its file in warnings. */
 function loadGuardConfig(projectDir: string, label = GUARD_FILE): { config: GuardConfig; warnings: string[] } {
