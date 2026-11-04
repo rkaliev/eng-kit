@@ -5,7 +5,7 @@
  */
 import { basename, join, relative, resolve } from "node:path";
 import { checkPath, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { projectRepos, repoOf } from "./repos.ts";
+import { placeIn, projectRepos, repoOf } from "./repos.ts";
 import { segmentFolders } from "./shell.ts";
 
 export interface GuardScope {
@@ -37,8 +37,8 @@ const RANK: Record<GuardDecision["action"], number> = { allow: 0, confirm: 1, bl
 /** A path judged from the session folder with its config and, inside a workspace repository, from it with its own. */
 export function scopedPath(tool: "read" | "write" | "edit", path: string, scope: GuardScope): GuardDecision {
 	const own = checkPath(tool, path, scope.projectDir, scope.config);
-	const repo = repoIn(scope, path);
-	const placed = repo === undefined ? own : strictest(own, checkPath(tool, path, repo, scope.repos.get(repo)!));
+	const inside = placeIn(scope.projectDir, names(scope), path);
+	const placed = inside === undefined ? own : strictest(own, checkPath(tool, inside.path, inside.repo, scope.repos.get(inside.repo)!));
 	// Outside git, a first-level folder's guard config is a repository's, or will be one after `git init`.
 	const rel = relative(scope.projectDir, resolve(path)).replaceAll("\\", "/");
 	const slash = rel.indexOf("/");
@@ -78,5 +78,9 @@ export function scopedConfig(command: string, cwd: string, scope: GuardScope, po
 
 /** The workspace repository holding `path`, as the absolute folder `scope.repos` keys it by. */
 export function repoIn(scope: GuardScope, path: string): string | undefined {
-	return repoOf(scope.projectDir, [...scope.repos.keys()].map((dir) => basename(dir)), path);
+	return repoOf(scope.projectDir, names(scope), path);
+}
+
+function names(scope: GuardScope): string[] {
+	return [...scope.repos.keys()].map((dir) => basename(dir));
 }

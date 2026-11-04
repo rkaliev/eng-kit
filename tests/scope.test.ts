@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -84,4 +84,11 @@ test("scopedConfig: a path into a repository adds its restrictions, never its lo
 	assert.equal(command("cd b && npm run deploy --prefix ../a"), "confirm", "b's allow doesn't cover a command reaching into a");
 	assert.equal(command("git -C a status && make docs"), "confirm", "a's confirm through git -C");
 	assert.equal(command("git -C b status && make docs"), "allow");
+});
+
+test("scopedPath: a repository's rules hold through a symlink and a case-swapped name", () => {
+	const { ws, scope } = workspace();
+	symlinkSync(join(ws, "a"), join(ws, "link"));
+	assert.equal(scopedPath("write", join(ws, "link", ".github", "workflows", "ci.yml"), scope).action, "confirm");
+	if (existsSync(join(ws, "A"))) assert.equal(scopedPath("write", join(ws, "A", ".github", "workflows", "ci.yml"), scope).action, "confirm", "a case-insensitive volume");
 });
