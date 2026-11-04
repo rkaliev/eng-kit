@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { taskFileReminders, taskFileWarning } from "../lib/approvals.ts";
+import { slowGit } from "./slow-git.ts";
 import { baseBranch, checkWorkDocs, finishedWorkDocs, landing, WORK_DOC_DIRS } from "../lib/workdocs.ts";
 
 const TASK = "docs/tasks/2026-01-01-a.md";
@@ -213,4 +214,27 @@ test("in a workspace, an unplaced commit is judged in every repository, and no t
 	assert.equal(check("cd $D && git commit -m x")?.action, "block", "b is on main with a staged task file");
 	const off = checkWorkDocs("cd $D && gh pr create", root, [], { cwd: root, repos: ["a", "b"], dirsFor: () => [] });
 	assert.equal(off, undefined, '"workDocs": [] everywhere turns the rule off');
+});
+
+test("taskFileReminders names a repository whose git ran out of the time left, and its base branch lookup stays within it", () => {
+	const { root, a } = workspace();
+	const status = slowGit(realpathSync(join(root, "a")), "status");
+	try {
+		const started = Date.now();
+		const due = taskFileReminders(root, () => WORK_DOC_DIRS, Date.now() + 1000);
+		assert.ok(due.skipped.includes("a"), JSON.stringify(due));
+		assert.ok(Date.now() - started < 2500, "within the deadline, not git's 4 s hang");
+	} finally {
+		status.restore();
+	}
+	a.write({ "docs/tasks/t.md": "# T\n\nStatus: design approved (2026-11-04)\n" });
+	const base = slowGit(realpathSync(join(root, "a")), ["symbolic-ref", "rev-parse"]);
+	try {
+		const started = Date.now();
+		const due = taskFileReminders(root, () => WORK_DOC_DIRS, Date.now() + 3000);
+		assert.deepEqual(due.approved, ["a/docs/tasks/t.md"]);
+		assert.ok(Date.now() - started < 3800, "the base branch lookup is bounded too: less than one of git's 4 s hangs past the deadline");
+	} finally {
+		base.restore();
+	}
 });

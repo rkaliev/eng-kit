@@ -12,11 +12,17 @@ const SETTLED = /^\s*(?:\*\*)?Status:(?:\*\*)?\s*(?:design|plan) approved\b/im;
  * committed: new, modified or staged. Returns project-relative paths; empty outside a git repo.
  */
 export function uncommittedApproved(projectDir: string, dirs = WORK_DOC_DIRS, timeout = 5000): string[] {
+	return approvedIn(projectDir, dirs, timeout) ?? [];
+}
+
+/** As uncommittedApproved, but undefined when git didn't answer (killed at `timeout`, or failed to start). */
+function approvedIn(projectDir: string, dirs: string[], timeout: number): string[] | undefined {
 	const r = spawnSync("git", ["status", "--porcelain", "--untracked-files=all", "--", ...dirs], {
 		cwd: projectDir,
 		encoding: "utf8",
 		timeout,
 	});
+	if (r.error || r.signal) return undefined;
 	if (r.status !== 0 || !r.stdout) return [];
 	const files: string[] = [];
 	for (const line of r.stdout.split("\n")) {
@@ -73,13 +79,17 @@ export function taskFileReminders(projectDir: string, dirsFor: (root: string) =>
 		}
 		const dir = join(projectDir, name);
 		const own = dirsFor(dir);
-		if (want.approved) {
-			const files = uncommittedApproved(dir, own, Math.min(5000, left));
-			due.approved.push(...files.map((f) => `${name}/${f}`));
-			const base = files.length > 0 ? onBaseBranch(dir) : undefined;
-			if (base) bases.push(`${base} in ${name}`);
-		}
 		if (want.finished) due.finished.push(...finishedWorkDocs(dir, own).map((f) => `${name}/${f}`));
+		if (!want.approved) continue;
+		const files = approvedIn(dir, own, Math.min(5000, left));
+		// Git that didn't answer in the time left: named, never taken for "nothing approved".
+		if (files === undefined) {
+			due.skipped.push(name);
+			continue;
+		}
+		due.approved.push(...files.map((f) => `${name}/${f}`));
+		const base = files.length > 0 ? onBaseBranch(dir, deadline) : undefined;
+		if (base) bases.push(`${base} in ${name}`);
 	}
 	due.onBase = bases.length > 0 ? bases.join(", ") : undefined;
 	return due;

@@ -127,17 +127,23 @@ export function workDocsReminder(files: string[]): string {
 	return `Working-docs gate: implemented task files are still in the tree: ${files.join(", ")}. Move what lasts into the topic chapter (docs/NN-topic.md) and docs/decisions/, show the user each file's Follow-ups, then delete the files in one commit (\`git rm …\`). Opening a PR or landing on the base branch is blocked while they exist.`;
 }
 
-/** The branch work lands on: `origin/HEAD`, else an existing `main` or `master`. */
-export function baseBranch(projectDir: string): string | undefined {
-	const remote = git(projectDir, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
+/** The branch work lands on: `origin/HEAD`, else an existing `main` or `master`. Its git calls end by `until` (epoch ms). */
+export function baseBranch(projectDir: string, until?: number): string | undefined {
+	const run = (args: string[]) => {
+		const left = until === undefined ? 5000 : Math.min(5000, until - Date.now());
+		return left > 0 ? git(projectDir, args, left) : undefined;
+	};
+	const remote = run(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
 	if (remote) return remote.replace(/^origin\//, "");
-	return ["main", "master"].find((b) => git(projectDir, ["rev-parse", "--verify", "--quiet", `refs/heads/${b}`]) !== undefined);
+	return ["main", "master"].find((b) => run(["rev-parse", "--verify", "--quiet", `refs/heads/${b}`]) !== undefined);
 }
 
-/** The base branch's name when it is checked out, else undefined. */
-export function onBaseBranch(projectDir: string): string | undefined {
-	const base = baseBranch(projectDir);
-	return base !== undefined && currentBranch(projectDir) === base ? base : undefined;
+/** The base branch's name when it is checked out, else undefined. Its git calls end by `until` (epoch ms). */
+export function onBaseBranch(projectDir: string, until?: number): string | undefined {
+	const base = baseBranch(projectDir, until);
+	const left = until === undefined ? undefined : until - Date.now();
+	if (base === undefined || (left !== undefined && left <= 0)) return undefined;
+	return currentBranch(projectDir, left === undefined ? undefined : Math.min(5000, left)) === base ? base : undefined;
 }
 
 export function currentBranch(projectDir: string, timeout?: number): string | undefined {
