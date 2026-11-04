@@ -42,9 +42,19 @@ function approvedIn(projectDir: string, dirs: string[], timeout: number): string
 }
 
 /** `onBase` names the base branch when it is checked out: working documents are committed only on a work branch. */
-export function approvalReminder(files: string[], onBase?: string): string {
+export function approvalReminder(files: string[], onBase?: string, workspace = false): string {
 	const where = onBase ? ` You are on ${onBase}, where task files never go: create a work branch first (\`git switch -c <type>/<topic>\`).` : "";
-	return `Approval gate: approved task files are not committed: ${files.join(", ")}. An approval that isn't in git can be lost or silently edited.${where} Commit them now as their own commit (\`git add ${files.join(" ")} && git commit -m "docs: approve …"\`), or tell me why not.`;
+	// In a workspace each path starts with its repository's folder, and each repository commits its own.
+	const groups = new Map<string, string[]>();
+	for (const f of files) {
+		const [repo, path] = workspace ? [f.slice(0, f.indexOf("/")), f.slice(f.indexOf("/") + 1)] : ["", f];
+		groups.set(repo, [...(groups.get(repo) ?? []), path]);
+	}
+	const commits = [...groups].map(([repo, paths]) => {
+		const git = repo ? `git -C ${repo}` : "git";
+		return `\`${git} add ${paths.join(" ")} && ${git} commit -m "docs: approve …"\``;
+	});
+	return `Approval gate: approved task files are not committed: ${files.join(", ")}. An approval that isn't in git can be lost or silently edited.${where} Commit them now as their own commit (${commits.join(", ")}), or tell me why not.`;
 }
 
 /** Task files due a reminder at Stop, as `approvalReminder` and `workDocsReminder` take them. */
@@ -52,6 +62,8 @@ export interface TaskFileReminders {
 	approved: string[];
 	finished: string[];
 	onBase: string | undefined;
+	/** The paths start with their workspace repository's folder. */
+	workspace: boolean;
 	/** Workspace repositories not reached before the deadline, or known to be slow. */
 	skipped: string[];
 }
@@ -66,10 +78,10 @@ export function taskFileReminders(projectDir: string, dirsFor: (root: string) =>
 	const { kind, repos } = projectRepos(projectDir);
 	if (kind !== "workspace") {
 		const approved = want.approved ? uncommittedApproved(projectDir, dirs) : [];
-		return { approved, finished: want.finished ? finishedWorkDocs(projectDir, dirs) : [], onBase: approved.length > 0 ? onBaseBranch(projectDir) : undefined, skipped: [] };
+		return { approved, finished: want.finished ? finishedWorkDocs(projectDir, dirs) : [], onBase: approved.length > 0 ? onBaseBranch(projectDir) : undefined, workspace: false, skipped: [] };
 	}
 	// The session folder holds no git: only its finished task files count.
-	const due: TaskFileReminders = { approved: [], finished: want.finished ? finishedWorkDocs(projectDir, dirs) : [], onBase: undefined, skipped: [] };
+	const due: TaskFileReminders = { approved: [], finished: want.finished ? finishedWorkDocs(projectDir, dirs) : [], onBase: undefined, workspace: true, skipped: [] };
 	const bases: string[] = [];
 	for (const name of repos) {
 		const left = deadline - Date.now();

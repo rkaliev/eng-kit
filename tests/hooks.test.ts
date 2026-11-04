@@ -554,6 +554,12 @@ test("guard: in a workspace, a repository cloned after the session started pushe
 	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git -C c push" }, cwd: projectDir })), "ask");
 });
 
+test("guard: in a workspace, an invalid regex in a repository config is named with that config", () => {
+	const { call, projectDir } = setupWorkspace({ a: JSON.stringify({ block: ["(unclosed"] }) });
+	const write = call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "x.ts"), content: "x" } });
+	assert.match(String(write.warning), /invalid regex ignored in a\/\.claude\/guard\.json: \(unclosed/);
+});
+
 test("guard: in a workspace, an invalid repository config warns with its path and is ignored", () => {
 	const { call, projectDir } = setupWorkspace({ a: "{" });
 	const write = call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a", "x.ts"), content: "x" } });
@@ -571,6 +577,7 @@ test("Stop names a workspace repository's approved and finished task files", () 
 	git("b", "commit", "-q", "-m", "done");
 	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
 	assert.match(reason, /Approval gate: .*a\/docs\/tasks\/t\.md/);
+	assert.match(reason, /You are on main in a/, "a's own base branch");
 	assert.match(reason, /Working-docs gate: .*b\/docs\/tasks\/done\.md/);
 });
 

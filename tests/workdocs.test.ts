@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { taskFileReminders, taskFileWarning } from "../lib/approvals.ts";
+import { approvalReminder, taskFileReminders, taskFileWarning } from "../lib/approvals.ts";
 import { slowGit } from "./slow-git.ts";
 import { baseBranch, checkWorkDocs, finishedWorkDocs, landing, WORK_DOC_DIRS } from "../lib/workdocs.ts";
 
@@ -192,7 +192,7 @@ test("in a workspace, a landing whose folder the guard can't tell is blocked", (
 
 test("taskFileReminders names the workspace repositories it had no time for or found slow", () => {
 	const { root } = workspace();
-	assert.deepEqual(taskFileReminders(root, () => WORK_DOC_DIRS, Date.now() - 1), { approved: [], finished: [], onBase: undefined, skipped: ["a", "b"] });
+	assert.deepEqual(taskFileReminders(root, () => WORK_DOC_DIRS, Date.now() - 1), { approved: [], finished: [], onBase: undefined, workspace: true, skipped: ["a", "b"] });
 	assert.deepEqual(taskFileReminders(root, () => WORK_DOC_DIRS, Date.now() + 60_000, undefined, ["a"]).skipped, ["a"], "a repository found slow");
 	assert.equal(taskFileWarning(["a", "b"]), "Task-file reminders skipped (no time left, or slow in this session): a, b");
 	assert.equal(taskFileWarning([]), undefined);
@@ -237,4 +237,12 @@ test("taskFileReminders names a repository whose git ran out of the time left, a
 	} finally {
 		base.restore();
 	}
+});
+
+test("approvalReminder: in a workspace, the commit it suggests runs in each repository", () => {
+	const text = approvalReminder(["a/docs/tasks/t.md", "b/docs/tasks/u.md"], "main in a", true);
+	assert.match(text, /git -C a add docs\/tasks\/t\.md && git -C a commit/);
+	assert.match(text, /git -C b add docs\/tasks\/u\.md && git -C b commit/);
+	assert.match(text, /You are on main in a/);
+	assert.match(approvalReminder(["docs/tasks/t.md"]), /git add docs\/tasks\/t\.md && git commit/, "one repository, as before");
 });

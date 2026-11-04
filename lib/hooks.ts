@@ -615,7 +615,7 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 	const due = taskFileReminders(env.projectDir, dirsFor, Date.now() + TASK_FILE_BUDGET_MS, { approved: !state.approvalReminded, finished: !state.workDocsReminded }, state.slowParts);
 	if (due.approved.length > 0) {
 		next.approvalReminded = true;
-		reasons.push(approvalReminder(due.approved, due.onBase));
+		reasons.push(approvalReminder(due.approved, due.onBase, due.workspace));
 	}
 	if (due.finished.length > 0) {
 		next.workDocsReminded = true;
