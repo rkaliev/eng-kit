@@ -162,3 +162,10 @@ test("guardScope: git init at the workspace root keeps the repositories of the s
 	assert.equal(scopedPath("write", join(ws, "a", ".github", "workflows", "ci.yml"), scope()).action, "confirm");
 	rmSync(join(ws, ".git"), { recursive: true });
 });
+
+test("scopedPath: a repository's rules hold for a path written inside it that a symlink leads out of it", () => {
+	const { ws, scope } = workspace({ a: { protectedPaths: ["shared/"] } });
+	mkdirSync(join(ws, "shared-config"));
+	symlinkSync(join(ws, "shared-config"), join(ws, "a", "shared"));
+	assert.equal(scopedPath("write", join(ws, "a", "shared", "x"), scope).action, "block");
+});

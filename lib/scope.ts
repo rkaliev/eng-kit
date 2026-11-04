@@ -60,8 +60,9 @@ const RANK: Record<GuardDecision["action"], number> = { allow: 0, confirm: 1, bl
 /** A path judged from the session folder with its config and, inside a workspace repository, from it with its own. */
 export function scopedPath(tool: "read" | "write" | "edit", path: string, scope: GuardScope): GuardDecision {
 	const own = checkPath(tool, path, scope.projectDir, scope.config);
-	const inside = placeIn(scope.projectDir, names(scope), path);
-	const placed = inside === undefined ? own : strictest(own, checkPath(tool, inside.path, inside.repo, scope.repos.get(inside.repo)!));
+	// Placed as written and by its real location: a symlink may lead into a repository or out of one.
+	const places = [placeIn(scope.projectDir, names(scope), path, false), placeIn(scope.projectDir, names(scope), path)];
+	const placed = places.reduce((d, inside) => (inside === undefined ? d : strictest(d, checkPath(tool, inside.path, inside.repo, scope.repos.get(inside.repo)!))), own);
 	// Outside git, a first-level folder's guard config is a repository's, or will be one after `git init`.
 	const rel = relative(scope.projectDir, resolve(path)).replaceAll("\\", "/");
 	const slash = rel.indexOf("/");
