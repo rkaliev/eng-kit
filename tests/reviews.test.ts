@@ -427,6 +427,15 @@ test("in a workspace, a repository's waiver lifts the review gate for its landin
 	assert.equal(checkReview("cd b && gh pr create", ws, ws, options, root)?.action, "block");
 });
 
+test("in a workspace, a landing whose folder the guard can't tell is held before any waiver", () => {
+	const { ws, root } = workspaceRepos();
+	const options: ReviewGateOptions = { ...OPTIONS, workspace: true, waived: (checkout) => checkout === join(ws, "b") };
+	assert.equal(checkReview("Set-Location a; gh pr create --fill", ws, ws, { ...options, powershell: true }, root)?.action, "block");
+	const reason = checkReview("cd b && GIT_DIR=../a/.git gh pr create -H feat/a", ws, ws, options, root)?.reason;
+	assert.match(String(reason), /can't tell which checkout/);
+	assert.equal(checkReview("cd b && gh pr create --fill", ws, ws, options, root), undefined, "b's own waiver still holds");
+});
+
 test("a workspace records the verdict in the repository that has the commit", () => {
 	const { ws, root, a, b, ids } = workspaceRepos();
 	assert.equal(typeof recordReview(ws, report(a.head, "Yes", a.base), ids, root), "object");
