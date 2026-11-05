@@ -464,6 +464,21 @@ test("in a workspace, the review gate holds a PR that names its repository, star
 	assert.equal(held("cd b/.worktrees/x && gh pr create --fill"), undefined, "b's own worktree is b: waived");
 });
 
+test("in a workspace, GH_REPO in quotes or in the guard's environment holds a PR", () => {
+	const { ws, root } = workspaceRepos();
+	const repoOf = (dir: string) => [join(ws, "a"), join(ws, "b")].find((r) => dir === r || dir.startsWith(`${r}/`));
+	const options: ReviewGateOptions = { ...OPTIONS, workspace: true, repoOf, waived: (checkout) => checkout.startsWith(join(ws, "b")) };
+	assert.equal(checkReview('cd b && env "GH_REPO=org/a" gh pr create -H feat/a --fill', ws, ws, options, root)?.action, "block");
+	const saved = process.env.GH_REPO;
+	process.env.GH_REPO = "org/a";
+	try {
+		assert.equal(checkReview("cd b && gh pr create --fill", ws, ws, options, root)?.action, "block");
+	} finally {
+		if (saved === undefined) delete process.env.GH_REPO;
+		else process.env.GH_REPO = saved;
+	}
+});
+
 test("a workspace records the verdict in the repository that has the commit", () => {
 	const { ws, root, a, b, ids } = workspaceRepos();
 	assert.equal(typeof recordReview(ws, report(a.head, "Yes", a.base), ids, root), "object");

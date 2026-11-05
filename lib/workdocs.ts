@@ -54,7 +54,7 @@ export function checkWorkDocs(
 		reason: `Task-file guard: can't tell which repository this command lands in (a folder the guard can't follow, a repository named by -R, GH_REPO or a URL, a folder outside git, or a repository too slow to check). ${workspace.powershell ? "Run it with the Bash tool from the repository's folder (`cd <repo> && …`)" : "Run it from the repository's folder (`cd <repo> && …`)"} without naming the repository.`,
 	};
 	// A GH_REPO set anywhere in the command picks the repository for every gh call after it.
-	const ghRepo = /(^|[\s;&|(])(export\s+)?GH_REPO=/.test(command);
+	const ghRepo = /\bGH_REPO\b/.test(command) || process.env.GH_REPO !== undefined;
 	// A heredoc body is text only when the command as a whole just writes it to a file; any other heredoc may run it.
 	const write = quotedHeredoc(command);
 	for (const { raw, dir } of segmentFolders(write?.target !== undefined ? write.head : command, workspace.cwd, workspace.powershell)) {

@@ -19,7 +19,7 @@ import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands
 import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
 import { canonical } from "./repos.ts";
-import { guardBaseline, guardScope, repoIn, scopedConfig, scopedPath, type GuardBaseline } from "./scope.ts";
+import { guardBaseline, guardScope, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
@@ -159,7 +159,9 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (tool === "Read" || tool === "Grep") {
 		const loaded = loadGuardConfig(env.projectDir);
 		const path = String(input.tool_input?.file_path ?? input.tool_input?.path ?? "");
-		const read = path ? checkPath("read", resolve(input.cwd || env.projectDir, path), env.projectDir, loaded.config) : { action: "allow" as const };
+		// The secret rules see the path as written and where it really leads (a symlink to `.env`).
+		const target = resolve(input.cwd || env.projectDir, path);
+		const read = path ? strictest(checkPath("read", target, env.projectDir, loaded.config), checkPath("read", canonical(target), env.projectDir, loaded.config)) : { action: "allow" as const };
 		return respondTo(read, loaded.warnings);
 	}
 	if (!SHELL_TOOLS.has(tool) && !EDIT_TOOLS.has(tool)) return {};

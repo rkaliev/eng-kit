@@ -523,7 +523,7 @@ function checkSegments(command: string, cwd: string, projectDir: string, options
 		if (options.workspace) {
 			// A PR naming its repository another way, a folder outside git, or a checkout nested in another repository's
 			// folder: the landing's repository isn't the one this folder belongs to.
-			const named = l.kind === "pr" && (/(^|[\s;&|(])(export\s+)?GH_REPO\b/.test(command) || /^https?:\/\//.test(l.target ?? ""));
+			const named = l.kind === "pr" && (/\bGH_REPO\b/.test(command) || process.env.GH_REPO !== undefined || /^https?:\/\//.test(l.target ?? ""));
 			const top = git(where, ["rev-parse", "--show-toplevel"]);
 			const repo = options.repoOf?.(where);
 			// A checkout sharing the repository's git common dir is the repository (its own worktree); any other is not.

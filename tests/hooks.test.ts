@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import test, { after } from "node:test";
@@ -649,6 +649,13 @@ test("Stop: a repository config that appeared after the session started can't si
 	mkdirSync(join(projectDir, "a", "docs", "tasks"), { recursive: true });
 	writeFileSync(join(projectDir, "a", "docs", "tasks", "t.md"), "# T\n\nStatus: design approved (2026-11-04)\n");
 	assert.match(String(call({ hook_event_name: "Stop" }).output?.reason), /a\/docs\/tasks\/t\.md/);
+});
+
+test("guard: a Read through a symlink to a secret file is denied", () => {
+	const { call, projectDir } = setupWorkspace();
+	writeFileSync(join(projectDir, "a", ".env"), "TOKEN=x\n");
+	symlinkSync(join(projectDir, "a", ".env"), join(projectDir, "a", "dev.cfg"));
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: join(projectDir, "a", "dev.cfg") } })), "deny");
 });
 
 test("guard: in a workspace, an invalid repository config warns with its path and is ignored", () => {
