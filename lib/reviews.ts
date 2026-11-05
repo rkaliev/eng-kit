@@ -699,11 +699,14 @@ export function checkGateFiles(command: string, cwd: string, projectDir: string,
 		if (named || paths.some((p) => records.some((r) => p === r || p.startsWith(`${r}/`)))) {
 			return { action: "block", reason: "Review records are written only by the guard, from the reviewer's own report. Dispatch the reviewer instead." };
 		}
-		// The kit's session state, by any spelling of its path or one of its parent folders.
+		// The kit's session state by its path as written, its real path, `~` or a `$HOME`, `$TMPDIR` or
+		// `$CLAUDE_PLUGIN_DATA` word; a parent folder only when the command removes or moves it.
 		if (state.length > 0) {
-			const real = dirs.flatMap((dir) => candidates.map((t) => canonical(resolve(dir, expandHome(t))).replaceAll("\\", "/")));
+			const real = dirs.flatMap((dir) => [...new Set(candidates)].map((t) => canonical(resolve(dir, expandHome(t))).replaceAll("\\", "/")));
 			const shallow = new Set(["/", homedir(), tmpdir(), canonical(tmpdir())].map((p) => p.replaceAll("\\", "/")));
-			if (real.some((p) => state.some((s) => p === s || p.startsWith(`${s}/`) || (s.startsWith(`${p}/`) && !shallow.has(p))))) {
+			const head = tokens.find((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) ?? "";
+			const removes = ["rm", "rmdir", "mv", "unlink"].includes(head.slice(head.lastIndexOf("/") + 1));
+			if (real.some((p) => state.some((s) => p === s || p.startsWith(`${s}/`) || (removes && s.startsWith(`${p}/`) && !shallow.has(p))))) {
 				return { action: "block", reason: "The kit's session state is written only by its hooks." };
 			}
 		}
@@ -723,6 +726,8 @@ function expandHome(word: string): string {
 		.replace(/^~(?=\/|$)/, homedir())
 		.replace(/^\$\{?HOME\}?(?=\/|$)/, homedir())
 		.replace(/^\$\{?TMPDIR\}?(?=\/|$)/, tmpdir())
+		// The shell's TMPDIR may end in `/`, so `${TMPDIR}eng-kit` is a path in it.
+		.replace(/^\$\{TMPDIR\}(?=[^/])/, `${tmpdir()}/`)
 		.replace(/^\$\{?CLAUDE_PLUGIN_DATA\}?(?=\/|$)/, process.env.CLAUDE_PLUGIN_DATA ?? "\0");
 }
 
