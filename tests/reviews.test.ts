@@ -457,9 +457,11 @@ test("in a workspace, the review gate holds a PR that names its repository, star
 	assert.equal(held("GH_REPO=org/a gh pr create -H feat/a --fill"), "block", "from the workspace folder");
 	assert.equal(held("gh pr merge https://github.com/org/a/pull/7 --squash"), "block");
 	assert.equal(held("cd b && GH_REPO=org/a gh pr create -H feat/a --fill"), "block", "b's waiver doesn't cover a");
-	spawnSync("git", ["-C", a.dir, "worktree", "add", "-q", join(ws, "b", "wt"), "-b", "feat/w"], { encoding: "utf8" });
+	assert.equal(spawnSync("git", ["-C", a.dir, "worktree", "add", "-q", join(ws, "b", "wt"), "-b", "feat/w"], { encoding: "utf8" }).status, 0);
 	assert.equal(held("cd b/wt && gh pr create --fill"), "block", "a worktree of a inside b isn't b");
 	assert.equal(held("cd b && gh pr create --fill"), undefined, "b's own PR, waived");
+	assert.equal(spawnSync("git", ["-C", join(ws, "b"), "worktree", "add", "-q", join(ws, "b", ".worktrees", "x"), "-b", "feat/bx"], { encoding: "utf8" }).status, 0);
+	assert.equal(held("cd b/.worktrees/x && gh pr create --fill"), undefined, "b's own worktree is b: waived");
 });
 
 test("a workspace records the verdict in the repository that has the commit", () => {

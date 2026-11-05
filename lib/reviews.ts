@@ -526,7 +526,9 @@ function checkSegments(command: string, cwd: string, projectDir: string, options
 			const named = l.kind === "pr" && (/(^|[\s;&|(])(export\s+)?GH_REPO\b/.test(command) || /^https?:\/\//.test(l.target ?? ""));
 			const top = git(where, ["rev-parse", "--show-toplevel"]);
 			const repo = options.repoOf?.(where);
-			if (named || top === undefined || repo === undefined || safeRealpath(top) !== safeRealpath(repo)) {
+			// A checkout sharing the repository's git common dir is the repository (its own worktree); any other is not.
+			const common = (dir: string) => ((out) => (out === undefined ? undefined : safeRealpath(out)))(git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]));
+			if (named || top === undefined || repo === undefined || common(top) !== common(repo)) {
 				return decision(options.missing, "can't tell which repository this command lands in (a repository named by GH_REPO or a URL, a folder outside git, or a checkout nested in another repository). Run it from the repository's folder without naming the repository.", options);
 			}
 		}

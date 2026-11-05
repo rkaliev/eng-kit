@@ -306,3 +306,10 @@ test("in a workspace, a landing from a checkout nested in another repository's f
 	a.git("worktree", "add", "-q", join(root, "b", "wt"), "-b", "feat/w");
 	assert.equal(check("cd b/wt && gh pr create --fill")?.action, "block");
 });
+
+test("in a workspace, a repository's own worktree inside its folder is that repository", () => {
+	const { root, a, check } = workspace();
+	a.git("worktree", "add", "-q", join(root, "a", ".worktrees", "x"), "-b", "feat/w");
+	assert.equal(check("cd a/.worktrees/x && git commit -m x")?.action ?? "allow", "allow", "a commit on its work branch");
+	assert.match(String(check("cd a/.worktrees/x && gh pr create --fill")?.reason), /Task files would reach/, "judged in the worktree, by a's folders");
+});
