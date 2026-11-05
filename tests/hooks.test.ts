@@ -30,12 +30,12 @@ process.env.GIT_CONFIG_NOSYSTEM = "1";
 const root = resolve(import.meta.dirname, "..");
 
 function setup(files: Record<string, string> = { "CLAUDE.md": "## Commands\n- `npm test`\n- `npm run typecheck`\n" }) {
-	const projectDir = mkdtempSync(join(tmpdir(), "hooks-project-"));
+	const projectDir = temp("hooks-project-");
 	for (const [name, content] of Object.entries(files)) {
 		mkdirSync(resolve(projectDir, name, ".."), { recursive: true });
 		writeFileSync(join(projectDir, name), content);
 	}
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), runsRoot: temp("hooks-runs-") };
 	const call = (input: HookInput) => handle({ session_id: "s1", cwd: projectDir, ...input }, env);
 	const run = (ok: boolean, commands = ["npm test", "npm run typecheck"], finishedAt = Date.now()) => writeRun(projectDir, { ok, commands, finishedAt }, env.runsRoot);
 	return { env, call, projectDir, run };
@@ -59,7 +59,7 @@ test("SessionStart names the user commands without a prefix in a project install
 	mkdirSync(join(project, ".claude", "skills", "using-skills"), { recursive: true });
 	mkdirSync(join(project, ".claude", "eng-kit"), { recursive: true });
 	writeFileSync(join(project, ".claude", "skills", "using-skills", "SKILL.md"), "---\nname: using-skills\n---\n## The rule\n");
-	const env: HookEnv = { root: join(project, ".claude", "eng-kit"), projectDir: project, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
+	const env: HookEnv = { root: join(project, ".claude", "eng-kit"), projectDir: project, stateDir: temp("hooks-state-"), runsRoot: temp("hooks-runs-") };
 	const out = handle({ session_id: "s1", cwd: project, hook_event_name: "SessionStart", source: "startup" }, env).output!.hookSpecificOutput as Record<string, string>;
 	assert.match(out.additionalContext!, /Kit commands the user types: `\/<name>`/);
 });
@@ -910,7 +910,7 @@ test("approval gate: an approved design or plan must be committed before stoppin
 		"docs/tasks/2026-01-01-c.md": "# C\n\n**Status:** in progress\n",
 		"docs/tasks/2026-01-01-d.md": "# D\n\n**Status:** plan approved (2026-01-01)\n",
 	});
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), runsRoot: temp("hooks-runs-") };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 
 	const first = call({ hook_event_name: "Stop" }).output;
@@ -945,7 +945,7 @@ test("task files: guard blocks a PR while they exist; Stop reminds once to delet
 	writeFileSync(join(projectDir, "docs/tasks/p.md"), "# P\n\nStatus: in progress\n\n## Plan\n\n- [x] one\n- [ ] two\n\n## Progress\n");
 	git("add", "-A");
 	git("commit", "-qm", "docs: plan");
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), runsRoot: temp("hooks-runs-") };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 	const bash = (command: string) => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } });
 
@@ -969,7 +969,7 @@ test("task files: guard blocks a PR while they exist; Stop reminds once to delet
 	writeFileSync(join(off, "docs/tasks/p.md"), "## Plan\n\n- [x] done\n");
 	spawnSync("git", ["add", "-A"], { cwd: off });
 	spawnSync("git", ["commit", "-qm", "x"], { cwd: off });
-	const offEnv: HookEnv = { ...env, projectDir: off, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) };
+	const offEnv: HookEnv = { ...env, projectDir: off, stateDir: temp("hooks-state-") };
 	const offPr = handle({ session_id: "s", cwd: off, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create" } }, offEnv);
 	const offReason = String((offPr.output?.hookSpecificOutput as Record<string, string> | undefined)?.permissionDecisionReason);
 	assert.doesNotMatch(offReason, /Task files/, "workDocs: [] opts out");
@@ -979,7 +979,7 @@ test("task files: guard blocks a PR while they exist; Stop reminds once to delet
 
 test("approval gate and verify gate combine into one reminder; no git repo means no approval gate", () => {
 	const projectDir = gitRepo({ "docs/tasks/p.md": "# P\n\n**Status:** plan approved\n", "CLAUDE.md": "## Commands\n- `npm test`\n" });
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), runsRoot: temp("hooks-runs-") };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
 	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
@@ -998,7 +998,7 @@ test("review gate: SubagentStop stamps the kit reviewer's verdict; the guard let
 	git("add", "-A");
 	git("commit", "-qm", "feat: a");
 	const head = git("rev-parse", "HEAD");
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), reviewsRoot: temp("hooks-reviews-") };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 	const pr = () => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } });
 	const stopOf = (agent_type: string, last_assistant_message: string, stop_hook_active = false) =>
@@ -1050,7 +1050,7 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	git("add", "-A");
 	git("commit", "-qm", "feat: a");
 	const head = git("rev-parse", "HEAD");
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), runsRoot: mkdtempSync(join(tmpdir(), "hooks-runs-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), runsRoot: temp("hooks-runs-"), reviewsRoot: temp("hooks-reviews-") };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 	const pr = () => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } }));
 	const verdict = `Reviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: Yes`;
@@ -1076,7 +1076,7 @@ test("review gate: a review that ran on unverified edits counts as Inconclusive"
 	spawnSync("git", ["add", "-A"], { cwd: bare });
 	spawnSync("git", ["commit", "-qm", "b"], { cwd: bare });
 	const bareHead = spawnSync("git", ["rev-parse", "HEAD"], { cwd: bare, encoding: "utf8" }).stdout.trim();
-	const bareEnv: HookEnv = { ...env, projectDir: bare, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) };
+	const bareEnv: HookEnv = { ...env, projectDir: bare, stateDir: temp("hooks-state-") };
 	const bareCall = (input: HookInput) => handle({ session_id: "s", cwd: bare, ...input }, bareEnv);
 	bareCall({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(bare, "b.ts") } });
 	assert.deepEqual(bareCall({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed BASE: ${spawnSync("git", ["rev-parse", "main"], { cwd: bare, encoding: "utf8" }).stdout.trim()}\nReviewed HEAD: ${bareHead}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1" }), {});
@@ -1091,7 +1091,7 @@ test("review gate: a report without Reviewed BASE is sent back once, naming all 
 	git("add", "-A");
 	git("commit", "-qm", "feat: a");
 	const head = git("rev-parse", "HEAD");
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), reviewsRoot: temp("hooks-reviews-") };
 	const stop = (stop_hook_active: boolean) =>
 		handle({ session_id: "s", cwd: projectDir, hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: `Reviewed HEAD: ${head}\nReady to merge: Yes`, prompt_id: "p1", agent_id: "a1", stop_hook_active }, env);
 	const first = stop(false);
@@ -1109,7 +1109,7 @@ test("review gate: a background reviewer's report comes from its SubagentHandbac
 	git("add", "-A");
 	git("commit", "-qm", "feat: a");
 	const head = git("rev-parse", "HEAD");
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), reviewsRoot: temp("hooks-reviews-") };
 	// Transcript lines shaped like Claude Code's: a background subagent hands its report back as a tool call, and its
 	// last message is at most a short summary without the verdict lines.
 	const handback = (message: string) => ({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t", name: "SubagentHandback", input: { message } }] } });
@@ -1162,7 +1162,7 @@ test("review-log prints the stored reports of a commit's latest round; with none
 	git("add", "-A");
 	git("commit", "-qm", "feat: a");
 	const head = git("rev-parse", "HEAD");
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), reviewsRoot: temp("hooks-reviews-") };
 	// The reviewer's shell has no CLAUDE_PROJECT_DIR, and may run from a subfolder or a temp worktree.
 	const { CLAUDE_PROJECT_DIR: _unset, ...shellEnv } = process.env;
 	const log = (cwd = projectDir) => spawnSync(process.execPath, [join(root, "scripts", "review-log.ts"), head], { cwd, encoding: "utf8", env: { ...shellEnv, ENG_KIT_REVIEWS_ROOT: env.reviewsRoot } });
@@ -1198,7 +1198,7 @@ test("review-log prints the stored reports of a commit's latest round; with none
 /** `setupWorkspace` with its own record store, and each repository's HEAD. */
 function reviewWorkspace() {
 	const ctx = setupWorkspace();
-	ctx.env.reviewsRoot = mkdtempSync(join(tmpdir(), "hooks-reviews-"));
+	ctx.env.reviewsRoot = temp("hooks-reviews-");
 	const head = (repo: string) => String(ctx.git(repo, "rev-parse", "HEAD")).trim();
 	return { ...ctx, reviewsRoot: ctx.env.reviewsRoot, head };
 }
@@ -1356,7 +1356,7 @@ test("review gate: a successful gh pr create registers its branch for the push g
 	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
 	git("add", "-A");
 	git("commit", "-qm", "feat: a");
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), reviewsRoot: temp("hooks-reviews-") };
 	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
 	const push = () => decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push" } }));
 	const create = (id: string) => call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_use_id: id, tool_input: { command: "gh pr create --fill" } });
@@ -1384,7 +1384,7 @@ test("guard: inside the kit reviewer a writing command is denied; the main agent
 });
 
 test("a crash while handling PreToolUse asks with the error instead of failing open; other events keep exit 1", () => {
-	const env = (input: HookInput): HookEnv => ({ root, projectDir: input.cwd ?? tmpdir(), stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")) });
+	const env = (input: HookInput): HookEnv => ({ root, projectDir: input.cwd ?? tmpdir(), stateDir: temp("hooks-state-") });
 	const boom = (): never => {
 		throw new Error("boom");
 	};
@@ -1410,7 +1410,7 @@ test("guard: the implementer's own-branch push asks; the main agent's passes", (
 	git("remote", "add", "origin", remote);
 	git("push", "-q", "origin", "main");
 	git("switch", "-qc", "feat/a");
-	const env: HookEnv = { root, projectDir, stateDir: mkdtempSync(join(tmpdir(), "hooks-state-")), reviewsRoot: mkdtempSync(join(tmpdir(), "hooks-reviews-")) };
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), reviewsRoot: temp("hooks-reviews-") };
 	const pre = (command: string, agent_type?: string) => decision(handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, agent_type }, env));
 	assert.equal(pre("git push"), undefined, "the main agent pushes its work branch");
 	for (const agent of ["eng-kit:implementer", "implementer"]) {
