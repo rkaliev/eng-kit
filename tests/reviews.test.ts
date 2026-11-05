@@ -1314,18 +1314,6 @@ test("checkGateFiles: with children, a first-level folder's guard config is a ga
 	assert.equal(checkGateFiles("cd a/.claude && echo '{}' > guard.json", ws, ws, ".claude/guard.json"), undefined, "without children, as before");
 });
 
-test("checkGateFiles: a shell write into .git, or a move or removal of a .git entry, is blocked; reading it isn't", () => {
-	const ws = temp("reviews-ws-");
-	mkdirSync(join(ws, "a", ".git"), { recursive: true });
-	const check = (command: string) => checkGateFiles(command, ws, ws, ".claude/guard.json", true)?.action ?? "allow";
-	for (const command of ["mv a/.git a/.git-off", "rm -rf a/.git", "echo '[remote \"x\"]' >> a/.git/config", "sed -i '' s/x/y/ a/.git/config", "cp hook a/.git/hooks/pre-commit", "mv /tmp/t/.git .git"]) {
-		assert.equal(check(command), "block", command);
-	}
-	for (const command of ["cat a/.git/HEAD", "ls a/.git", "git -C a status", "find . -name .git -prune -o -print", "grep -r x --exclude-dir=.git ."]) {
-		assert.equal(check(command), "allow", command);
-	}
-});
-
 test("segmentFolders: each segment runs where the moves before it and its git -C lead", () => {
 	const ws = temp("reviews-ws-");
 	for (const r of ["a", "b"]) mkdirSync(join(ws, r));

@@ -678,8 +678,6 @@ export function checkGateFiles(command: string, cwd: string, projectDir: string,
 	const processSubst = /[<>]\(/.test(blankQuoted(command).replace(/\\./g, ""));
 	// In a command the guard can't read (a comment or heredoc may swallow the next line), no step is read-only.
 	const readable = plainShell(command);
-	// Where redirections and `tee` write, as written.
-	const targets = [...command.matchAll(/(?:&>>?|\d*>>?|\btee(?:\s+-a)?)\s*([^\s;&|()<>]+)/g)].map((m) => m[1]!.replace(/^['"]|['"]$/g, ""));
 	const state = stateDir === undefined ? [] : [stateDir, canonical(stateDir)].map((p) => p.replaceAll("\\", "/"));
 	let ask: GuardDecision | undefined;
 	for (const { full, words, redirected } of moveSegments(command)) {
@@ -709,13 +707,6 @@ export function checkGateFiles(command: string, cwd: string, projectDir: string,
 				return { action: "block", reason: "The kit's session state is written only by its hooks." };
 			}
 		}
-		// `.git` changes through git only: a write into it, or moving or removing it, swaps a repository's history,
-		// hooks or remotes behind the guard.
-		const command0 = tokens.find((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) ?? "";
-		const writer = GIT_WRITERS.has(command0.slice(command0.lastIndexOf("/") + 1));
-		if (targets.some((t) => /(^|\/)\.git(\/|$)/.test(t)) || (writer && candidates.some((t) => /(^|\/)\.git(\/|$)/.test(t)))) {
-			return { action: "block", reason: "Never change .git directly from the shell (writing into it, moving or removing it); use git commands." };
-		}
 		if (paths.includes(config) || tokens.some((t) => t.endsWith(guardConfig)) || (children && paths.some((p) => childConfig(projectDir, p, guardConfig)))) {
 			ask ??= { action: "confirm", reason: `This command may change ${guardConfig}, which decides what the guard blocks. Loosening it is the user's call; show them the change first.` };
 		}
@@ -725,9 +716,6 @@ export function checkGateFiles(command: string, cwd: string, projectDir: string,
 	}
 	return ask;
 }
-
-/** Commands that write, move or remove the paths they are given. */
-const GIT_WRITERS = new Set(["rm", "rmdir", "unlink", "mv", "cp", "ln", "install", "rsync", "touch", "tee", "sed", "perl", "chmod", "chown", "truncate", "dd", "mkdir", "tar", "unzip", "patch"]);
 
 /** A word with `~`, `$HOME`, `$TMPDIR` or `$CLAUDE_PLUGIN_DATA` in front, as the shell would expand it. */
 function expandHome(word: string): string {
