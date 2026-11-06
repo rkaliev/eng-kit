@@ -143,10 +143,10 @@ Ships as eng-kit 0.36.0. A session started on an older version reads a newer rec
 
 **Files:** Modify `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE.ru.md`, `scripts/verify.ts` (header), `CHANGELOG.md`, `package.json`, `.claude-plugin/plugin.json`; workspace `docs/FRAMEWORK-SOURCES.ru.md`.
 
-- [ ] Update the docs as Post-implementation says; bump to 0.36.0.
-- [ ] Live check (criterion 9): a scratch git project with `.claude/verify.json` `{"commands": ["node -e \"setTimeout(()=>{},20000)\""]}`, `claude -p --plugin-dir <src_claude>` asked to edit a file, run the kit verify script in the background, wait for it and finish; expect no `Verify gate` block in the stream-json output after the run's notification. Record the result in Progress.
-- [ ] `npm test`, `npm run typecheck`, `claude plugin validate .` → all pass.
-- [ ] Commit `docs: background verify runs count (0.36.0)`.
+- [x] Update the docs as Post-implementation says; bump to 0.36.0.
+- [x] Live check (criterion 9): a scratch git project with `.claude/verify.json` `{"commands": ["node -e \"setTimeout(()=>{},20000)\""]}`, `claude -p --plugin-dir <src_claude>` asked to edit a file, run the kit verify script in the background, wait for it and finish; expect no `Verify gate` block in the stream-json output after the run's notification. Record the result in Progress.
+- [x] `npm test`, `npm run typecheck`, `claude plugin validate .` → all pass.
+- [x] Commit `docs: background verify runs count (0.36.0)`.
 
 
 ## Progress
@@ -157,3 +157,6 @@ Ships as eng-kit 0.36.0. A session started on an older version reads a newer rec
 - Ruling: criterion 3 is asserted as "not credited" (`unverified` stays true), not as an immediate Stop block — a record finished before a launch younger than 60 s leaves Stop waiting for the launched run's start record, as the design's grace says — cost if wrong: one silent Stop within a minute of a launch.
 - Ruling: a verify call reported in the foreground (`ended`) gets no 60 s grace when no start record follows its launch — it is over, or its script couldn't write; found by the existing test "a piped verify script keeps its own writes only while its record says it passed" (Stop went silent) — cost if wrong: none beyond today's behaviour for that call.
 - Task 2: complete (c8a3376..HEAD, `npm test` → 684 pass, 0 fail, 11 skipped; typecheck clean). RED seen: launched-green and Stop-waits tests got `block`, the moved-to-background test failed on "its result, reported while the run goes on, proves nothing"; criteria 3, 4 and 7 tests pass before the code by design (they forbid crediting); mutation checks: dropping `startedAt >= editedAt` fails criteria 3 and 4, dropping the pid check fails criterion 6.
+- Ruling: README described the background case after all (`grep` found "not in the background" and "A background run doesn't count when it starts"), so it is updated too — cost if wrong: none.
+- Live check (criterion 9), Claude Code CLI, sonnet, scratch git repo with a 20 s verify command, the installed kit disabled: with this branch (`--plugin-dir src_claude`) the agent ran the script with `run_in_background`, Stop returned nothing while it ran, the completion notification started a turn and Stop returned nothing again ($0.09 + $0.01). Control with 0.35.1: Stop blocked while the run was going, and the agent then ran the verify command itself, the double run seen in the real sessions ($0.11).
+- Task 3: complete (bb3af3d..HEAD, `npm test` → 684 pass, 0 fail, 11 skipped; typecheck clean; `claude plugin validate .` passed). The workspace FRAMEWORK-SOURCES §11.47 is written (outside this repo).
