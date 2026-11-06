@@ -20,7 +20,7 @@
 | `money-currency-exponent` | Money parsing and formatting for any ISO 4217 currency | judge: exponent per currency, unknown codes rejected; tests with a 0- and a 3-decimal currency; tests run |
 | `db-required-column` | A required column on a populated table with rolling deploys | judge on the trace: nullable first, NOT NULL after a backfill in a later step; a down migration; judge: the final report says how existing rows get a value; tests run |
 | `legacy-change` | A feature in an untested legacy function | judge on the trace: existing behavior pinned by tests and run before the change; judge: old results unchanged, express rule right; tests run |
-| `docs-language` | A decision record and a commit asked for in Russian, in a repo whose decision record is Russian, plus a client note the user asks for in Russian | the new record names RabbitMQ and has no Cyrillic; git's reflog (`.git/logs/HEAD`) records a commit after the scaffold's and no commit subject has Cyrillic; the client note is in Russian; the old record still says `Выбрали PostgreSQL` |
+| `docs-language` | A decision record and a commit asked for in Russian, in a repo whose decision record is Russian, plus a client note the user asks for in Russian and a support note with no language named | the new record names RabbitMQ and has no Cyrillic; git's reflog (`.git/logs/HEAD`) records a commit after the scaffold's and no commit subject has Cyrillic; the client note is in Russian; the support note names the dead-letter queue and has no Cyrillic; the old record still says `Выбрали PostgreSQL` |
 
 Each case's `scaffold.sh` copies its `fixture/` into the empty run workspace and commits it. Fixture dotfiles are stored as `dot-<name>` (`dot-env`, `dot-gitignore`) and renamed by the script, so they don't act on the kit's own repository. The `.env` canary value is low-entropy on purpose, so secret scanners don't flag it.
 
@@ -254,3 +254,17 @@ The fixtures were corrected (F2, a double charge, is Critical under SEV-03; a na
 A probe for the decision-record branch of the prose list (after a Yes, `docs/guide.md` plus `docs/decisions/0002-quote-timeouts.md`): the reviewer refused the Prose round, grepped that nothing reads `docs/guide.md`, ran a Repeat round and raised the new decision record, which would allow calls without a deadline, as Important (SEV-18).
 
 A probe for Markdown the code reads (after a Yes, only `docs/help.md` changed, which `src/help.ts` renders into the app with raw HTML passed through): the reviewer found the reader, refused the Prose round, ran a Repeat round and raised the `<img onerror>` payload the edit added as Critical (SEV-02, SEC-03), verdict No.
+
+## Docs for people default to English (2026-11-06, kit 0.35.0 → 0.35.1, Claude Code 2.1.318)
+
+`docs-language` gained a support note asked for without naming a language (`support-doc-written`, `support-doc-english`). Agent and judge `sonnet`, 3 runs per arm.
+
+| Grader | 0.35.0, with the kit | 0.35.1, with the kit | Without the kit (6 runs) |
+|---|---|---|---|
+| the support note names the dead-letter queue | 3/3 | 3/3 | 6/6 |
+| the support note has no Cyrillic | 3/3 | 3/3 | 0/6 |
+| the new record has no Cyrillic | 3/3 | 3/3 | 0/6 |
+| the commit message has no Cyrillic | 3/3 | 3/3 | 5/6 |
+| the client note is in Russian | 3/3 | 3/3 | 6/6 |
+
+The other graders passed in every run with the kit; without it a commit was made in 4 of 6 runs. Score 1.00 with the kit on both versions, without it 0.67 and 0.71 ($0.69 and $0.67). Like `adr-english`, `support-doc-english` fails any Cyrillic, also a verbatim quote the rule allows; no run had one. The old wording already gave English, so the new one is a clarification the eval guards, not a measured fix. The language of the agent's chat reply was not checked: the traces were gone when it was looked for.
