@@ -837,6 +837,18 @@ test("verify.ts records its start before running and its start time when done", 
 	rmSync(runFile(project), { force: true });
 });
 
+test("verify.ts records the commands it ran, not the ones configured after the run", () => {
+	const project = temp("hooks-project-");
+	mkdirSync(join(project, ".claude"));
+	const config = JSON.stringify(join(project, ".claude", "verify.json"));
+	const rewrite = `node -e "require('fs').writeFileSync(${config.replaceAll('"', '\\"')}, JSON.stringify({commands: ['echo other']}))"`;
+	writeFileSync(join(project, ".claude", "verify.json"), JSON.stringify({ commands: [rewrite] }));
+	const out = spawnSync(process.execPath, [join(root, "scripts", "verify.ts"), project], { encoding: "utf8" });
+	assert.equal(out.status, 0, out.stdout);
+	assert.deepEqual(readRun(project)!.commands, [rewrite]);
+	rmSync(runFile(project), { force: true });
+});
+
 test("readRun ignores a run still in progress; an old record loads without a start", () => {
 	const { projectDir, env } = setup();
 	writeRun(projectDir, { running: true, pid: 4242, startedAt: 1000, commands: ["npm test"] }, env.runsRoot);
@@ -906,6 +918,13 @@ function launchedVerify(input: Record<string, unknown> = { run_in_background: tr
 	return { ...ctx, finished, started, stop };
 }
 
+/** Moves the launch a second back, so a record can start after it and still before a later edit. */
+function pinLaunch(launched: ReturnType<typeof launchedVerify>): number {
+	const launch = Date.now() - 1000;
+	saveState(launched.env.stateDir, "s1", { ...loadState(launched.env.stateDir, "s1"), verifyLaunch: launch });
+	return launch;
+}
+
 test("verify gate: a background verify run this session launched counts when it finishes green", () => {
 	const { finished, stop } = launchedVerify();
 	finished();
@@ -931,9 +950,9 @@ test("verify gate: a launched run that failed, ran other commands or started too
 		["other commands", (l) => l.finished({ commands: ["npm test"] })],
 		["finished before the launch", (l) => l.finished({ startedAt: Date.now() - 60_000, finishedAt: Date.now() - 30_000 })],
 		["started before the last edit", (l) => {
-			const startedAt = Date.now() - 1;
+			const launch = pinLaunch(l);
 			l.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/b.ts" } });
-			l.finished({ startedAt: Math.min(startedAt, loadState(l.env.stateDir, "s1").editedAt - 1) });
+			l.finished({ startedAt: launch + 1 });
 		}],
 	];
 	for (const [name, act] of cases) {
@@ -946,13 +965,13 @@ test("verify gate: a launched run that failed, ran other commands or started too
 
 test("verify gate: a change after a launched run started keeps the workspace unverified", () => {
 	const edited = launchedVerify();
-	const startedAt = Date.now() - 5;
+	const launch = pinLaunch(edited);
 	edited.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/b.ts" } });
-	edited.finished({ startedAt: Math.min(startedAt, loadState(edited.env.stateDir, "s1").editedAt - 1) });
+	edited.finished({ startedAt: launch + 1 });
 	assert.equal(edited.stop()?.decision, "block", "an edit during the run");
 
 	const written = launchedVerify();
-	written.finished({ startedAt: Date.now() - 5 });
+	written.finished({ startedAt: pinLaunch(written) + 1 });
 	written.edit("export const a = 9;\n");
 	assert.equal(written.stop()?.decision, "block", "a write the Stop snapshot finds");
 });
@@ -975,6 +994,33 @@ test("verify gate: a launch whose run died, or that never started, no longer hol
 	const stale = launchedVerify();
 	saveState(stale.env.stateDir, "s1", { ...loadState(stale.env.stateDir, "s1"), verifyLaunch: Date.now() - 120_000 });
 	assert.equal(stale.stop()?.decision, "block", "no record two minutes after the launch");
+});
+
+test("verify gate: a verify call Claude Code never ran doesn't hold Stop", () => {
+	const { call } = setupGit();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	// Allowed by the guard, then denied by a permission rule or another hook: no PostToolUse follows.
+	call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: `node "${join(root, "scripts", "verify.ts")}"` }, tool_use_id: "toolu_denied" });
+	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
+});
+
+test("verify gate: a start record that can't be this session's run doesn't hold Stop", () => {
+	const limit = 2 * 600_000 + 60_000; // two commands, the default 600 s each, and a minute
+	const records: Array<[string, (now: number) => { pid: number; startedAt: number }]> = [
+		["a run older than its commands' timeouts", (now) => ({ pid: process.pid, startedAt: now - limit - 1000 })],
+		["a start in the future", (now) => ({ pid: process.pid, startedAt: now + 60_000 })],
+		["pid 0", (now) => ({ pid: 0, startedAt: now })],
+		["a negative pid", (now) => ({ pid: -1, startedAt: now })],
+	];
+	for (const [name, make] of records) {
+		const launched = launchedVerify();
+		const now = Date.now();
+		const { pid, startedAt } = make(now);
+		saveState(launched.env.stateDir, "s1", { ...loadState(launched.env.stateDir, "s1"), verifyLaunch: Math.min(startedAt, now) - 1 });
+		writeRun(launched.projectDir, { running: true, pid, startedAt, commands: ["npm test", "npm run typecheck"] }, launched.env.runsRoot);
+		assert.equal(launched.stop()?.decision, "block", name);
+	}
 });
 
 test("verify gate: a green record nobody in this session launched isn't credited", () => {

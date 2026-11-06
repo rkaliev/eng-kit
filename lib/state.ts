@@ -35,6 +35,8 @@ export interface SessionState {
 	guardBaseline?: GuardBaseline;
 	/** When this session last launched the kit's verify script and its result hasn't been settled yet (ms since epoch). */
 	verifyLaunch?: number;
+	/** A verify call the guard allowed, by `tool_use_id`, not yet reported: it becomes `verifyLaunch` in its own PostToolUse. */
+	verifyCall?: { id: string; at: number };
 }
 
 /** What the verify script records about its own run, so a piped call still proves the result. */
@@ -87,6 +89,8 @@ export function loadState(dir: string, sessionId: string): SessionState {
 					: {},
 			guardBaseline: isGuardBaseline(raw.guardBaseline) ? raw.guardBaseline : undefined,
 			verifyLaunch: typeof raw.verifyLaunch === "number" ? raw.verifyLaunch : undefined,
+			verifyCall:
+				raw.verifyCall && typeof raw.verifyCall.id === "string" && typeof raw.verifyCall.at === "number" ? { id: raw.verifyCall.id, at: raw.verifyCall.at } : undefined,
 		};
 	} catch {
 		return { ...EMPTY, green: [], edited: [], slowParts: [], pending: {} };

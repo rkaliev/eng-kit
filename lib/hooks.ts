@@ -21,8 +21,9 @@ import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordR
 import { canonical } from "./repos.ts";
 import { guardBaseline, guardScope, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
-import { loadState, pruneStates, readRun, readRunStart, saveState, type SessionState } from "./state.ts";
+import { loadState, pruneStates, readRun, readRunStart, saveState, type RunStart, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
+import { verifyTimeoutSec } from "./verify-run.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 import { callChanges, ignoredPath, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
@@ -221,10 +222,12 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && Date.now() - started < SNAPSHOT_BUDGET_MS) {
 		bestEffort(() => trackTree(env, input.session_id ?? "", input.tool_use_id ?? ""));
 	}
-	// A run of the verify script may end in the background; its record then counts only for the launch noted here.
-	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && runsVerifyScript(String(args.command ?? ""), env.root, cwd)) {
+	// A run of the verify script may end in the background; its record then counts only for the launch noted here,
+	// once Claude Code reports the call (a permission rule or another hook may still deny it).
+	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && input.tool_use_id && runsVerifyScript(String(args.command ?? ""), env.root, cwd)) {
 		const sessionId = input.session_id ?? "";
-		bestEffort(() => saveState(env.stateDir, sessionId, { ...loadState(env.stateDir, sessionId), verifyLaunch: Date.now() }));
+		const call = { id: input.tool_use_id, at: Date.now() };
+		bestEffort(() => saveState(env.stateDir, sessionId, { ...loadState(env.stateDir, sessionId), verifyCall: call }));
 	}
 	return respondTo(decision, warnings);
 }
@@ -335,7 +338,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const { marked } = tracked;
 	// A verify call reported in the foreground has ended, unless its run wrote a start and goes on in the background.
 	const ended = args.run_in_background !== true && runsVerifyScript(shell, env.root, input.cwd || env.projectDir);
-	const { state } = settleLaunch(env, sessionId, tracked.state, ended);
+	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, input.tool_use_id), ended);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 	// A call that changed files proves nothing about them, whatever checks it also ran.
@@ -424,12 +427,14 @@ function markEdited(state: SessionState, paths: string[]): SessionState {
 const RUN_MAX_AGE_MS = 15 * 60 * 1000;
 /** How long a launch may go without the script's start record before it counts as never started. */
 const LAUNCH_GRACE_MS = 60_000;
+/** Beyond its commands' timeouts, how long a run may take to start, record and exit. */
+const RUN_MARGIN_MS = 60_000;
 
 /**
  * Settles this session's launch of the verify script by the script's record: a finished run that passed the configured
  * commands, started at or after the launch and after the last counted change, clears the gate; any other finished run
- * drops the launch. A run whose start record names a live process, or a launch younger than `LAUNCH_GRACE_MS` with no
- * record yet (unless the call already `ended`), is `running`. Anything else drops the launch, so a run that died can't
+ * drops the launch. A run whose start record can still be going (`runGoing`), or a launch younger than
+ * `LAUNCH_GRACE_MS` with no record yet (unless the call already `ended`), is `running`. Anything else drops the launch, so a run that died can't
  * hold Stop silent.
  */
 function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ended = false): { state: SessionState; running: boolean } {
@@ -447,17 +452,33 @@ function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ende
 		return settled(passed ? { ...state, unverified: false, green: [...commands], edited: [] } : state);
 	}
 	const start = readRunStart(env.projectDir, env.runsRoot);
-	if (start && start.startedAt >= launch ? alive(start.pid) : !ended && Date.now() - launch < LAUNCH_GRACE_MS) return { state, running: true };
+	if (start && start.startedAt >= launch ? runGoing(start, env.projectDir) : !ended && Date.now() - launch < LAUNCH_GRACE_MS) return { state, running: true };
 	return settled(state);
 }
 
-/** Whether a process exists; one this user may not signal exists too. */
-function alive(pid: number): boolean {
+/** A verify call's own result makes the launch noted in its PreToolUse this session's launch. */
+function reported(env: HookEnv, sessionId: string, state: SessionState, toolUseId: string | undefined): SessionState {
+	if (!toolUseId || state.verifyCall?.id !== toolUseId) return state;
+	const { verifyCall, ...rest } = state;
+	const next = { ...rest, verifyLaunch: verifyCall.at };
+	saveState(env.stateDir, sessionId, next);
+	return next;
+}
+
+/**
+ * Whether a start record can be a run of this project still going: a process of this user's (the hook's) with that
+ * pid exists, and the record started in the past, within the longest run its commands' timeouts allow.
+ */
+function runGoing(start: RunStart, projectDir: string): boolean {
+	const now = Date.now();
+	const longest = start.commands.length * verifyTimeoutSec(projectDir) * 1000 + RUN_MARGIN_MS;
+	if (!Number.isInteger(start.pid) || start.pid <= 0 || start.startedAt > now || now - start.startedAt > longest) return false;
 	try {
-		process.kill(pid, 0);
+		process.kill(start.pid, 0);
 		return true;
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "EPERM";
+	} catch {
+		// EPERM too: the script runs as the hook's user, so a process this user can't signal is someone else's
+		return false;
 	}
 }
 
