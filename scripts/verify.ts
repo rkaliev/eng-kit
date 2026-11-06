@@ -20,9 +20,9 @@ try {
 } catch {
 	// the gate then treats the run as unknown
 }
-const { ok, report } = runVerification(cwd);
+const { ok, commands, report } = runVerification(cwd);
 try {
-	writeRun(cwd, { ok, commands: resolveVerifyCommands(cwd).commands, finishedAt: Date.now(), startedAt });
+	writeRun(cwd, { ok, commands, finishedAt: Date.now(), startedAt });
 } catch {
 	// the gate falls back to the exit code of an unpiped run
 }

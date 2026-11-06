@@ -14,8 +14,15 @@ export interface CheckResult {
 
 export interface VerifyReport {
 	ok: boolean;
+	/** The commands this run resolved and ran in order (it stops at the first failure). */
+	commands: string[];
 	results: CheckResult[];
 	report: string;
+}
+
+/** How long one verification command may run before it is killed. */
+export function verifyTimeoutSec(cwd: string): number {
+	return readProjectJson<VerifyConfig>(cwd, "verify").timeoutSec ?? DEFAULT_TIMEOUT_SEC;
 }
 
 type Runner = (command: string, cwd: string, timeoutMs: number) => { code: number; timedOut: boolean; output: string };
@@ -33,11 +40,12 @@ export function runVerification(cwd: string, run: Runner = runShell): VerifyRepo
 		const why = resolved.error ?? "No verification commands found.";
 		return {
 			ok: false,
+			commands: [],
 			results: [],
 			report: `${why} Add them to .claude/verify.json ({"commands": ["npm test"]}) or to a "## Commands" section in CLAUDE.md.`,
 		};
 	}
-	const timeoutSec = readProjectJson<VerifyConfig>(cwd, "verify").timeoutSec ?? DEFAULT_TIMEOUT_SEC;
+	const timeoutSec = verifyTimeoutSec(cwd);
 	const results: CheckResult[] = [];
 	for (const command of resolved.commands) {
 		const r = run(command, cwd, timeoutSec * 1000);
@@ -55,5 +63,5 @@ export function runVerification(cwd: string, run: Runner = runShell): VerifyRepo
 		...skipped,
 		...(failed ? ["", `Output tail of \`${failed.command}\`:`, failed.tail] : []),
 	].join("\n");
-	return { ok, results, report };
+	return { ok, commands: resolved.commands, results, report };
 }
