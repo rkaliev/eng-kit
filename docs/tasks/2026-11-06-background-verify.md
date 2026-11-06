@@ -1,6 +1,6 @@
 # The verify gate credits a verification run that finished in the background
 
-Status: design approved (2026-11-06)
+Status: plan approved (2026-11-06)
 Base: 4d629e2
 Links: None
 
