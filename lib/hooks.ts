@@ -12,16 +12,18 @@
  * - UserPromptSubmit: re-arms the gate for the new prompt.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join, posix, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
-import { approvalReminder, uncommittedApproved } from "./approvals.ts";
+import { approvalReminder, taskFileReminders, taskFileWarning } from "./approvals.ts";
 import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
 import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
+import { canonical } from "./repos.ts";
+import { guardBaseline, guardScope, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
-import { checkWorkDocs, currentBranch, finishedWorkDocs, onBaseBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
+import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 import { callChanges, ignoredPath, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
@@ -117,6 +119,9 @@ function sessionStart(input: HookInput, env: HookEnv): HookResult {
 	// The baseline the verify gate compares shell commands against; a resumed or compacted session first counts what
 	// changed since its last fingerprint.
 	bestEffort(() => trackTree(env, input.session_id ?? ""));
+	// The workspace repositories that may loosen the guard: those there now, once per session.
+	// Only a new session takes it: a resumed or compacted one that lost it stays strict (no repository loosens anything).
+	if (input.source === undefined || input.source === "startup" || input.source === "clear") bestEffort(() => takeBaseline(env, input.session_id ?? ""));
 	// Plugin: <root>/skills. Project install: skills sit in .claude/skills next to .claude/eng-kit.
 	const file = [join(env.root, "skills"), join(env.root, "..", "skills")]
 		.map((dir) => join(dir, "using-skills", "SKILL.md"))
@@ -139,13 +144,41 @@ ${body}
 	return { output: { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext } } };
 }
 
+/** Stop's task-file reminders stop visiting workspace repositories after this long (the hook timeout is 10 s). */
+const TASK_FILE_BUDGET_MS = 3000;
+
 /** A PreToolUse that has already spent this long takes no snapshot: the decision must arrive within the hook timeout. */
 const SNAPSHOT_BUDGET_MS = 2000;
 
 function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	const started = Date.now();
-	const { config, warnings } = loadGuardConfig(env.projectDir);
+	const warnings: string[] = [];
 	const tool = input.tool_name ?? "";
+	// A read is judged by the session folder's secret rules alone: the session state and the repositories only matter to
+	// shell calls and edits.
+	if (tool === "Read" || tool === "Grep") {
+		const loaded = loadGuardConfig(env.projectDir);
+		const path = String(input.tool_input?.file_path ?? input.tool_input?.path ?? "");
+		// The secret rules see the path as written and where it really leads (a symlink to `.env`).
+		const target = resolve(input.cwd || env.projectDir, path);
+		const read = path ? strictest(checkPath("read", target, env.projectDir, loaded.config), checkPath("read", canonical(target), env.projectDir, loaded.config)) : { action: "allow" as const };
+		return respondTo(read, loaded.warnings);
+	}
+	if (!SHELL_TOOLS.has(tool) && !EDIT_TOOLS.has(tool)) return {};
+	// No baseline (lost, unwritable, never taken): no repository loosens anything or pushes silently (lib/scope.ts).
+	const session = loadState(env.stateDir, input.session_id ?? "");
+	// The session folder's config and, in a workspace, each repository's own (lib/scope.ts).
+	const scope = guardScope(
+		env.projectDir,
+		(root) => {
+			const loaded = loadGuardConfig(root, root === env.projectDir ? GUARD_FILE : `${relative(env.projectDir, root)}/${GUARD_FILE}`);
+			warnings.push(...loaded.warnings);
+			return loaded.config;
+		},
+		GUARD_FILE,
+		session.guardBaseline ?? {},
+	);
+	const config = scope.config;
 	const args = input.tool_input ?? {};
 	const cwd = input.cwd || env.projectDir;
 	let decision: GuardDecision;
@@ -161,26 +194,25 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 			: tool === "PowerShell"
 				? { action: "block" as const, reason: "The reviewer is read-only: its PowerShell calls aren't checked, so they are refused. Use Bash for inspection commands." }
 				: checkReviewerCommand(command, cwd, resolveVerifyCommands(env.projectDir, { detect: false }).commands, env.root);
-		decision = reviewer ?? checkCommand(command, env.projectDir, config, cwd);
+		const powershell = tool === "PowerShell";
+		decision = reviewer ?? checkCommand(command, env.projectDir, scopedConfig(command, cwd, scope, powershell), cwd, process.env, (target) => scopedPath("write", target, scope));
 		// The implementer hands its commit back; the coordinator pushes after review.
 		if (decision.action === "allow" && IMPLEMENTER.test(input.agent_type ?? "") && ownBranchPush(command, cwd, process.env, env.projectDir)) {
 			decision = { action: "confirm", reason: "The implementer doesn't push; the coordinator does after review." };
 		}
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
-		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs) ?? decision;
-		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, ".claude/guard.json") ?? decision;
+		// A workspace repository's own task-file folders, else the session folder's.
+		const workspace = scope.repos.size === 0 ? undefined : { cwd, repos: [...scope.repos.keys()].map((dir) => basename(dir)), dirsFor: (repo: string) => scope.repos.get(repo)?.workDocs ?? workDocs, powershell, slow: session.slowParts };
+		if (decision.action !== "block") decision = checkWorkDocs(command, env.projectDir, workDocs, workspace) ?? decision;
+		if (decision.action !== "block") decision = checkGateFiles(command, cwd, env.projectDir, GUARD_FILE, scope.kind !== "repo", env.stateDir) ?? decision;
 		if (decision.action !== "block" && config.reviewGate !== false) {
-			const options = { missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir, { detect: false }).commands };
+			const waived = (checkout: string) => scope.repos.get(repoIn(scope, checkout) ?? "")?.reviewGate === false;
+			const options = { missing: "block" as const, waiver: '"reviewGate": false in .claude/guard.json', verify: resolveVerifyCommands(env.projectDir, { detect: false }).commands, waived, workspace: scope.repos.size > 0, powershell, repoOf: (dir: string) => repoIn(scope, dir) };
 			decision = checkReview(command, cwd, env.projectDir, options, env.reviewsRoot) ?? decision;
 		}
-	} else if (tool === "Read" || tool === "Grep") {
-		const path = String(args.file_path ?? args.path ?? "");
-		decision = path ? checkPath("read", resolve(cwd, path), env.projectDir, config) : { action: "allow" };
-	} else if (EDIT_TOOLS.has(tool)) {
-		const path = String(args.file_path ?? args.notebook_path ?? "");
-		decision = path ? checkPath(tool === "Write" ? "write" : "edit", resolve(cwd, path), env.projectDir, config) : { action: "allow" };
 	} else {
-		return {};
+		const path = String(args.file_path ?? args.notebook_path ?? "");
+		decision = !path ? { action: "allow" } : inState(env, resolve(cwd, path)) ? STATE_WRITE : scopedPath(tool === "Write" ? "write" : "edit", resolve(cwd, path), scope);
 	}
 
 	// The working tree before a shell call the guard allows, so its result can name what this call changed. Only
@@ -189,8 +221,12 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && Date.now() - started < SNAPSHOT_BUDGET_MS) {
 		bestEffort(() => trackTree(env, input.session_id ?? "", input.tool_use_id ?? ""));
 	}
+	return respondTo(decision, warnings);
+}
+
+/** PreToolUse's answer: no opinion on an allowed call (Claude Code's own permission rules still apply), else deny or ask. */
+function respondTo(decision: GuardDecision, warnings: string[]): HookResult {
 	const warning = warnings.length > 0 ? warnings.join("\n") : undefined;
-	// No opinion on allowed calls: Claude Code's own permission rules still apply.
 	if (decision.action === "allow") return { warning };
 	return {
 		warning,
@@ -204,7 +240,30 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	};
 }
 
-function loadGuardConfig(projectDir: string): { config: GuardConfig; warnings: string[] } {
+const GUARD_FILE = ".claude/guard.json";
+
+const STATE_WRITE: GuardDecision = { action: "block", reason: "The kit's session state is written only by its hooks." };
+
+function inState(env: HookEnv, path: string): boolean {
+	return [[env.stateDir, path], [canonical(env.stateDir), canonical(path)]].some(([dir, p]) => {
+		const rel = relative(dir!, p!);
+		return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+	});
+}
+
+/** Takes the session's guard baseline (lib/scope.ts) at SessionStart, unless the session already has one. */
+function takeBaseline(env: HookEnv, sessionId: string): void {
+	const state = loadState(env.stateDir, sessionId);
+	if (!state.guardBaseline) saveState(env.stateDir, sessionId, { ...state, guardBaseline: guardBaseline(env.projectDir, GUARD_FILE, (root) => loadGuardConfig(root).config) });
+}
+
+/** The baseline SessionStart took. None (lost, unwritable, never taken): no repository loosens anything or pushes silently. */
+function sessionBaseline(env: HookEnv, sessionId: string): GuardBaseline {
+	return loadState(env.stateDir, sessionId).guardBaseline ?? {};
+}
+
+/** A root's guard config; `label` names its file in warnings. */
+function loadGuardConfig(projectDir: string, label = GUARD_FILE): { config: GuardConfig; warnings: string[] } {
 	const raw = readProjectJson<GuardConfig>(projectDir, "guard");
 	const warnings = raw.error ? [`Guard config ignored: ${raw.error}`] : [];
 	const regexes = (value: unknown) =>
@@ -213,12 +272,13 @@ function loadGuardConfig(projectDir: string): { config: GuardConfig; warnings: s
 				new RegExp(source);
 				return true;
 			} catch {
-				warnings.push(`Guard: invalid regex ignored in .claude/guard.json: ${source}`);
+				warnings.push(`Guard: invalid regex ignored in ${label}: ${source}`);
 				return false;
 			}
 		});
 	return {
 		config: {
+			label,
 			block: regexes(raw.block),
 			confirm: regexes(raw.confirm),
 			allow: regexes(raw.allow),
@@ -570,24 +630,25 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 		}
 	}
 	const dirs = loadGuardConfig(env.projectDir).config.workDocs ?? WORK_DOC_DIRS;
-	if (!state.approvalReminded) {
-		const files = uncommittedApproved(env.projectDir, dirs);
-		if (files.length > 0) {
-			next.approvalReminded = true;
-			reasons.push(approvalReminder(files, onBaseBranch(env.projectDir)));
-		}
+	// A workspace repository's own task-file folders, else the session folder's.
+	// A repository's own folders only from the config the session started with (lib/scope.ts).
+	const scope = guardScope(env.projectDir, (root) => loadGuardConfig(root).config, GUARD_FILE, sessionBaseline(env, sessionId));
+	const dirsFor = (root: string) => (root === env.projectDir ? dirs : (scope.repos.get(root)?.workDocs ?? dirs));
+	const due = taskFileReminders(env.projectDir, dirsFor, Date.now() + TASK_FILE_BUDGET_MS, { approved: !state.approvalReminded, finished: !state.workDocsReminded }, state.slowParts);
+	if (due.approved.length > 0) {
+		next.approvalReminded = true;
+		reasons.push(approvalReminder(due.approved, due.onBase, due.workspace));
 	}
-	if (!state.workDocsReminded) {
-		const files = finishedWorkDocs(env.projectDir, dirs);
-		if (files.length > 0) {
-			next.workDocsReminded = true;
-			reasons.push(workDocsReminder(files));
-		}
+	if (due.finished.length > 0) {
+		next.workDocsReminded = true;
+		reasons.push(workDocsReminder(due.finished));
 	}
-	if (reasons.length === 0 && !systemMessage) return {};
+	const warning = taskFileWarning(due.skipped);
+	const warned = warning ? { warning } : {};
+	if (reasons.length === 0 && !systemMessage) return warned;
 	saveState(env.stateDir, sessionId, next);
-	if (reasons.length === 0) return { output: { systemMessage } };
-	return { output: { decision: "block", reason: reasons.join("\n\n"), ...(systemMessage ? { systemMessage } : {}) } };
+	if (reasons.length === 0) return { ...warned, output: { systemMessage } };
+	return { ...warned, output: { decision: "block", reason: reasons.join("\n\n"), ...(systemMessage ? { systemMessage } : {}) } };
 }
 
 /**
