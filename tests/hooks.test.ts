@@ -895,21 +895,18 @@ test("verify gate: background runs are not counted when they start", () => {
 	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
 });
 
-const noop = () => {};
 /**
  * `setupGit` with an edit made, and the kit's verify script launched through PreToolUse and PostToolUse; with
- * `during`, the script has written its start record by the time Claude Code reports the call.
+ * `startedFirst`, the script has written its start record by the time Claude Code reports the call.
  */
-function launchedVerify(input: Record<string, unknown> = { run_in_background: true }, during = noop) {
+function launchedVerify(input: Record<string, unknown> = { run_in_background: true }, startedFirst = false) {
 	const ctx = setupGit();
 	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
 	ctx.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
 	const command = `node "${join(root, "scripts", "verify.ts")}"`;
 	const commands = ["npm test", "npm run typecheck"];
 	ctx.call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command, ...input }, tool_use_id: "toolu_verify" });
-	// What the script wrote by the time Claude Code reports the call (`during`, given the context it needs).
-	const startedNow = () => writeRun(ctx.projectDir, { running: true, pid: process.pid, startedAt: Date.now(), commands }, ctx.env.runsRoot);
-	if (during !== noop) startedNow();
+	if (startedFirst) writeRun(ctx.projectDir, { running: true, pid: process.pid, startedAt: Date.now(), commands }, ctx.env.runsRoot);
 	ctx.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command, ...input }, tool_use_id: "toolu_verify" });
 	const finished = (fields: Partial<{ ok: boolean; commands: string[]; startedAt: number; finishedAt: number }> = {}) =>
 		writeRun(ctx.projectDir, { ok: true, commands, startedAt: Date.now(), finishedAt: Date.now(), ...fields }, ctx.env.runsRoot);
@@ -918,10 +915,10 @@ function launchedVerify(input: Record<string, unknown> = { run_in_background: tr
 	return { ...ctx, finished, started, stop };
 }
 
-/** Moves the launch a second back, so a record can start after it and still before a later edit. */
+/** Moves the launch, and the setup's edit before it, a second back, so a record can start after both and before a later change. */
 function pinLaunch(launched: ReturnType<typeof launchedVerify>): number {
 	const launch = Date.now() - 1000;
-	saveState(launched.env.stateDir, "s1", { ...loadState(launched.env.stateDir, "s1"), verifyLaunch: launch });
+	saveState(launched.env.stateDir, "s1", { ...loadState(launched.env.stateDir, "s1"), verifyLaunch: launch, editedAt: launch - 1 });
 	return launch;
 }
 
@@ -932,13 +929,12 @@ test("verify gate: a background verify run this session launched counts when it 
 });
 
 test("verify gate: a verify call moved to the background counts when it finishes green, at Stop or the next shell call", () => {
-	const moved = () => {};
-	const atStop = launchedVerify({}, moved);
+	const atStop = launchedVerify({}, true);
 	assert.equal(loadState(atStop.env.stateDir, "s1").unverified, true, "its result, reported while the run goes on, proves nothing");
 	atStop.finished();
 	assert.equal(atStop.stop(), undefined, "Stop settles it");
 
-	const atCall = launchedVerify({}, moved);
+	const atCall = launchedVerify({}, true);
 	atCall.finished();
 	atCall.bash("ls");
 	assert.equal(loadState(atCall.env.stateDir, "s1").unverified, false, "the next shell call settles it");
@@ -950,6 +946,7 @@ test("verify gate: a launched run that failed, ran other commands or started too
 		["other commands", (l) => l.finished({ commands: ["npm test"] })],
 		["finished before the launch", (l) => l.finished({ startedAt: Date.now() - 60_000, finishedAt: Date.now() - 30_000 })],
 		["started before the last edit", (l) => {
+			// With no edit after `pinLaunch`, this record counts (see the control in the next test).
 			const launch = pinLaunch(l);
 			l.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/b.ts" } });
 			l.finished({ startedAt: launch + 1 });
@@ -964,6 +961,10 @@ test("verify gate: a launched run that failed, ran other commands or started too
 });
 
 test("verify gate: a change after a launched run started keeps the workspace unverified", () => {
+	const control = launchedVerify();
+	control.finished({ startedAt: pinLaunch(control) + 1 });
+	assert.equal(control.stop(), undefined, "the same run with no change after its start counts");
+
 	const edited = launchedVerify();
 	const launch = pinLaunch(edited);
 	edited.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/b.ts" } });
@@ -996,6 +997,16 @@ test("verify gate: a launch whose run died, or that never started, no longer hol
 	assert.equal(stale.stop()?.decision, "block", "no record two minutes after the launch");
 });
 
+test("verify gate: a background verify call reported as failed doesn't hold Stop", () => {
+	const { call } = setupGit();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	const tool_input = { command: `node "${join(root, "scripts", "verify.ts")}"`, run_in_background: true };
+	call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input, tool_use_id: "toolu_failed" });
+	call({ hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_input, tool_use_id: "toolu_failed" });
+	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
+});
+
 test("verify gate: a verify call Claude Code never ran doesn't hold Stop", () => {
 	const { call } = setupGit();
 	call({ hook_event_name: "SessionStart", source: "startup" });
@@ -1012,6 +1023,8 @@ test("verify gate: a start record that can't be this session's run doesn't hold 
 		["a start in the future", (now) => ({ pid: process.pid, startedAt: now + 60_000 })],
 		["pid 0", (now) => ({ pid: 0, startedAt: now })],
 		["a negative pid", (now) => ({ pid: -1, startedAt: now })],
+		// The script runs as the hook's user; a process it may not signal (root's pid 1) is someone else's.
+		...(process.platform === "win32" || process.getuid?.() === 0 ? [] : [["another user's process", (now: number) => ({ pid: 1, startedAt: now })] as [string, (now: number) => { pid: number; startedAt: number }]]),
 	];
 	for (const [name, make] of records) {
 		const launched = launchedVerify();

@@ -337,8 +337,10 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const tracked = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt, powershell: tool === "PowerShell" });
 	const { marked } = tracked;
 	// A verify call reported in the foreground has ended, unless its run wrote a start and goes on in the background.
-	const ended = args.run_in_background !== true && runsVerifyScript(shell, env.root, input.cwd || env.projectDir);
-	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, input.tool_use_id), ended);
+	const verifyCall = runsVerifyScript(shell, env.root, input.cwd || env.projectDir);
+	const ended = args.run_in_background !== true && verifyCall;
+	// Only a verify call that started counts as a launch; a failed report (a background task that didn't start) doesn't.
+	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, !failed && verifyCall ? input.tool_use_id : undefined), ended);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 	// A call that changed files proves nothing about them, whatever checks it also ran.
