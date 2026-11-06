@@ -2,7 +2,7 @@
 
 ## 0.35.1
 
-- **Docs for people are in English by default.** using-skills' language line read "docs for people the user requests in their language", which could pass for any doc meant for people. It now says the agent talks in the user's language and writes files in English, docs for people included; another language only when the user asks for it. publishing-documents says the same for a report or proposal and its `lang`, and ARCHITECTURE's principle 6 is reworded to match. The `docs-language` eval also asks for a support note without naming a language: with the kit it was English in 3 of 3 runs before and after the rewording, without the kit in 0 of 3, so the rewording removes an ambiguity rather than a measured failure.
+- **Docs for people are in English by default.** using-skills' language line read "docs for people the user requests in their language", which could pass for any doc meant for people. It now says the agent talks in the user's language and writes files in English, docs for people included; a doc for people is in another language only when the user explicitly asks for one. publishing-documents says the same for a report or proposal and its `lang`, ARCHITECTURE's principle 6 and the Russian walkthrough are reworded to match. The `docs-language` eval also asks for a support note without naming a language: with the kit it was English in 3 of 3 runs before and after the rewording, without the kit in 0 of 3, so the rewording removes an ambiguity rather than a measured failure.
 
 ## 0.35.0
 

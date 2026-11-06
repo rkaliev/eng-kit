@@ -264,6 +264,7 @@ A probe for Markdown the code reads (after a Yes, only `docs/help.md` changed, w
 | the support note names the dead-letter queue | 3/3 | 3/3 | 6/6 |
 | the support note has no Cyrillic | 3/3 | 3/3 | 0/6 |
 | the new record has no Cyrillic | 3/3 | 3/3 | 0/6 |
+| the commit message has no Cyrillic | 3/3 | 3/3 | 5/6 |
 | the client note is in Russian | 3/3 | 3/3 | 6/6 |
 
-The other graders passed in every run with the kit; without it a commit was made in 4 of 6 runs. Score 1.00 with the kit on both versions, without it 0.67 and 0.71 ($0.69 and $0.67). The old wording already gave English, so the new one is a clarification the eval guards, not a measured fix. The language of the agent's chat reply was not checked: the traces were gone when it was looked for.
+The other graders passed in every run with the kit; without it a commit was made in 4 of 6 runs. Score 1.00 with the kit on both versions, without it 0.67 and 0.71 ($0.69 and $0.67). Like `adr-english`, `support-doc-english` fails any Cyrillic, also a verbatim quote the rule allows; no run had one. The old wording already gave English, so the new one is a clarification the eval guards, not a measured fix. The language of the agent's chat reply was not checked: the traces were gone when it was looked for.

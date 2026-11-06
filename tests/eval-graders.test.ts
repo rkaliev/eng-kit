@@ -124,6 +124,15 @@ test("docs-language: the requested client note is in Russian", () => {
 	assert.doesNotMatch("# Queue\n\nNothing is lost on a restart (RabbitMQ).\n", g);
 });
 
+test("docs-language: the support note, asked for in no language, names the dead-letter queue in English", () => {
+	const written = grader("docs-language/graders/support-doc-written.md");
+	for (const named of ["a dead-letter queue", "Dead Letter Queue", "the DLQ"]) assert.match(named, written, named);
+	assert.doesNotMatch("the retry queue", written);
+	const english = grader("docs-language/graders/support-doc-english.md");
+	assert.match("# Очередь недоставленных задач\n", english);
+	assert.doesNotMatch("# Dead-letter queue\n\nCheck the DLQ in the RabbitMQ console.\n", english);
+});
+
 test("docs-language: a commit counts only when git recorded one after the scaffold's", () => {
 	const g = grader("docs-language/graders/commit-made.md");
 	assert.doesNotMatch(INITIAL, g, "only the scaffold commit");
