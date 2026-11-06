@@ -13,9 +13,16 @@ import { writeRun } from "../lib/state.ts";
 import { runVerification } from "../lib/verify-run.ts";
 
 const cwd = resolve(process.argv[2] ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
+const startedAt = Date.now();
+try {
+	// A run in the background is credited from the record that follows; while it runs, the gate waits for it.
+	writeRun(cwd, { running: true, pid: process.pid, startedAt, commands: resolveVerifyCommands(cwd).commands });
+} catch {
+	// the gate then treats the run as unknown
+}
 const { ok, report } = runVerification(cwd);
 try {
-	writeRun(cwd, { ok, commands: resolveVerifyCommands(cwd).commands, finishedAt: Date.now() });
+	writeRun(cwd, { ok, commands: resolveVerifyCommands(cwd).commands, finishedAt: Date.now(), startedAt });
 } catch {
 	// the gate falls back to the exit code of an unpiped run
 }

@@ -8,7 +8,7 @@ import { slowGit } from "./slow-git.ts";
 import { BOOTSTRAP_MARKER, handle, respond, runsVerifyScript, type HookEnv, type HookInput } from "../lib/hooks.ts";
 import { readReports, readReviews, recordVerdict, reviewsDir } from "../lib/reviews.ts";
 import { branchSummary } from "../lib/usage.ts";
-import { loadState, readRun, writeRun } from "../lib/state.ts";
+import { loadState, readRun, readRunStart, runFile, writeRun } from "../lib/state.ts";
 
 /** Temp folders this file makes, removed when its tests end. */
 const made: string[] = [];
@@ -819,6 +819,33 @@ test("verify.ts runs the commands and exits with their result", () => {
 	assert.match(fail.stdout, /FAIL .*exit 3/);
 	assert.match(fail.stdout, /SKIP  echo never/);
 	assert.match(fail.stdout, /boom/);
+});
+
+test("verify.ts records its start before running and its start time when done", () => {
+	const project = temp("hooks-project-");
+	const record = JSON.stringify(runFile(project));
+	mkdirSync(join(project, ".claude"));
+	writeFileSync(join(project, ".claude", "verify.json"), JSON.stringify({ commands: [`node -e "console.log(require('fs').readFileSync(${record.replaceAll('"', '\\"')}, 'utf8')); process.exit(1)"`] }));
+	const out = spawnSync(process.execPath, [join(root, "scripts", "verify.ts"), project], { encoding: "utf8" });
+	assert.equal(out.status, 1, out.stdout);
+	assert.match(out.stdout, /"running":true/);
+	assert.match(out.stdout, /"pid":\d+/);
+	const done = readRun(project)!;
+	assert.equal(done.ok, false);
+	assert.equal(typeof done.startedAt, "number");
+	assert.ok(done.startedAt! <= done.finishedAt);
+	rmSync(runFile(project), { force: true });
+});
+
+test("readRun ignores a run still in progress; an old record loads without a start", () => {
+	const { projectDir, env } = setup();
+	writeRun(projectDir, { running: true, pid: 4242, startedAt: 1000, commands: ["npm test"] }, env.runsRoot);
+	assert.equal(readRun(projectDir, env.runsRoot), undefined);
+	assert.deepEqual(readRunStart(projectDir, env.runsRoot), { running: true, pid: 4242, startedAt: 1000, commands: ["npm test"] });
+
+	writeRun(projectDir, { ok: true, commands: ["npm test"], finishedAt: 2000 }, env.runsRoot);
+	assert.deepEqual(readRun(projectDir, env.runsRoot), { ok: true, commands: ["npm test"], finishedAt: 2000, startedAt: undefined });
+	assert.equal(readRunStart(projectDir, env.runsRoot), undefined);
 });
 
 test("verify gate: a piped verify run counts when the script recorded a passing run", () => {
