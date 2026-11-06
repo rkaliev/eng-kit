@@ -21,7 +21,7 @@ import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordR
 import { canonical } from "./repos.ts";
 import { guardBaseline, guardScope, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
-import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
+import { loadState, pruneStates, readRun, readRunStart, saveState, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 import { callChanges, ignoredPath, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
@@ -221,6 +221,11 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && Date.now() - started < SNAPSHOT_BUDGET_MS) {
 		bestEffort(() => trackTree(env, input.session_id ?? "", input.tool_use_id ?? ""));
 	}
+	// A run of the verify script may end in the background; its record then counts only for the launch noted here.
+	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && runsVerifyScript(String(args.command ?? ""), env.root, cwd)) {
+		const sessionId = input.session_id ?? "";
+		bestEffort(() => saveState(env.stateDir, sessionId, { ...loadState(env.stateDir, sessionId), verifyLaunch: Date.now() }));
+	}
 	return respondTo(decision, warnings);
 }
 
@@ -326,7 +331,11 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const scriptPassed = !!scriptRun?.ok && Date.now() - scriptRun.finishedAt < RUN_MAX_AGE_MS;
 	const exempt =
 		!failed && verificationOnly(shell, commands, (words) => scriptPassed && isKitScript(words, env.root, input.cwd || env.projectDir));
-	const { state, marked } = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt, powershell: tool === "PowerShell" });
+	const tracked = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt, powershell: tool === "PowerShell" });
+	const { marked } = tracked;
+	// A verify call reported in the foreground has ended, unless its run wrote a start and goes on in the background.
+	const ended = args.run_in_background !== true && runsVerifyScript(shell, env.root, input.cwd || env.projectDir);
+	const { state } = settleLaunch(env, sessionId, tracked.state, ended);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 	// A call that changed files proves nothing about them, whatever checks it also ran.
@@ -344,8 +353,9 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 			if (run.ok && fresh && sameCommands(run.commands, commands)) clear();
 			return {};
 		}
-		// No record (it could not be written): trust only an unpiped exit code.
-		if (!failed && !tokenize(shell).includes("|")) clear();
+		// No record (it could not be written): trust only an unpiped exit code. A run still going (Claude Code moved the
+		// call to the background) has no exit code yet; its result is settled from the record (`settleLaunch`).
+		if (!failed && !tokenize(shell).includes("|") && !readRunStart(env.projectDir, env.runsRoot)) clear();
 		return {};
 	}
 	const ran = commands.filter((c) => commandMatches(shell, c));
@@ -412,6 +422,44 @@ function markEdited(state: SessionState, paths: string[]): SessionState {
 	return { ...state, unverified: true, green: [], edited, editedAt: Date.now() };
 }
 const RUN_MAX_AGE_MS = 15 * 60 * 1000;
+/** How long a launch may go without the script's start record before it counts as never started. */
+const LAUNCH_GRACE_MS = 60_000;
+
+/**
+ * Settles this session's launch of the verify script by the script's record: a finished run that passed the configured
+ * commands, started at or after the launch and after the last counted change, clears the gate; any other finished run
+ * drops the launch. A run whose start record names a live process, or a launch younger than `LAUNCH_GRACE_MS` with no
+ * record yet (unless the call already `ended`), is `running`. Anything else drops the launch, so a run that died can't
+ * hold Stop silent.
+ */
+function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ended = false): { state: SessionState; running: boolean } {
+	const launch = state.verifyLaunch;
+	if (launch === undefined) return { state, running: false };
+	const settled = (next: SessionState) => {
+		const { verifyLaunch: _, ...rest } = next;
+		saveState(env.stateDir, sessionId, rest);
+		return { state: rest, running: false };
+	};
+	const run = readRun(env.projectDir, env.runsRoot);
+	if (run && run.finishedAt >= launch) {
+		const { commands } = resolveVerifyCommands(env.projectDir);
+		const passed = run.ok && run.startedAt !== undefined && run.startedAt >= launch && run.startedAt >= state.editedAt && commands.length > 0 && sameCommands(run.commands, commands);
+		return settled(passed ? { ...state, unverified: false, green: [...commands], edited: [] } : state);
+	}
+	const start = readRunStart(env.projectDir, env.runsRoot);
+	if (start && start.startedAt >= launch ? alive(start.pid) : !ended && Date.now() - launch < LAUNCH_GRACE_MS) return { state, running: true };
+	return settled(state);
+}
+
+/** Whether a process exists; one this user may not signal exists too. */
+function alive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
 
 function sameCommands(a: string[], b: string[]): boolean {
 	return a.length === b.length && a.every((c, i) => c === b[i]);
@@ -602,13 +650,14 @@ function stop(input: HookInput, env: HookEnv): HookResult {
 function stopGates(input: HookInput, env: HookEnv): HookResult {
 	if (input.stop_hook_active) return {};
 	const sessionId = input.session_id ?? "";
-	// A change no command reported (a background process, a subagent's script) is found here.
-	const { state } = trackTree(env, sessionId);
+	// A change no command reported (a background process, a subagent's script) is found here, before a run is settled.
+	const { state, running } = settleLaunch(env, sessionId, trackTree(env, sessionId).state);
 	const reasons: string[] = [];
 	let systemMessage: string | undefined;
 	const next = { ...state };
 
-	if (state.unverified && !state.reminded) {
+	// A verification run still going will report back; asking for another would only run the checks twice.
+	if (state.unverified && !state.reminded && !running) {
 		const { commands, error } = resolveVerifyCommands(env.projectDir);
 		if (error) {
 			next.reminded = true;

@@ -33,6 +33,8 @@ export interface SessionState {
 	pending: Record<string, Tree>;
 	/** The workspace repositories as the session started with them (lib/scope.ts), taken at SessionStart. */
 	guardBaseline?: GuardBaseline;
+	/** When this session last launched the kit's verify script and its result hasn't been settled yet (ms since epoch). */
+	verifyLaunch?: number;
 }
 
 /** What the verify script records about its own run, so a piped call still proves the result. */
@@ -84,6 +86,7 @@ export function loadState(dir: string, sessionId: string): SessionState {
 					? Object.fromEntries(Object.entries(raw.pending).filter((e): e is [string, Tree] => isTree(e[1])))
 					: {},
 			guardBaseline: isGuardBaseline(raw.guardBaseline) ? raw.guardBaseline : undefined,
+			verifyLaunch: typeof raw.verifyLaunch === "number" ? raw.verifyLaunch : undefined,
 		};
 	} catch {
 		return { ...EMPTY, green: [], edited: [], slowParts: [], pending: {} };

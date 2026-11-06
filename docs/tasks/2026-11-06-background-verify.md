@@ -1,6 +1,6 @@
 # The verify gate credits a verification run that finished in the background
 
-Status: plan approved (2026-11-06)
+Status: in progress
 Base: 4d629e2
 Links: None
 
@@ -111,33 +111,33 @@ Ships as eng-kit 0.36.0. A session started on an older version reads a newer rec
 **Files:** Modify `lib/state.ts`, `scripts/verify.ts` · Test `tests/hooks.test.ts`
 **Interfaces:** Produces `RunRecord { ok: boolean; commands: string[]; finishedAt: number; startedAt?: number }`, `RunStart { running: true; pid: number; startedAt: number; commands: string[] }`, `writeRun(projectDir, record: RunRecord | RunStart, root?)`, `readRun(...)`: `RunRecord | undefined` (finished only), `readRunStart(projectDir, root?)`: `RunStart | undefined`.
 
-- [ ] Write failing tests: `verify.ts records its start before running and its start time when done`: verify.json with one command that prints `readFileSync(runFile(projectDir))` and exits 1; assert stdout matches `"running":true` and `"pid":<number>`; then `readRun(projectDir)` has `startedAt` ≤ `finishedAt` and `ok: false`. `readRun ignores a run still in progress; an old record loads without a start`: `writeRun` a `RunStart` → `readRun` is `undefined` and `readRunStart` returns it; a record `{ok, commands, finishedAt}` → `readRun` returns it with `startedAt` undefined and `readRunStart` is `undefined`. Add a stub `readRunStart` returning `undefined`.
-- [ ] Run `node --test --test-name-pattern="records its start|ignores a run still" tests/hooks.test.ts` → expect FAIL on the `"running":true` match and on `readRunStart` returning `undefined`.
-- [ ] Implement in `lib/state.ts`; `verify.ts` takes `startedAt = Date.now()`, writes `{ running: true, pid: process.pid, startedAt, commands }` (in its own try/catch) before `runVerification`, and adds `startedAt` to the finished record.
-- [ ] Run the two tests → PASS, then `npm test` and `npm run typecheck` → all pass.
-- [ ] Commit `feat(verify): record when a verification run starts`.
+- [x] Write failing tests: `verify.ts records its start before running and its start time when done`: verify.json with one command that prints `readFileSync(runFile(projectDir))` and exits 1; assert stdout matches `"running":true` and `"pid":<number>`; then `readRun(projectDir)` has `startedAt` ≤ `finishedAt` and `ok: false`. `readRun ignores a run still in progress; an old record loads without a start`: `writeRun` a `RunStart` → `readRun` is `undefined` and `readRunStart` returns it; a record `{ok, commands, finishedAt}` → `readRun` returns it with `startedAt` undefined and `readRunStart` is `undefined`. Add a stub `readRunStart` returning `undefined`.
+- [x] Run `node --test --test-name-pattern="records its start|ignores a run still" tests/hooks.test.ts` → expect FAIL on the `"running":true` match and on `readRunStart` returning `undefined`.
+- [x] Implement in `lib/state.ts`; `verify.ts` takes `startedAt = Date.now()`, writes `{ running: true, pid: process.pid, startedAt, commands }` (in its own try/catch) before `runVerification`, and adds `startedAt` to the finished record.
+- [x] Run the two tests → PASS, then `npm test` and `npm run typecheck` → all pass.
+- [x] Commit `feat(verify): record when a verification run starts`.
 
 ### Task 2: Credit a background run this session launched
 
 **Files:** Modify `lib/state.ts` (`verifyLaunch?: number` in `SessionState`, loaded only when a number), `lib/hooks.ts` · Test `tests/hooks.test.ts`
 **Interfaces:** Consumes Task 1's records · Produces `settleLaunch(env: HookEnv, sessionId: string, state: SessionState): { state: SessionState; running: boolean }` (module-private), constant `LAUNCH_GRACE_MS = 60_000`.
 
-- [ ] Write failing test `verify gate: a background verify run this session launched counts when it finishes green` (criterion 1, the red reproduction): Edit → PreToolUse Bash `node "<root>/scripts/verify.ts"` with `run_in_background: true` → PostToolUse of it → `writeRun` a finished record `{ok: true, commands: ["npm test", "npm run typecheck"], startedAt: now, finishedAt: now}` → Stop output is `undefined`. Add a stub `settleLaunch` returning `{ state, running: false }`.
-- [ ] Run `node --test --test-name-pattern="launched counts" tests/hooks.test.ts` → expect FAIL: Stop returns `decision: "block"`.
-- [ ] Write the other tests, each from Edit → PreToolUse launch:
+- [x] Write failing test `verify gate: a background verify run this session launched counts when it finishes green` (criterion 1, the red reproduction): Edit → PreToolUse Bash `node "<root>/scripts/verify.ts"` with `run_in_background: true` → PostToolUse of it → `writeRun` a finished record `{ok: true, commands: ["npm test", "npm run typecheck"], startedAt: now, finishedAt: now}` → Stop output is `undefined`. Add a stub `settleLaunch` returning `{ state, running: false }`.
+- [x] Run `node --test --test-name-pattern="launched counts" tests/hooks.test.ts` → expect FAIL: Stop returns `decision: "block"`.
+- [x] Write the other tests, each from Edit → PreToolUse launch:
   - criterion 2: the same with no `run_in_background` and a PostToolUse whose result names no outcome → Stop `undefined`; also a later PostToolUse Bash `ls` clears it before Stop;
   - criterion 3, one assertion each, Stop `decision: "block"`: `ok: false`; commands `["npm test"]`; `finishedAt` and `startedAt` before the launch; `startedAt` before the last edit (Edit after the launch, record started before it);
   - criterion 4: Edit after the record's `startedAt` but before Stop → block; a file written into the git repo between the record and Stop (found by Stop's snapshot) → block;
   - criterion 5: `writeRun` a `RunStart` with `pid: process.pid` → Stop `undefined` and `reminded` stays false; then a finished green record → Stop `undefined` and state `unverified: false`;
   - criterion 6: `RunStart` with the pid of an exited `spawnSync(process.execPath, ["-e", ""])` → Stop block; a launch with no record saved 120 s in the past (`saveState` with `verifyLaunch: Date.now() - 120_000`) → Stop block;
   - criterion 7: no PreToolUse launch, a green finished record after the edit → Stop block (the background call's PostToolUse alone credits nothing).
-- [ ] Implement:
+- [x] Implement:
   - PreToolUse: after the snapshot, when the decision is allow and `runsVerifyScript(command, env.root, cwd)`, reload the session state and save it with `verifyLaunch: Date.now()`;
   - `settleLaunch`: no launch → unchanged. A finished record with `finishedAt >= launch`: credit (`unverified: false`, `green: commands`, `edited: []`) only when `ok`, `startedAt !== undefined`, `startedAt >= launch`, `startedAt >= state.editedAt`, commands non-empty and `sameCommands`; either way drop the launch. Else a `RunStart` with `startedAt >= launch` whose pid is alive (`process.kill(pid, 0)`, `EPERM` counts as alive) → `running: true`. Else a launch younger than `LAUNCH_GRACE_MS` → `running: true`. Else drop the launch. Save only when the state changed;
   - PostToolUse (shell): right after `trackTree`, `settleLaunch` on its state and continue with the result;
   - Stop: after `trackTree`, `settleLaunch`; when `running`, skip the verify reminder (don't set `reminded`); the task-file reminders run as before.
-- [ ] Run the new tests → PASS, then `npm test` (existing verify-gate tests unchanged, criterion 8) and `npm run typecheck` → all pass.
-- [ ] Commit `fix(verify-gate): count a verification run that finished in the background`.
+- [x] Run the new tests → PASS, then `npm test` (existing verify-gate tests unchanged, criterion 8) and `npm run typecheck` → all pass.
+- [x] Commit `fix(verify-gate): count a verification run that finished in the background`.
 
 ### Task 3: Docs, version and live check
 
@@ -151,4 +151,9 @@ Ships as eng-kit 0.36.0. A session started on an older version reads a newer rec
 
 ## Progress
 
-None yet
+- Baseline (4d629e2): `npm test` 686 tests, 675 pass, 11 skipped, 0 fail; `npm run typecheck` clean. Drift: none.
+- Task 1: complete (28fc208..c8a3376, `npm test` → 677 pass, 0 fail, 11 skipped; typecheck clean). Both tests seen failing first: no `"running":true` in the record, `readRunStart` stub `undefined`.
+- Ruling: the moved-to-background test must have the start record written before the call's PostToolUse — the existing PostToolUse fallback "no record → trust an unpiped exit code" credited such a call at once, and with Task 1's start record (which `readRun` ignores) it would have credited every call Claude Code moves to the background — the fallback now also needs no start record — cost if wrong: a script that can't write records falls back to exit codes as before.
+- Ruling: criterion 3 is asserted as "not credited" (`unverified` stays true), not as an immediate Stop block — a record finished before a launch younger than 60 s leaves Stop waiting for the launched run's start record, as the design's grace says — cost if wrong: one silent Stop within a minute of a launch.
+- Ruling: a verify call reported in the foreground (`ended`) gets no 60 s grace when no start record follows its launch — it is over, or its script couldn't write; found by the existing test "a piped verify script keeps its own writes only while its record says it passed" (Stop went silent) — cost if wrong: none beyond today's behaviour for that call.
+- Task 2: complete (c8a3376..HEAD, `npm test` → 684 pass, 0 fail, 11 skipped; typecheck clean). RED seen: launched-green and Stop-waits tests got `block`, the moved-to-background test failed on "its result, reported while the run goes on, proves nothing"; criteria 3, 4 and 7 tests pass before the code by design (they forbid crediting); mutation checks: dropping `startedAt >= editedAt` fails criteria 3 and 4, dropping the pid check fails criterion 6.
