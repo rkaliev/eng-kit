@@ -33,6 +33,10 @@ export interface SessionState {
 	pending: Record<string, Tree>;
 	/** The workspace repositories as the session started with them (lib/scope.ts), taken at SessionStart. */
 	guardBaseline?: GuardBaseline;
+	/** When this session last launched the kit's verify script and its result hasn't been settled yet (ms since epoch). */
+	verifyLaunch?: number;
+	/** A verify call the guard allowed, by `tool_use_id`, not yet reported: it becomes `verifyLaunch` in its own PostToolUse. */
+	verifyCall?: { id: string; at: number };
 }
 
 /** What the verify script records about its own run, so a piped call still proves the result. */
@@ -40,6 +44,16 @@ export interface RunRecord {
 	ok: boolean;
 	commands: string[];
 	finishedAt: number;
+	/** When the run started; absent in a record from before 0.36.0. */
+	startedAt?: number;
+}
+
+/** What the verify script records when a run starts, until it records the result. */
+export interface RunStart {
+	running: true;
+	pid: number;
+	startedAt: number;
+	commands: string[];
 }
 
 const EMPTY: SessionState = { unverified: false, green: [], reminded: false, approvalReminded: false, workDocsReminded: false, edited: [], editedAt: 0, notified: false, gitOff: false, slowParts: [], pending: {} };
@@ -74,6 +88,9 @@ export function loadState(dir: string, sessionId: string): SessionState {
 					? Object.fromEntries(Object.entries(raw.pending).filter((e): e is [string, Tree] => isTree(e[1])))
 					: {},
 			guardBaseline: isGuardBaseline(raw.guardBaseline) ? raw.guardBaseline : undefined,
+			verifyLaunch: typeof raw.verifyLaunch === "number" ? raw.verifyLaunch : undefined,
+			verifyCall:
+				raw.verifyCall && typeof raw.verifyCall.id === "string" && typeof raw.verifyCall.at === "number" ? { id: raw.verifyCall.id, at: raw.verifyCall.at } : undefined,
 		};
 	} catch {
 		return { ...EMPTY, green: [], edited: [], slowParts: [], pending: {} };
@@ -89,7 +106,7 @@ export function runFile(projectDir: string, root = join(tmpdir(), "eng-kit", "ru
 	return join(root, `${createHash("sha1").update(resolve(projectDir)).digest("hex")}.json`);
 }
 
-export function writeRun(projectDir: string, record: RunRecord, root?: string): void {
+export function writeRun(projectDir: string, record: RunRecord | RunStart, root?: string): void {
 	writeAtomic(runFile(projectDir, root), JSON.stringify(record));
 }
 
@@ -97,7 +114,19 @@ export function readRun(projectDir: string, root?: string): RunRecord | undefine
 	try {
 		const raw = JSON.parse(readFileSync(runFile(projectDir, root), "utf8")) as Partial<RunRecord>;
 		if (typeof raw.ok !== "boolean" || typeof raw.finishedAt !== "number" || !Array.isArray(raw.commands)) return undefined;
-		return { ok: raw.ok, finishedAt: raw.finishedAt, commands: raw.commands.filter((c): c is string => typeof c === "string") };
+		const startedAt = typeof raw.startedAt === "number" ? raw.startedAt : undefined;
+		return { ok: raw.ok, finishedAt: raw.finishedAt, commands: raw.commands.filter((c): c is string => typeof c === "string"), startedAt };
+	} catch {
+		return undefined;
+	}
+}
+
+/** The run in progress, if the last record is a start; a finished record is read by `readRun`. */
+export function readRunStart(projectDir: string, root?: string): RunStart | undefined {
+	try {
+		const raw = JSON.parse(readFileSync(runFile(projectDir, root), "utf8")) as Partial<RunStart>;
+		if (raw.running !== true || typeof raw.pid !== "number" || typeof raw.startedAt !== "number" || !Array.isArray(raw.commands)) return undefined;
+		return { running: true, pid: raw.pid, startedAt: raw.startedAt, commands: raw.commands.filter((c): c is string => typeof c === "string") };
 	} catch {
 		return undefined;
 	}

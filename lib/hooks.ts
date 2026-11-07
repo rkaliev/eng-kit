@@ -21,8 +21,9 @@ import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordR
 import { canonical } from "./repos.ts";
 import { guardBaseline, guardScope, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
-import { loadState, pruneStates, readRun, saveState, type SessionState } from "./state.ts";
+import { loadState, pruneStates, readRun, readRunStart, saveState, type RunStart, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
+import { verifyTimeoutSec } from "./verify-run.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
 import { callChanges, ignoredPath, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
@@ -221,6 +222,13 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && Date.now() - started < SNAPSHOT_BUDGET_MS) {
 		bestEffort(() => trackTree(env, input.session_id ?? "", input.tool_use_id ?? ""));
 	}
+	// A run of the verify script may end in the background; its record then counts only for the launch noted here,
+	// once Claude Code reports the call (a permission rule or another hook may still deny it).
+	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && input.tool_use_id && runsVerifyScript(String(args.command ?? ""), env.root, cwd)) {
+		const sessionId = input.session_id ?? "";
+		const call = { id: input.tool_use_id, at: Date.now() };
+		bestEffort(() => saveState(env.stateDir, sessionId, { ...loadState(env.stateDir, sessionId), verifyCall: call }));
+	}
 	return respondTo(decision, warnings);
 }
 
@@ -326,7 +334,13 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const scriptPassed = !!scriptRun?.ok && Date.now() - scriptRun.finishedAt < RUN_MAX_AGE_MS;
 	const exempt =
 		!failed && verificationOnly(shell, commands, (words) => scriptPassed && isKitScript(words, env.root, input.cwd || env.projectDir));
-	const { state, marked } = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt, powershell: tool === "PowerShell" });
+	const tracked = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt, powershell: tool === "PowerShell" });
+	const { marked } = tracked;
+	// A verify call reported in the foreground has ended, unless its run wrote a start and goes on in the background.
+	const isVerifyRun = runsVerifyScript(shell, env.root, input.cwd || env.projectDir);
+	const ended = args.run_in_background !== true && isVerifyRun;
+	// Only a verify call that started counts as a launch; a failed report (a background task that didn't start) doesn't.
+	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, !failed && isVerifyRun ? input.tool_use_id : undefined), ended);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 	// A call that changed files proves nothing about them, whatever checks it also ran.
@@ -335,7 +349,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (!state.unverified) return {};
 	const clear = () => saveState(env.stateDir, sessionId, { ...state, unverified: false, green: [...commands], edited: [] });
 
-	if (runsVerifyScript(shell, env.root, input.cwd || env.projectDir)) {
+	if (isVerifyRun) {
 		if (commands.length === 0) return {};
 		const run = readRun(env.projectDir, env.runsRoot);
 		if (run) {
@@ -344,8 +358,9 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 			if (run.ok && fresh && sameCommands(run.commands, commands)) clear();
 			return {};
 		}
-		// No record (it could not be written): trust only an unpiped exit code.
-		if (!failed && !tokenize(shell).includes("|")) clear();
+		// No record (it could not be written): trust only an unpiped exit code. A run still going (Claude Code moved the
+		// call to the background) has no exit code yet; its result is settled from the record (`settleLaunch`).
+		if (!failed && !tokenize(shell).includes("|") && !readRunStart(env.projectDir, env.runsRoot)) clear();
 		return {};
 	}
 	const ran = commands.filter((c) => commandMatches(shell, c));
@@ -412,6 +427,62 @@ function markEdited(state: SessionState, paths: string[]): SessionState {
 	return { ...state, unverified: true, green: [], edited, editedAt: Date.now() };
 }
 const RUN_MAX_AGE_MS = 15 * 60 * 1000;
+/** How long a launch may go without the script's start record before it counts as never started. */
+const LAUNCH_GRACE_MS = 60_000;
+/** Beyond its commands' timeouts, how long a run may take to start, record and exit. */
+const RUN_MARGIN_MS = 60_000;
+
+/**
+ * Settles this session's launch of the verify script by the script's record: a finished run that passed the configured
+ * commands, started at or after the launch and after the last counted change, clears the gate; any other finished run
+ * drops the launch. A run whose start record can still be going (`runGoing`), or a launch younger than
+ * `LAUNCH_GRACE_MS` with no record yet (unless the call already `ended`), is `running`. Anything else drops the launch, so a run that died can't
+ * hold Stop silent.
+ */
+function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ended = false): { state: SessionState; running: boolean } {
+	const launch = state.verifyLaunch;
+	if (launch === undefined) return { state, running: false };
+	const settled = (next: SessionState) => {
+		const { verifyLaunch: _, ...rest } = next;
+		saveState(env.stateDir, sessionId, rest);
+		return { state: rest, running: false };
+	};
+	const run = readRun(env.projectDir, env.runsRoot);
+	if (run && run.finishedAt >= launch) {
+		const { commands } = resolveVerifyCommands(env.projectDir);
+		const passed = run.ok && run.startedAt !== undefined && run.startedAt >= launch && run.startedAt >= state.editedAt && commands.length > 0 && sameCommands(run.commands, commands);
+		return settled(passed ? { ...state, unverified: false, green: [...commands], edited: [] } : state);
+	}
+	const start = readRunStart(env.projectDir, env.runsRoot);
+	if (start && start.startedAt >= launch ? runGoing(start, env.projectDir) : !ended && Date.now() - launch < LAUNCH_GRACE_MS) return { state, running: true };
+	return settled(state);
+}
+
+/** A verify call's own result makes the launch noted in its PreToolUse this session's launch. */
+function reported(env: HookEnv, sessionId: string, state: SessionState, toolUseId: string | undefined): SessionState {
+	if (!toolUseId || state.verifyCall?.id !== toolUseId) return state;
+	const { verifyCall, ...rest } = state;
+	const next = { ...rest, verifyLaunch: verifyCall.at };
+	saveState(env.stateDir, sessionId, next);
+	return next;
+}
+
+/**
+ * Whether a start record can be a run of this project still going: a process of this user's (the hook's) with that
+ * pid exists, and the record started in the past, within the longest run its commands' timeouts allow.
+ */
+function runGoing(start: RunStart, projectDir: string): boolean {
+	const now = Date.now();
+	const longest = start.commands.length * verifyTimeoutSec(projectDir) * 1000 + RUN_MARGIN_MS;
+	if (!Number.isInteger(start.pid) || start.pid <= 0 || start.startedAt > now || now - start.startedAt > longest) return false;
+	try {
+		process.kill(start.pid, 0);
+		return true;
+	} catch {
+		// EPERM too: the script runs as the hook's user, so a process this user can't signal is someone else's
+		return false;
+	}
+}
 
 function sameCommands(a: string[], b: string[]): boolean {
 	return a.length === b.length && a.every((c, i) => c === b[i]);
@@ -602,13 +673,14 @@ function stop(input: HookInput, env: HookEnv): HookResult {
 function stopGates(input: HookInput, env: HookEnv): HookResult {
 	if (input.stop_hook_active) return {};
 	const sessionId = input.session_id ?? "";
-	// A change no command reported (a background process, a subagent's script) is found here.
-	const { state } = trackTree(env, sessionId);
+	// A change no command reported (a background process, a subagent's script) is found here, before a run is settled.
+	const { state, running } = settleLaunch(env, sessionId, trackTree(env, sessionId).state);
 	const reasons: string[] = [];
 	let systemMessage: string | undefined;
 	const next = { ...state };
 
-	if (state.unverified && !state.reminded) {
+	// A verification run still going will report back; asking for another would only run the checks twice.
+	if (state.unverified && !state.reminded && !running) {
 		const { commands, error } = resolveVerifyCommands(env.projectDir);
 		if (error) {
 			next.reminded = true;
