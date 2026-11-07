@@ -33,6 +33,8 @@ export interface SessionState {
 	pending: Record<string, Tree>;
 	/** The workspace repositories as the session started with them (lib/scope.ts), taken at SessionStart. */
 	guardBaseline?: GuardBaseline;
+	/** Each root's `core.hooksPath` folder (lib/scope.ts `hooksPaths`), taken at SessionStart; writes under it ask. */
+	hooksPaths?: Record<string, string>;
 	/** When this session last launched the kit's verify script and its result hasn't been settled yet (ms since epoch). */
 	verifyLaunch?: number;
 	/** A verify call the guard allowed, by `tool_use_id`, not yet reported: it becomes `verifyLaunch` in its own PostToolUse. */
@@ -88,6 +90,8 @@ export function loadState(dir: string, sessionId: string): SessionState {
 					? Object.fromEntries(Object.entries(raw.pending).filter((e): e is [string, Tree] => isTree(e[1])))
 					: {},
 			guardBaseline: isGuardBaseline(raw.guardBaseline) ? raw.guardBaseline : undefined,
+			hooksPaths:
+				raw.hooksPaths && typeof raw.hooksPaths === "object" && Object.values(raw.hooksPaths).every((v) => typeof v === "string") ? (raw.hooksPaths as Record<string, string>) : undefined,
 			verifyLaunch: typeof raw.verifyLaunch === "number" ? raw.verifyLaunch : undefined,
 			verifyCall:
 				raw.verifyCall && typeof raw.verifyCall.id === "string" && typeof raw.verifyCall.at === "number" ? { id: raw.verifyCall.id, at: raw.verifyCall.at } : undefined,

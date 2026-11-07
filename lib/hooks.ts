@@ -19,7 +19,7 @@ import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands
 import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
 import { canonical } from "./repos.ts";
-import { guardBaseline, guardScope, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
+import { guardBaseline, guardScope, hooksPaths, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
 import { loadState, pruneStates, readRun, readRunStart, saveState, type RunStart, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
@@ -123,6 +123,8 @@ function sessionStart(input: HookInput, env: HookEnv): HookResult {
 	// The workspace repositories that may loosen the guard: those there now, once per session.
 	// Only a new session takes it: a resumed or compacted one that lost it stays strict (no repository loosens anything).
 	if (input.source === undefined || input.source === "startup" || input.source === "clear") bestEffort(() => takeBaseline(env, input.session_id ?? ""));
+	// The git hooks folders only add questions, so any session that lacks them takes them, a resumed one too.
+	bestEffort(() => takeHooksPaths(env, input.session_id ?? ""));
 	// Plugin: <root>/skills. Project install: skills sit in .claude/skills next to .claude/eng-kit.
 	const file = [join(env.root, "skills"), join(env.root, "..", "skills")]
 		.map((dir) => join(dir, "using-skills", "SKILL.md"))
@@ -174,7 +176,8 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 		(root) => {
 			const loaded = loadGuardConfig(root, root === env.projectDir ? GUARD_FILE : `${relative(env.projectDir, root)}/${GUARD_FILE}`);
 			warnings.push(...loaded.warnings);
-			return loaded.config;
+			const hooks = session.hooksPaths ?? {};
+			return Object.hasOwn(hooks, root) ? { ...loaded.config, hooksPath: hooks[root] } : loaded.config;
 		},
 		GUARD_FILE,
 		session.guardBaseline ?? {},
@@ -263,6 +266,12 @@ function inState(env: HookEnv, path: string): boolean {
 function takeBaseline(env: HookEnv, sessionId: string): void {
 	const state = loadState(env.stateDir, sessionId);
 	if (!state.guardBaseline) saveState(env.stateDir, sessionId, { ...state, guardBaseline: guardBaseline(env.projectDir, GUARD_FILE, (root) => loadGuardConfig(root).config) });
+}
+
+/** Takes each root's `core.hooksPath` folder at SessionStart, unless the session already has them. */
+function takeHooksPaths(env: HookEnv, sessionId: string): void {
+	const state = loadState(env.stateDir, sessionId);
+	if (!state.hooksPaths) saveState(env.stateDir, sessionId, { ...state, hooksPaths: hooksPaths(env.projectDir) });
 }
 
 /** The baseline SessionStart took. None (lost, unwritable, never taken): no repository loosens anything or pushes silently. */

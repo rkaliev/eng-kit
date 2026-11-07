@@ -64,6 +64,42 @@ test("SessionStart names the user commands without a prefix in a project install
 	assert.match(out.additionalContext!, /Kit commands the user types: `\/<name>`/);
 });
 
+/** A Write of `file` under the project, as Claude Code sends it. */
+const writeOf = (call: ReturnType<typeof setup>["call"], projectDir: string, file: string) =>
+	decision(call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, file), content: "x" } }));
+
+test("guard: the hooks folder a repository configures asks, as the session read it at its start", () => {
+	const { call, projectDir } = setup();
+	execFileSync("git", ["init", "-q"], { cwd: projectDir });
+	execFileSync("git", ["config", "core.hooksPath", "tools/hooks"], { cwd: projectDir });
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	assert.equal(writeOf(call, projectDir, "tools/hooks/pre-commit"), "ask");
+	execFileSync("git", ["config", "core.hooksPath", "other"], { cwd: projectDir });
+	assert.equal(writeOf(call, projectDir, "other/pre-commit"), undefined, "read once, at the start");
+	assert.equal(writeOf(call, projectDir, "tools/hooks/pre-commit"), "ask");
+});
+
+test("guard: in a workspace, each repository's own hooks folder asks under it", () => {
+	const { call, projectDir } = setup({});
+	for (const [name, hooks] of [["a", "h"], ["b", undefined]] as const) {
+		mkdirSync(join(projectDir, name));
+		execFileSync("git", ["init", "-q"], { cwd: join(projectDir, name) });
+		if (hooks) execFileSync("git", ["config", "core.hooksPath", hooks], { cwd: join(projectDir, name) });
+	}
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	assert.equal(writeOf(call, projectDir, "a/h/pre-commit"), "ask");
+	assert.equal(writeOf(call, projectDir, "b/h/pre-commit"), undefined);
+	assert.equal(writeOf(call, projectDir, "h/pre-commit"), undefined);
+});
+
+test("guard: a resumed session without hooks folders in its state takes them", () => {
+	const { call, projectDir } = setup();
+	execFileSync("git", ["init", "-q"], { cwd: projectDir });
+	execFileSync("git", ["config", "core.hooksPath", "tools/hooks"], { cwd: projectDir });
+	call({ hook_event_name: "SessionStart", source: "resume" });
+	assert.equal(writeOf(call, projectDir, "tools/hooks/pre-commit"), "ask");
+});
+
 test("PreToolUse: deny for blocks, ask for confirmations, no opinion otherwise", () => {
 	const { call, projectDir } = setup();
 	const pre = (tool_name: string, tool_input: Record<string, unknown>) => call({ hook_event_name: "PreToolUse", tool_name, tool_input });
