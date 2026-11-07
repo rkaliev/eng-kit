@@ -1007,6 +1007,27 @@ test("verify gate: a background verify call reported as failed doesn't hold Stop
 	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
 });
 
+/** Whether this user may not signal `pid`: the premise of a test about another user's process. */
+function signalDenied(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return false;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+test("verify gate: a report of a verify call whose command is no longer the script launches nothing", () => {
+	const { call } = setupGit();
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	const verify = { command: `node "${join(root, "scripts", "verify.ts")}"`, run_in_background: true };
+	call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: verify, tool_use_id: "toolu_rewritten" });
+	// Another hook rewrote the command before it ran.
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "ls", run_in_background: true }, tool_use_id: "toolu_rewritten" });
+	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
+});
+
 test("verify gate: a verify call Claude Code never ran doesn't hold Stop", () => {
 	const { call } = setupGit();
 	call({ hook_event_name: "SessionStart", source: "startup" });
@@ -1023,8 +1044,8 @@ test("verify gate: a start record that can't be this session's run doesn't hold 
 		["a start in the future", (now) => ({ pid: process.pid, startedAt: now + 60_000 })],
 		["pid 0", (now) => ({ pid: 0, startedAt: now })],
 		["a negative pid", (now) => ({ pid: -1, startedAt: now })],
-		// The script runs as the hook's user; a process it may not signal (root's pid 1) is someone else's.
-		...(process.platform === "win32" || process.getuid?.() === 0 ? [] : [["another user's process", (now: number) => ({ pid: 1, startedAt: now })] as [string, (now: number) => { pid: number; startedAt: number }]]),
+		// The script runs as the hook's user; a process it may not signal is someone else's (pid 1, where this user can't).
+		...(signalDenied(1) ? [["another user's process", (now: number) => ({ pid: 1, startedAt: now })] as [string, (now: number) => { pid: number; startedAt: number }]] : []),
 	];
 	for (const [name, make] of records) {
 		const launched = launchedVerify();
