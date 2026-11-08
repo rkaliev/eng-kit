@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { ownDir } from "./reviews.ts";
 import { isGuardBaseline, type GuardBaseline } from "./scope.ts";
 import type { Tree } from "./worktree.ts";
 
@@ -114,9 +115,12 @@ export function writeRun(projectDir: string, record: RunRecord | RunStart, root?
 	writeAtomic(runFile(projectDir, root), JSON.stringify(record));
 }
 
-export function readRun(projectDir: string, root?: string): RunRecord | undefined {
+/** The last finished run, if its record is in a runs folder this user owns (another local user could plant one in a shared temp folder). */
+export function readRun(projectDir: string, root?: string, owned: (dir: string) => boolean = ownDir): RunRecord | undefined {
 	try {
-		const raw = JSON.parse(readFileSync(runFile(projectDir, root), "utf8")) as Partial<RunRecord>;
+		const file = runFile(projectDir, root);
+		if (!owned(dirname(file))) return undefined;
+		const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<RunRecord>;
 		if (typeof raw.ok !== "boolean" || typeof raw.finishedAt !== "number" || !Array.isArray(raw.commands)) return undefined;
 		const startedAt = typeof raw.startedAt === "number" ? raw.startedAt : undefined;
 		return { ok: raw.ok, finishedAt: raw.finishedAt, commands: raw.commands.filter((c): c is string => typeof c === "string"), startedAt };
@@ -125,10 +129,12 @@ export function readRun(projectDir: string, root?: string): RunRecord | undefine
 	}
 }
 
-/** The run in progress, if the last record is a start; a finished record is read by `readRun`. */
-export function readRunStart(projectDir: string, root?: string): RunStart | undefined {
+/** The run in progress, if the last record is a start; a finished record is read by `readRun`. The folder is owner-checked as there. */
+export function readRunStart(projectDir: string, root?: string, owned: (dir: string) => boolean = ownDir): RunStart | undefined {
 	try {
-		const raw = JSON.parse(readFileSync(runFile(projectDir, root), "utf8")) as Partial<RunStart>;
+		const file = runFile(projectDir, root);
+		if (!owned(dirname(file))) return undefined;
+		const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<RunStart>;
 		if (raw.running !== true || typeof raw.pid !== "number" || typeof raw.startedAt !== "number" || !Array.isArray(raw.commands)) return undefined;
 		return { running: true, pid: raw.pid, startedAt: raw.startedAt, commands: raw.commands.filter((c): c is string => typeof c === "string") };
 	} catch {

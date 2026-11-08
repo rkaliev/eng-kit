@@ -100,6 +100,20 @@ test("guard: a resumed session without hooks folders in its state takes them", (
 	assert.equal(writeOf(call, projectDir, "tools/hooks/pre-commit"), "ask");
 });
 
+test("verify gate: a run record in a runs folder another user owns is ignored", () => {
+	const { env, projectDir } = setup();
+	const notOurs = () => false;
+	writeRun(projectDir, { ok: true, commands: ["npm test"], finishedAt: Date.now() }, env.runsRoot);
+	assert.equal(readRun(projectDir, env.runsRoot)?.ok, true, "control: our own folder");
+	assert.equal(readRun(projectDir, env.runsRoot, notOurs), undefined);
+	writeRun(projectDir, { running: true, pid: process.pid, startedAt: Date.now(), commands: ["npm test"] }, env.runsRoot);
+	assert.equal(readRunStart(projectDir, env.runsRoot)?.pid, process.pid, "control: our own folder");
+	assert.equal(readRunStart(projectDir, env.runsRoot, notOurs), undefined);
+	let asked = "";
+	readRun(projectDir, env.runsRoot, (dir) => ((asked = dir), true));
+	assert.equal(asked, env.runsRoot, "the owner is checked on the runs folder");
+});
+
 test("PreToolUse: deny for blocks, ask for confirmations, no opinion otherwise", () => {
 	const { call, projectDir } = setup();
 	const pre = (tool_name: string, tool_input: Record<string, unknown>) => call({ hook_event_name: "PreToolUse", tool_name, tool_input });

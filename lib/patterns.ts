@@ -160,6 +160,9 @@ export function checkPath(tool: "read" | "write" | "edit", path: string, cwd: st
 	if (/(^|\/)eng-kit\/reviews\//i.test(absolute.replaceAll("\\", "/"))) {
 		return { action: "block", reason: "Review stamps are written only by the hook, from the reviewer's own report. Dispatch the reviewer instead." };
 	}
+	if (/(^|\/)eng-kit\/runs\//i.test(absolute.replaceAll("\\", "/"))) {
+		return { action: "block", reason: "Verify-run records are written only by the verify script. Run it instead." };
+	}
 	if (inside && lower === ".claude/guard.json") {
 		return { action: "confirm", reason: "The guard config decides what the guard blocks. Loosening it is the user's call; show them the change first." };
 	}
