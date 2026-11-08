@@ -14,7 +14,7 @@ If you haven't run the check in this session after your last change, you can't c
 ## The gate
 
 1. **Identify**: which command proves the claim? Use the project's commands (the kit verify script, CLAUDE.md, `.claude/verify.json`, CI config).
-2. **Run** the full command, fresh. Don't use a filtered subset, and don't pipe it into `tail` in a way that hides the exit code. Run the kit verify script as the command's only step (at most piped into `tail`, `head` or `grep`): the verify gate doesn't credit a redirected, chained or `cd … &&` run.
+2. **Run** the full command, fresh. Don't use a filtered subset, and don't pipe it into `tail` in a way that hides the exit code. Run the kit verify script as the command's only step (at most piped into `tail`, `head` or `grep`): the verify gate doesn't credit a chained or `cd … &&` run, or one that writes its output inside the project.
 3. **Read** the output: exit code, count of failures, warnings.
 4. **Verify**: does the output confirm the claim? If not, report the actual state with the evidence.
 5. **Only then claim it**, and quote the evidence ("`npm test`: 142 passed, 0 failed").

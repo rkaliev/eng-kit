@@ -36,7 +36,7 @@ The plan already did the thinking. Execute it exactly, prove each step with a te
 
 **Rulings, not stalls.** Don't pause between tasks to ask "should I continue?". Stop and ask only for an irreversible, destructive or security-sensitive action, a side effect outside this worktree (push to a shared branch, publish, deploy, a migration on a shared database, a real payment), or a plan so broken that every way forward is a guess.
 
-Keep long command output out of context: redirect it to a file and read the tail. The kit verify script is the exception: run it as the command's only step, at most piped into `tail`, `head` or `grep`; its output is already short, and a redirected, chained or `cd … &&` run isn't credited by the verify gate.
+Keep long command output out of context: redirect it to a file and read the tail. The kit verify script is the exception: run it as the command's only step, at most piped into `tail`, `head` or `grep`; its output is already short, and the verify gate doesn't credit a chained or `cd … &&` run, or one that writes its output inside the project.
 
 ## Subagent per task (when the user chose it)
 
