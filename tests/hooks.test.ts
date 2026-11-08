@@ -140,6 +140,29 @@ test("guard: hooks folders read only in part at the start are read again at the 
 	assert.equal(writeOf(call, projectDir, "a/h/pre-commit"), "ask", "read again");
 });
 
+test("guard: a later read of the hooks folders adds to what was read, never drops it", () => {
+	const { call, projectDir } = setup({});
+	for (const name of ["a", "b"]) {
+		mkdirSync(join(projectDir, name));
+		execFileSync("git", ["init", "-q"], { cwd: join(projectDir, name) });
+		execFileSync("git", ["config", "core.hooksPath", "h"], { cwd: join(projectDir, name) });
+	}
+	const slowB = slowGit(realpathSync(join(projectDir, "b")), "", 10);
+	try {
+		call({ hook_event_name: "SessionStart", source: "startup" });
+	} finally {
+		slowB.restore();
+	}
+	const slowA = slowGit(realpathSync(join(projectDir, "a")), "", 10);
+	try {
+		call({ hook_event_name: "SessionStart", source: "resume" });
+	} finally {
+		slowA.restore();
+	}
+	assert.equal(writeOf(call, projectDir, "a/h/pre-commit"), "ask", "read at the start, timed out at the resume: kept");
+	assert.equal(writeOf(call, projectDir, "b/h/pre-commit"), "ask", "read at the resume");
+});
+
 test("PreToolUse: deny for blocks, ask for confirmations, no opinion otherwise", () => {
 	const { call, projectDir } = setup();
 	const pre = (tool_name: string, tool_input: Record<string, unknown>) => call({ hook_event_name: "PreToolUse", tool_name, tool_input });

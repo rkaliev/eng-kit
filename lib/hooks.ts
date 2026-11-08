@@ -274,7 +274,8 @@ function takeHooksPaths(env: HookEnv, sessionId: string): void {
 	if (state.hooksPaths && !state.hooksPathsPartial) return;
 	const status = { complete: true };
 	const paths = hooksPaths(env.projectDir, undefined, status);
-	saveState(env.stateDir, sessionId, { ...loadState(env.stateDir, sessionId), hooksPaths: paths, hooksPathsPartial: !status.complete });
+	// A later read only adds: a repository read before keeps its folder when its read times out this time.
+	saveState(env.stateDir, sessionId, { ...loadState(env.stateDir, sessionId), hooksPaths: { ...state.hooksPaths, ...paths }, hooksPathsPartial: !status.complete });
 }
 
 /** The baseline SessionStart took. None (lost, unwritable, never taken): no repository loosens anything or pushes silently. */
