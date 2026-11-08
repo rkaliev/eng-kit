@@ -712,6 +712,7 @@ test("guard: the kit's session state can't be written by another spelling of its
 	const rel = relative(realpathSync(tmpdir()), realpathSync(env.stateDir));
 	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: `echo '{}' > $TMPDIR/${rel}/s1.json` } })), "deny", "through $TMPDIR");
 	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: `mv ${dirname(env.stateDir)} /tmp/moved` } })), "deny", "a parent folder");
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: `MV ${dirname(env.stateDir)} /tmp/moved` } })), "deny", "mv in any letter case");
 	const parent = dirname(env.stateDir);
 	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "echo '{}' > ${TMPDIR}" + rel + "/s1.json" } })), "deny", "${TMPDIR} glued to the rest");
 	for (const command of [`find ${parent} -name settings.json`, `cp notes.md ${parent}/`, `mkdir -p ${parent}/other`]) {
