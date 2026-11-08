@@ -121,6 +121,25 @@ test("verify gate: the runs folder is created for this user only", { skip: proce
 	assert.equal(statSync(root).mode & 0o077, 0, `mode ${(statSync(root).mode & 0o777).toString(8)}`);
 });
 
+test("guard: hooks folders read only in part at the start are read again at the next SessionStart", () => {
+	const { call, projectDir } = setup({});
+	for (const name of ["a", "b"]) {
+		mkdirSync(join(projectDir, name));
+		execFileSync("git", ["init", "-q"], { cwd: join(projectDir, name) });
+		execFileSync("git", ["config", "core.hooksPath", "h"], { cwd: join(projectDir, name) });
+	}
+	const slow = slowGit(realpathSync(join(projectDir, "a")), "", 10);
+	try {
+		call({ hook_event_name: "SessionStart", source: "startup" });
+	} finally {
+		slow.restore();
+	}
+	assert.equal(writeOf(call, projectDir, "a/h/pre-commit"), undefined, "a's read timed out");
+	assert.equal(writeOf(call, projectDir, "b/h/pre-commit"), "ask");
+	call({ hook_event_name: "SessionStart", source: "resume" });
+	assert.equal(writeOf(call, projectDir, "a/h/pre-commit"), "ask", "read again");
+});
+
 test("PreToolUse: deny for blocks, ask for confirmations, no opinion otherwise", () => {
 	const { call, projectDir } = setup();
 	const pre = (tool_name: string, tool_input: Record<string, unknown>) => call({ hook_event_name: "PreToolUse", tool_name, tool_input });

@@ -268,10 +268,13 @@ function takeBaseline(env: HookEnv, sessionId: string): void {
 	if (!state.guardBaseline) saveState(env.stateDir, sessionId, { ...state, guardBaseline: guardBaseline(env.projectDir, GUARD_FILE, (root) => loadGuardConfig(root).config) });
 }
 
-/** Takes each root's `core.hooksPath` folder at SessionStart, unless the session already has them. */
+/** Takes each root's `core.hooksPath` folder at SessionStart, unless the session already has all of them. */
 function takeHooksPaths(env: HookEnv, sessionId: string): void {
 	const state = loadState(env.stateDir, sessionId);
-	if (!state.hooksPaths) saveState(env.stateDir, sessionId, { ...state, hooksPaths: hooksPaths(env.projectDir) });
+	if (state.hooksPaths && !state.hooksPathsPartial) return;
+	const status = { complete: true };
+	const paths = hooksPaths(env.projectDir, undefined, status);
+	saveState(env.stateDir, sessionId, { ...loadState(env.stateDir, sessionId), hooksPaths: paths, hooksPathsPartial: !status.complete });
 }
 
 /** The baseline SessionStart took. None (lost, unwritable, never taken): no repository loosens anything or pushes silently. */
