@@ -162,14 +162,14 @@ Claude Code ignores the `hooks`, `mcpServers` and `permissionMode` fields for pl
 
 | Blocks (deny) | Asks (ask; denied in `-p`) |
 |---|---|
-| `--no-verify` and its abbreviations down to `--no-veri` (also inside groups and substitutions), `git commit -n` | `git push` other than your own work branch (below), publishing and releases |
+| `--no-verify` and its abbreviations down to `--no-veri` (also inside groups and substitutions), `git commit -n`, `git -c core.hooksPath=…` (or `--config-env`) | `git push` other than your own work branch (below), publishing and releases |
 | `push --force` / `-f` / `+ref` / `--mirror` | deploys, `terraform apply`, `kubectl apply`, `helm upgrade` |
 | recursive `rm` outside the project and temp | DB migrations and rollbacks, `prisma db execute`, `DROP` / `TRUNCATE` |
 | reading `.env*` (except `.example` and similar), keys, keystores, credentials (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`/`doas`, `curl … \| sh` |
-| writing into `.git/` and `protectedPaths` | shell access to secret files, writing a secret file |
-| `gh pr create/merge`, `glab mr create/merge`, `git merge` into the base and `git push` to the base while a task file is tracked | editing CI and release pipelines (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile` and similar) |
+| writing into `.git/` and `protectedPaths`; every path rule ignores letter case (`.GIT/config` is `.git/config` on macOS and Windows) | shell access to secret files, writing a secret file |
+| `gh pr create/merge`, `glab mr create/merge`, `git merge` into the base and `git push` to the base while a task file is tracked | editing CI and release pipelines (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile` and similar) and git hooks (`.husky/`, `.githooks/`, lefthook and pre-commit configs, and the folder `core.hooksPath` names, read for each repository at SessionStart and kept in the session state; a hooks folder outside the session folder adds nothing) |
 | the same, and a push to the branch of a PR the agent opened, without a reviewer `Yes` verdict for the commit being landed whose range reaches the remote base, or chained after anything but read-only steps and the project's verification commands (review gate); in the reviewer subagent, any shell command but inspection | editing `.claude/guard.json` (Edit/Write, or a non-read-only shell command naming it) |
-| `git commit` on the base branch with a staged task file; writing into the review records (Edit/Write, or a shell command naming their path) | every PR/MR merge, `gh pr merge` or `glab mr merge` |
+| `git commit` on the base branch with a staged task file; writing into the review records or the verify-run records (Edit/Write, or a shell command naming their path); a run record in a folder another user owns is ignored | every PR/MR merge, `gh pr merge` or `glab mr merge` |
 
 **Pushing the work branch.** A plain `git push` of the agent's own work branch passes without a question when all of these hold:
 
@@ -305,6 +305,7 @@ The plan names the test for each criterion, and the PR body says how each new te
   - review gate (claude 2.1.285, `--plugin-dir`, a copy of `examples/demo` with planted defects): a PR without review was denied; the `reviewer` agent found float rounding of money (Critical, with rule quotes from CLAUDE.md, the task and the checklist) and an uncovered criterion, verdict `No`, denied again; after the fixes the repeat round over the new range re-checked the old findings, `Yes`, and the guard let `gh pr create` through.
   - a folder of repositories (claude 2.1.307, `--plugin-dir`, two repositories in a temp folder): `S=$TMPDIR; cd a && echo hi > $S/red.log` didn't send the agent back (0.33.0 did, naming `a/$S/red.log`); a reviewer continued with SendMessage had its second report recorded in the repository's store, and review-log run from the folder printed it.
   - the guard in a folder of repositories (claude 2.1.307, `--plugin-dir`, the installed eng-kit disabled, repositories `a` and `b` in a temp folder): a Write of `a/.github/workflows/ci.yml` was refused in `-p` with the guard's CI pipeline reason, and the file wasn't created.
+  - git hooks and run records (claude 2.1.318, `--plugin-dir`, the installed eng-kit disabled, a temp repository): with `core.hooksPath tools/hooks`, an Edit of `tools/hooks/pre-commit` was refused in `-p` with the guard's git-hook reason and the file stayed as it was, while the control run without the setting edited it; `echo '{}' > "$TMPDIR/eng-kit/runs/…"` was refused with the verify-script reason and nothing was written. An Edit of `.husky/pre-commit` was refused by Claude Code itself before the hook (it treats the file as sensitive), so that rule is covered by the unit tests only.
 
 **Not verified:** Windows (the PowerShell tool and running the hook through `cmd`), a live run of the `implementer` agent; the own-branch push has no live run yet, its live check is the first push of the branch that ships it.
 

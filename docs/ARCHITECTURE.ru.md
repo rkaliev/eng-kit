@@ -163,14 +163,14 @@ eng-kit — это плагин для [Claude Code](https://code.claude.com), �
 
 | Блокирует (deny) | Спрашивает (ask; в `-p` — отказ) |
 |---|---|
-| `--no-verify` и его сокращения до `--no-veri` (и внутри групп и подстановок), `git commit -n` | `git push`, кроме своей рабочей ветки (ниже), публикации и релизы |
+| `--no-verify` и его сокращения до `--no-veri` (и внутри групп и подстановок), `git commit -n`, `git -c core.hooksPath=…` (или `--config-env`) | `git push`, кроме своей рабочей ветки (ниже), публикации и релизы |
 | `push --force` / `-f` / `+ref` / `--mirror` | деплой, `terraform apply`, `kubectl apply`, `helm upgrade` |
 | рекурсивный `rm` вне проекта и temp | миграции и откаты БД, `prisma db execute`, `DROP` / `TRUNCATE` |
 | чтение `.env*` (кроме `.example` и подобных), ключей, keystore, credentials (Read, Grep) | `git reset --hard`, `git clean -f`, `branch -D`, `sudo`/`doas`, `curl … \| sh` |
-| запись в `.git/` и в `protectedPaths` | доступ shell к секретным файлам, запись секретного файла |
-| `gh pr create/merge`, `glab mr create/merge`, `git merge` в базовую ветку и `git push` в базовую ветку, пока в git есть файл задачи | правка CI и release-пайплайнов (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile` и подобных) |
+| запись в `.git/` и в `protectedPaths`; все правила путей не различают регистр (`.GIT/config` — это `.git/config` на macOS и Windows) | доступ shell к секретным файлам, запись секретного файла |
+| `gh pr create/merge`, `glab mr create/merge`, `git merge` в базовую ветку и `git push` в базовую ветку, пока в git есть файл задачи | правка CI и release-пайплайнов (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile` и подобных) и git-хуков (`.husky/`, `.githooks/`, конфиги lefthook и pre-commit, а также папка из `core.hooksPath`, прочитанная для каждого репозитория в SessionStart и сохранённая в состоянии сессии; папка хуков вне папки сессии ничего не добавляет) |
 | то же, а также push в ветку PR, который открыл агент, без вердикта `Yes` ревьюера для приземляемого коммита с диапазоном до удалённой базы, или в цепочке после любого шага, кроме read-only и команд проверки проекта (review gate); в сабагенте-ревьюере — любая shell-команда, кроме просмотра | правка `.claude/guard.json` (Edit/Write или не read-only shell-команда с этим путём) |
-| `git commit` в базовой ветке с файлом задачи в индексе; запись в записи вердиктов (Edit/Write или shell-команда с их путём) | любой merge PR/MR, `gh pr merge` или `glab mr merge` |
+| `git commit` в базовой ветке с файлом задачи в индексе; запись в записи вердиктов или в записи прогонов verify (Edit/Write или shell-команда с их путём); запись прогона в папке другого пользователя не учитывается | любой merge PR/MR, `gh pr merge` или `glab mr merge` |
 
 **Push рабочей ветки.** Обычный `git push` собственной рабочей ветки агента проходит без вопроса, если выполняется всё сразу:
 
@@ -306,6 +306,7 @@ Push своей ветки из сабагента `implementer` спрашив�
   - review gate (claude 2.1.285, `--plugin-dir`, копия `examples/demo` с внесёнными дефектами): PR без ревью — deny; агент `reviewer` нашёл float-округление денег (Critical, с цитатами правил из CLAUDE.md, задачи и чеклиста) и непокрытый критерий, вердикт `No` — снова deny; после исправлений повторный раунд по новому диапазону перепроверил старые находки, `Yes` — guard пропустил `gh pr create`.
   - папка репозиториев (claude 2.1.307, `--plugin-dir`, два репозитория во временной папке): `S=$TMPDIR; cd a && echo hi > $S/red.log` не вернула агента (0.33.0 возвращал, называя `a/$S/red.log`); второй отчёт ревьюера, продолженного через SendMessage, записан в хранилище репозитория, и review-log, запущенный из папки, его вывел.
   - guard в папке репозиториев (claude 2.1.307, `--plugin-dir`, установленный eng-kit отключён, репозитории `a` и `b` во временной папке): Write в `a/.github/workflows/ci.yml` в `-p` отклонён с причиной guard про CI-пайплайн, файл не создан.
+  - git-хуки и записи прогонов (claude 2.1.318, `--plugin-dir`, установленный eng-kit отключён, временный репозиторий): при `core.hooksPath tools/hooks` Edit файла `tools/hooks/pre-commit` в `-p` отклонён с причиной guard про git-хук, файл не изменился, а контрольный прогон без этой настройки его изменил; `echo '{}' > "$TMPDIR/eng-kit/runs/…"` отклонён с причиной про verify-скрипт, ничего не записано. Edit файла `.husky/pre-commit` отклонил сам Claude Code ещё до хука (он считает этот файл чувствительным), поэтому это правило покрыто только юнит-тестами.
 
 **Не проверено:** Windows (инструмент PowerShell и запуск хука через `cmd`), живой прогон агента `implementer`; у push своей ветки живого прогона пока нет, его живая проверка — первый push ветки, которая его выпускает.
 
