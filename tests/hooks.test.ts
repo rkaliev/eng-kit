@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import test, { after } from "node:test";
@@ -112,6 +112,13 @@ test("verify gate: a run record in a runs folder another user owns is ignored", 
 	let asked = "";
 	readRun(projectDir, env.runsRoot, (dir) => ((asked = dir), true));
 	assert.equal(asked, env.runsRoot, "the owner is checked on the runs folder");
+});
+
+test("verify gate: the runs folder is created for this user only", { skip: process.platform === "win32" && "platform: POSIX modes" }, () => {
+	const { projectDir } = setup();
+	const root = join(temp("hooks-runs-parent-"), "runs");
+	writeRun(projectDir, { ok: true, commands: ["npm test"], finishedAt: Date.now() }, root);
+	assert.equal(statSync(root).mode & 0o077, 0, `mode ${(statSync(root).mode & 0o777).toString(8)}`);
 });
 
 test("PreToolUse: deny for blocks, ask for confirmations, no opinion otherwise", () => {

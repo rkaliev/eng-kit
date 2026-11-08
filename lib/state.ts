@@ -112,7 +112,8 @@ export function runFile(projectDir: string, root = join(tmpdir(), "eng-kit", "ru
 }
 
 export function writeRun(projectDir: string, record: RunRecord | RunStart, root?: string): void {
-	writeAtomic(runFile(projectDir, root), JSON.stringify(record));
+	// Only this user may write into the runs folder: in a shared temp folder another user could plant a record.
+	writeAtomic(runFile(projectDir, root), JSON.stringify(record), 0o700);
 }
 
 /** The last finished run, if its record is in a runs folder this user owns (another local user could plant one in a shared temp folder). */
@@ -143,8 +144,8 @@ export function readRunStart(projectDir: string, root?: string, owned: (dir: str
 }
 
 /** Write via a temp file and rename, so a concurrent reader never sees half a file. */
-function writeAtomic(path: string, text: string): void {
-	mkdirSync(resolve(path, ".."), { recursive: true });
+function writeAtomic(path: string, text: string, folderMode?: number): void {
+	mkdirSync(resolve(path, ".."), { recursive: true, mode: folderMode });
 	const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
 	writeFileSync(tmp, text);
 	renameSync(tmp, path);

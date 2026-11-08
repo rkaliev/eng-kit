@@ -67,9 +67,10 @@ const SECRET_PATTERNS = [
 ];
 
 export function isSecretPath(path: string): boolean {
-	// Lowercased: on macOS and Windows `.ENV` is `.env`.
-	const p = path.replaceAll("\\", "/").toLowerCase();
-	if (SECRET_EXAMPLE.test(p)) return false;
+	const written = path.replaceAll("\\", "/");
+	// Only the example names as written are exempt; every secret name counts in any case (on macOS and Windows `.ENV` is `.env`).
+	if (SECRET_EXAMPLE.test(written)) return false;
+	const p = written.toLowerCase();
 	return SECRET_PATTERNS.some((re) => re.test(p));
 }
 
@@ -132,8 +133,8 @@ function sourceOf(config: GuardConfig, rule: string): string {
 /** CI and release pipelines run with repository credentials, so edits to them need a human look. */
 const CI_PIPELINE = /^(\.github\/(workflows|actions)\/|\.gitlab\/ci\/|\.circleci\/|\.buildkite\/|(\.gitlab-ci\.ya?ml|azure-pipelines\.ya?ml|bitbucket-pipelines\.ya?ml|Jenkinsfile)$)/i;
 
-/** Git hook managers' files outside `.git`: husky, plain `.githooks`, lefthook and pre-commit. */
-const GIT_HOOKS = /^(\.husky\/|\.githooks\/|\.?lefthook(-local)?\.ya?ml$|\.pre-commit-config\.yaml$)/i;
+/** Git hook managers' files outside `.git`: husky, plain `.githooks`, lefthook (every config name it reads) and pre-commit. */
+const GIT_HOOKS = /^(\.husky\/|\.githooks\/|(\.config\/)?\.?lefthook(-local)?\.(ya?ml|toml|jsonc?)$|\.pre-commit-config\.yaml$)/i;
 
 /** Decide what to do with a read/write/edit of a file path. */
 export function checkPath(tool: "read" | "write" | "edit", path: string, cwd: string, config: GuardConfig): GuardDecision {
@@ -186,14 +187,7 @@ function checkSegment(tokens: string[], cwd: string): GuardDecision | undefined 
 		return { action: "block", reason: "Bypassing git hooks (--no-verify) is not allowed. Fix what the hook reports instead." };
 	}
 	const gitAt = words.indexOf("git");
-	// `-c core.hooksPath=…` (or `--config-env`) on git's command line skips or replaces the hooks for that call.
-	const raw = tokens.map(unwrapToken);
-	const hooksOverride = raw.some((t, i) => {
-		if (gitAt === -1 || i <= raw.indexOf("git")) return false;
-		const setting = t === "-c" || t === "--config-env" ? raw[i + 1] : /^-c./.test(t) ? t.slice(2) : t.startsWith("--config-env=") ? t.slice("--config-env=".length) : undefined;
-		return setting !== undefined && setting.split("=")[0]!.toLowerCase() === "core.hookspath";
-	});
-	if (hooksOverride) {
+	if (overridesHooksPath(tokens)) {
 		return { action: "block", reason: "Overriding core.hooksPath on the command line skips or replaces the git hooks. Fix what the hook reports instead." };
 	}
 	if (gitAt !== -1) {
@@ -225,6 +219,29 @@ function checkSegment(tokens: string[], cwd: string): GuardDecision | undefined 
 		}
 	}
 	return undefined;
+}
+
+/**
+ * `-c core.hooksPath=…` or `--config-env core.hooksPath=…` among git's own options (before the subcommand): it skips or
+ * replaces the hooks for that call. Git by a path counts, and so does a command word git may hide behind (`$G -c …`).
+ */
+function overridesHooksPath(tokens: string[]): boolean {
+	const raw = tokens.map(unwrapToken);
+	const sets = (from: number, to: number) => {
+		for (let i = from; i < to; i++) {
+			const t = raw[i]!;
+			const setting = t === "-c" || t === "--config-env" ? raw[i + 1] : /^-c./.test(t) ? t.slice(2) : t.startsWith("--config-env=") ? t.slice("--config-env=".length) : undefined;
+			if (setting !== undefined && setting.split("=")[0]!.toLowerCase() === "core.hookspath") return true;
+		}
+		return false;
+	};
+	if (parseGitCalls(tokens).some((call) => sets(call.at + 1, call.v))) return true;
+	// A command word that isn't literal (`$G`, `` `which git` ``): its leading options are read as git's.
+	const head = raw.findIndex((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
+	if (head === -1 || !/[$`]/.test(tokens[head]!)) return false;
+	let end = head + 1;
+	while (end < raw.length && raw[end]!.startsWith("-")) end += raw[end] === "-c" || raw[end] === "--config-env" ? 2 : 1;
+	return sets(head + 1, end);
 }
 
 const WRITE_PATH = String.raw`(?<target>[A-Za-z0-9_./~@+-]+)`;
@@ -715,6 +732,9 @@ function checkPushSetup(segments: string[][], command: string): GuardDecision | 
 			if (sub === "config") {
 				const args = lower.slice(call.v + 1);
 				if (args.some((t) => t === "-e" || t === "--edit")) return setup;
+				// Removing or renaming a section drops every key in it (`--remove-section core` unsets core.hooksPath).
+				const sections = ["--remove-section", "--rename-section", "remove-section", "rename-section"];
+				if (args.some((t) => sections.includes(t)) && args.some((t) => !t.startsWith("-") && !sections.includes(t) && (t === "core" || WATCHED_CONFIG.test(`${t}.`)))) return setup;
 				if (args.some((t) => ["--get", "--list", "-l", "--get-all", "--get-regexp"].includes(t))) continue;
 				// `git config get|list` (git 2.46+) read like --get/--list.
 				const verb = args.find((t) => !t.startsWith("-"));
