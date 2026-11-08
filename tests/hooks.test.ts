@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import test, { after } from "node:test";
@@ -62,6 +62,105 @@ test("SessionStart names the user commands without a prefix in a project install
 	const env: HookEnv = { root: join(project, ".claude", "eng-kit"), projectDir: project, stateDir: temp("hooks-state-"), runsRoot: temp("hooks-runs-") };
 	const out = handle({ session_id: "s1", cwd: project, hook_event_name: "SessionStart", source: "startup" }, env).output!.hookSpecificOutput as Record<string, string>;
 	assert.match(out.additionalContext!, /Kit commands the user types: `\/<name>`/);
+});
+
+/** A Write of `file` under the project, as Claude Code sends it. */
+const writeOf = (call: ReturnType<typeof setup>["call"], projectDir: string, file: string) =>
+	decision(call({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, file), content: "x" } }));
+
+test("guard: the hooks folder a repository configures asks, as the session read it at its start", () => {
+	const { call, projectDir } = setup();
+	execFileSync("git", ["init", "-q"], { cwd: projectDir });
+	execFileSync("git", ["config", "core.hooksPath", "tools/hooks"], { cwd: projectDir });
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	assert.equal(writeOf(call, projectDir, "tools/hooks/pre-commit"), "ask");
+	execFileSync("git", ["config", "core.hooksPath", "other"], { cwd: projectDir });
+	assert.equal(writeOf(call, projectDir, "other/pre-commit"), undefined, "read once, at the start");
+	assert.equal(writeOf(call, projectDir, "tools/hooks/pre-commit"), "ask");
+});
+
+test("guard: in a workspace, each repository's own hooks folder asks under it", () => {
+	const { call, projectDir } = setup({});
+	for (const [name, hooks] of [["a", "h"], ["b", undefined]] as const) {
+		mkdirSync(join(projectDir, name));
+		execFileSync("git", ["init", "-q"], { cwd: join(projectDir, name) });
+		if (hooks) execFileSync("git", ["config", "core.hooksPath", hooks], { cwd: join(projectDir, name) });
+	}
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	assert.equal(writeOf(call, projectDir, "a/h/pre-commit"), "ask");
+	assert.equal(writeOf(call, projectDir, "b/h/pre-commit"), undefined);
+	assert.equal(writeOf(call, projectDir, "h/pre-commit"), undefined);
+});
+
+test("guard: a resumed session without hooks folders in its state takes them", () => {
+	const { call, projectDir } = setup();
+	execFileSync("git", ["init", "-q"], { cwd: projectDir });
+	execFileSync("git", ["config", "core.hooksPath", "tools/hooks"], { cwd: projectDir });
+	call({ hook_event_name: "SessionStart", source: "resume" });
+	assert.equal(writeOf(call, projectDir, "tools/hooks/pre-commit"), "ask");
+});
+
+test("verify gate: a run record in a runs folder another user owns is ignored", () => {
+	const { env, projectDir } = setup();
+	const notOurs = () => false;
+	writeRun(projectDir, { ok: true, commands: ["npm test"], finishedAt: Date.now() }, env.runsRoot);
+	assert.equal(readRun(projectDir, env.runsRoot)?.ok, true, "control: our own folder");
+	assert.equal(readRun(projectDir, env.runsRoot, notOurs), undefined);
+	writeRun(projectDir, { running: true, pid: process.pid, startedAt: Date.now(), commands: ["npm test"] }, env.runsRoot);
+	assert.equal(readRunStart(projectDir, env.runsRoot)?.pid, process.pid, "control: our own folder");
+	assert.equal(readRunStart(projectDir, env.runsRoot, notOurs), undefined);
+	let asked = "";
+	readRun(projectDir, env.runsRoot, (dir) => ((asked = dir), true));
+	assert.equal(asked, env.runsRoot, "the owner is checked on the runs folder");
+});
+
+test("verify gate: the runs folder is created for this user only", { skip: process.platform === "win32" && "platform: POSIX modes" }, () => {
+	const { projectDir } = setup();
+	const root = join(temp("hooks-runs-parent-"), "runs");
+	writeRun(projectDir, { ok: true, commands: ["npm test"], finishedAt: Date.now() }, root);
+	assert.equal(statSync(root).mode & 0o077, 0, `mode ${(statSync(root).mode & 0o777).toString(8)}`);
+});
+
+test("guard: hooks folders read only in part at the start are read again at the next SessionStart", () => {
+	const { call, projectDir } = setup({});
+	for (const name of ["a", "b"]) {
+		mkdirSync(join(projectDir, name));
+		execFileSync("git", ["init", "-q"], { cwd: join(projectDir, name) });
+		execFileSync("git", ["config", "core.hooksPath", "h"], { cwd: join(projectDir, name) });
+	}
+	const slow = slowGit(realpathSync(join(projectDir, "a")), "", 10);
+	try {
+		call({ hook_event_name: "SessionStart", source: "startup" });
+	} finally {
+		slow.restore();
+	}
+	assert.equal(writeOf(call, projectDir, "a/h/pre-commit"), undefined, "a's read timed out");
+	assert.equal(writeOf(call, projectDir, "b/h/pre-commit"), "ask");
+	call({ hook_event_name: "SessionStart", source: "resume" });
+	assert.equal(writeOf(call, projectDir, "a/h/pre-commit"), "ask", "read again");
+});
+
+test("guard: a later read of the hooks folders adds to what was read, never drops it", () => {
+	const { call, projectDir } = setup({});
+	for (const name of ["a", "b"]) {
+		mkdirSync(join(projectDir, name));
+		execFileSync("git", ["init", "-q"], { cwd: join(projectDir, name) });
+		execFileSync("git", ["config", "core.hooksPath", "h"], { cwd: join(projectDir, name) });
+	}
+	const slowB = slowGit(realpathSync(join(projectDir, "b")), "", 10);
+	try {
+		call({ hook_event_name: "SessionStart", source: "startup" });
+	} finally {
+		slowB.restore();
+	}
+	const slowA = slowGit(realpathSync(join(projectDir, "a")), "", 10);
+	try {
+		call({ hook_event_name: "SessionStart", source: "resume" });
+	} finally {
+		slowA.restore();
+	}
+	assert.equal(writeOf(call, projectDir, "a/h/pre-commit"), "ask", "read at the start, timed out at the resume: kept");
+	assert.equal(writeOf(call, projectDir, "b/h/pre-commit"), "ask", "read at the resume");
 });
 
 test("PreToolUse: deny for blocks, ask for confirmations, no opinion otherwise", () => {

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { ownDir } from "./reviews.ts";
 import { isGuardBaseline, type GuardBaseline } from "./scope.ts";
 import type { Tree } from "./worktree.ts";
 
@@ -33,6 +34,10 @@ export interface SessionState {
 	pending: Record<string, Tree>;
 	/** The workspace repositories as the session started with them (lib/scope.ts), taken at SessionStart. */
 	guardBaseline?: GuardBaseline;
+	/** Each root's `core.hooksPath` folder (lib/scope.ts `hooksPaths`), taken at SessionStart; writes under it ask. */
+	hooksPaths?: Record<string, string>;
+	/** Some `core.hooksPath` read timed out or couldn't run: the next SessionStart reads them again. */
+	hooksPathsPartial?: boolean;
 	/** When this session last launched the kit's verify script and its result hasn't been settled yet (ms since epoch). */
 	verifyLaunch?: number;
 	/** A verify call the guard allowed, by `tool_use_id`, not yet reported: it becomes `verifyLaunch` in its own PostToolUse. */
@@ -88,6 +93,9 @@ export function loadState(dir: string, sessionId: string): SessionState {
 					? Object.fromEntries(Object.entries(raw.pending).filter((e): e is [string, Tree] => isTree(e[1])))
 					: {},
 			guardBaseline: isGuardBaseline(raw.guardBaseline) ? raw.guardBaseline : undefined,
+			hooksPaths:
+				raw.hooksPaths && typeof raw.hooksPaths === "object" && Object.values(raw.hooksPaths).every((v) => typeof v === "string") ? (raw.hooksPaths as Record<string, string>) : undefined,
+			hooksPathsPartial: raw.hooksPathsPartial === true || undefined,
 			verifyLaunch: typeof raw.verifyLaunch === "number" ? raw.verifyLaunch : undefined,
 			verifyCall:
 				raw.verifyCall && typeof raw.verifyCall.id === "string" && typeof raw.verifyCall.at === "number" ? { id: raw.verifyCall.id, at: raw.verifyCall.at } : undefined,
@@ -107,12 +115,16 @@ export function runFile(projectDir: string, root = join(tmpdir(), "eng-kit", "ru
 }
 
 export function writeRun(projectDir: string, record: RunRecord | RunStart, root?: string): void {
-	writeAtomic(runFile(projectDir, root), JSON.stringify(record));
+	// Only this user may write into the runs folder: in a shared temp folder another user could plant a record.
+	writeAtomic(runFile(projectDir, root), JSON.stringify(record), 0o700);
 }
 
-export function readRun(projectDir: string, root?: string): RunRecord | undefined {
+/** The last finished run, if its record is in a runs folder this user owns (another local user could plant one in a shared temp folder). */
+export function readRun(projectDir: string, root?: string, owned: (dir: string) => boolean = ownDir): RunRecord | undefined {
 	try {
-		const raw = JSON.parse(readFileSync(runFile(projectDir, root), "utf8")) as Partial<RunRecord>;
+		const file = runFile(projectDir, root);
+		if (!owned(dirname(file))) return undefined;
+		const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<RunRecord>;
 		if (typeof raw.ok !== "boolean" || typeof raw.finishedAt !== "number" || !Array.isArray(raw.commands)) return undefined;
 		const startedAt = typeof raw.startedAt === "number" ? raw.startedAt : undefined;
 		return { ok: raw.ok, finishedAt: raw.finishedAt, commands: raw.commands.filter((c): c is string => typeof c === "string"), startedAt };
@@ -121,10 +133,12 @@ export function readRun(projectDir: string, root?: string): RunRecord | undefine
 	}
 }
 
-/** The run in progress, if the last record is a start; a finished record is read by `readRun`. */
-export function readRunStart(projectDir: string, root?: string): RunStart | undefined {
+/** The run in progress, if the last record is a start; a finished record is read by `readRun`. The folder is owner-checked as there. */
+export function readRunStart(projectDir: string, root?: string, owned: (dir: string) => boolean = ownDir): RunStart | undefined {
 	try {
-		const raw = JSON.parse(readFileSync(runFile(projectDir, root), "utf8")) as Partial<RunStart>;
+		const file = runFile(projectDir, root);
+		if (!owned(dirname(file))) return undefined;
+		const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<RunStart>;
 		if (raw.running !== true || typeof raw.pid !== "number" || typeof raw.startedAt !== "number" || !Array.isArray(raw.commands)) return undefined;
 		return { running: true, pid: raw.pid, startedAt: raw.startedAt, commands: raw.commands.filter((c): c is string => typeof c === "string") };
 	} catch {
@@ -133,8 +147,8 @@ export function readRunStart(projectDir: string, root?: string): RunStart | unde
 }
 
 /** Write via a temp file and rename, so a concurrent reader never sees half a file. */
-function writeAtomic(path: string, text: string): void {
-	mkdirSync(resolve(path, ".."), { recursive: true });
+function writeAtomic(path: string, text: string, folderMode?: number): void {
+	mkdirSync(resolve(path, ".."), { recursive: true, mode: folderMode });
 	const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
 	writeFileSync(tmp, text);
 	renameSync(tmp, path);
