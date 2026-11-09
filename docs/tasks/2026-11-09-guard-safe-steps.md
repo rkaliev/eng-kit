@@ -1,6 +1,6 @@
 # The guard asks about every reading of an implementer's push and trusts only read-only steps before a landing
 
-Status: design approved (2026-11-09)
+Status: in progress
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
 Base: eng-kit 4b725766e7e73ca32f3c64285f855fbc88a5ab20, pi 9f9f02b834d62895aa247566f5d27bca928d1abb
 Links: workspace docs/review-rounds/0.38.1/round4-findings.md (Follow-ups 0.38.2 and the pre-existing list)
@@ -129,11 +129,11 @@ None. It ships as eng-kit and pi 0.38.2 through the usual PRs; CI tags the relea
 **Files:** Modify `lib/hooks.ts` · Test `tests/hooks.test.ts`
 **Interfaces:** Consumes `otherReadings(command: string): string[]`, `ownBranchPush(...)` from `lib/patterns.ts`
 
-- [ ] In test `guard: the implementer's own-branch push asks; the main agent's passes`, for each implementer agent add `pre("g\rit push", agent) === "ask"` and `pre("git\r push", agent) === "ask"`; add a reason check that `git pu\rsh` from `eng-kit:implementer` matches `/implementer doesn't push; the coordinator does after review/`; and `pre("git push --force\r", "eng-kit:implementer")` stays `"deny"` (a block is never softened)
-- [ ] Run `node --test tests/hooks.test.ts` → expect FAIL: `g\rit push` gives `undefined`, expected `"ask"`
-- [ ] In `lib/hooks.ts`, the implementer check becomes: `decision.action !== "block" && IMPLEMENTER.test(...) && [command, ...otherReadings(command)].some((r) => ownBranchPush(r, cwd, process.env, env.projectDir))`; import `otherReadings`
-- [ ] Run `node --test tests/hooks.test.ts` → PASS; mutation-check: drop `...otherReadings(command)` → the new rows fail; restore
-- [ ] Commit `fix(guard): the implementer's push asks in every reading`
+- [x] In test `guard: the implementer's own-branch push asks; the main agent's passes`, for each implementer agent add `pre("g\rit push", agent) === "ask"` and `pre("git\r push", agent) === "ask"`; add a reason check that `git pu\rsh` from `eng-kit:implementer` matches `/implementer doesn't push; the coordinator does after review/`; and `pre("git push --force\r", "eng-kit:implementer")` stays `"deny"` (a block is never softened)
+- [x] Run `node --test tests/hooks.test.ts` → expect FAIL: `g\rit push` gives `undefined`, expected `"ask"`
+- [x] In `lib/hooks.ts`, the implementer check becomes: `decision.action !== "block" && IMPLEMENTER.test(...) && [command, ...otherReadings(command)].some((r) => ownBranchPush(r, cwd, process.env, env.projectDir))`; import `otherReadings`
+- [x] Run `node --test tests/hooks.test.ts` → PASS; mutation-check: drop `...otherReadings(command)` → the new rows fail; restore
+- [x] Commit `fix(guard): the implementer's push asks in every reading`
 
 ### Task 2: `otherReadings` without a no-op dedupe (both editions)
 
@@ -200,4 +200,5 @@ None. It ships as eng-kit and pi 0.38.2 through the usual PRs; CI tags the relea
 
 ## Progress
 
-None yet
+Plan approved 2026-11-09, inline. Baseline: kit verify script from the workspace root → all checks passed (typecheck + test, both editions). Drift: none (Base = the plan commit's parent in both repos).
+Task 1: complete (b6fc056..b11348d, `node --test tests/hooks.test.ts` RED `g\rit push` → undefined, then GREEN; mutations "drop otherReadings" and "=== allow" each fail a row; eng-kit `npm test` → 766 pass, 0 fail)
