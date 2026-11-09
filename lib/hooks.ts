@@ -16,7 +16,7 @@ import { basename, isAbsolute, join, posix, relative, resolve } from "node:path"
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, taskFileReminders, taskFileWarning } from "./approvals.ts";
 import { commandMatches, resolveIgnore, resolveVerifyCommands } from "./commands.ts";
-import { checkCommand, checkPath, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
+import { checkCommand, checkPath, otherReadings, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
 import { canonical } from "./repos.ts";
 import { guardBaseline, guardScope, hooksPaths, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
@@ -200,8 +200,10 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 				: checkReviewerCommand(command, cwd, resolveVerifyCommands(env.projectDir, { detect: false }).commands, env.root);
 		const powershell = tool === "PowerShell";
 		decision = reviewer ?? checkCommand(command, env.projectDir, scopedConfig(command, cwd, scope, powershell), cwd, process.env, (target) => scopedPath("write", target, scope));
-		// The implementer hands its commit back; the coordinator pushes after review.
-		if (decision.action === "allow" && IMPLEMENTER.test(input.agent_type ?? "") && ownBranchPush(command, cwd, process.env, env.projectDir)) {
+		// The implementer hands its commit back; the coordinator pushes after review. Any reading a shell may run
+		// (otherReadings) counts, as in the push exemption; a block stays a block.
+		const ownPush = () => [command, ...otherReadings(command)].some((text) => ownBranchPush(text, cwd, process.env, env.projectDir));
+		if (decision.action !== "block" && IMPLEMENTER.test(input.agent_type ?? "") && ownPush()) {
 			decision = { action: "confirm", reason: "The implementer doesn't push; the coordinator does after review." };
 		}
 		const workDocs = config.workDocs ?? WORK_DOC_DIRS;
