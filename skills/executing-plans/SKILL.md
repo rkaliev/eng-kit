@@ -32,15 +32,11 @@ The plan already did the thinking. Execute it exactly, prove each step with a te
    - the full suite is green;
    - every `Expected` was compared;
    - every deviation has a ruling.
-   Then add `Task N: complete (BASE..HEAD, <command> → <result>)` to Progress and tick its checkboxes in the Plan.
+   Then, in one edit, tick the task's checkboxes in the Plan and add `Task N: complete (BASE..HEAD, <command> → <result>)` to Progress.
 
-**Rulings, not stalls.** Don't pause between tasks to ask "should I continue?". Stop and ask only for:
-- an irreversible or destructive action;
-- a security-sensitive action;
-- a side effect outside this worktree (push to a shared branch, publish, deploy, a migration on a shared database, a real payment);
-- a plan so broken that every way forward is a guess.
+**Rulings, not stalls.** Don't pause between tasks to ask "should I continue?". Stop and ask only for an irreversible, destructive or security-sensitive action, a side effect outside this worktree (push to a shared branch, publish, deploy, a migration on a shared database, a real payment), or a plan so broken that every way forward is a guess.
 
-Keep long command output out of context: redirect it to a file and read the tail.
+Keep long command output out of context: redirect it to a file and read the tail. The kit verify script is the exception: run it as the command's only step, at most piped into `tail`, `head` or `grep`; its output is already short, and the verify gate doesn't credit a chained or `cd … &&` run, or one that writes its output inside the project.
 
 ## Subagent per task (when the user chose it)
 
@@ -56,7 +52,7 @@ Run implementers **sequentially**, one at a time on the same tree. For independe
 
 The final review is the last step before landing, because a verdict covers exactly the commit it reviewed.
 1. **Docs:** do the plan's Post-implementation block, plus anything else the diff made stale (writing-documentation), in this branch.
-2. **Task file:** move what lasts into the topic chapter and `docs/decisions/` (writing-documentation), show the user its Follow-ups, then delete it in one commit (`docs: remove the task file for <feature>`). The guard blocks a PR or merge while it exists.
+2. **Task file:** an unticked `- [ ]` in its Plan is a step not done: tell the user which and why, and add it to Follow-ups. Move what lasts into the topic chapter and `docs/decisions/` (writing-documentation), show the user the Follow-ups, then delete the file in one commit (`docs: remove the task file for <feature>`). The guard blocks a PR or merge while it exists.
 3. If the branch must be rebased onto a newer base, do it now.
 4. Apply verification-before-completion.
 5. Review the whole branch on this HEAD with requesting-code-review, with the plan's Review focus and the rulings from the task file's last commit. Fix Critical and Important findings with RED→GREEN, and re-review until `Yes` for the current HEAD. Report Minor findings.
