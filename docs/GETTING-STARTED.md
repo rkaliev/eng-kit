@@ -72,8 +72,9 @@ claude ─▶ SessionStart hook ─▶ into context: using-skills rules + paths 
    │
    ├─ review ─▶ agent eng-kit:reviewer (fresh context, opus) ─▶ report
    │
-   └─ Claude wants to finish ─▶ Stop hook: any unverified edits?
+   └─ Claude wants to finish ─▶ Stop hook: new unverified edits?
                                   yes ─▶ "run the checks first" (once per prompt)
+                                  only ones it judged before ─▶ one notice to you
                                   an approved task file uncommitted? ─▶ "commit it on a work branch"
                                   its Plan fully ticked? ─▶ "move what lasts to docs/, show Follow-ups, delete it"
                                   no  ─▶ answer to you

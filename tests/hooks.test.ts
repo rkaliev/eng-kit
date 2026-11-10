@@ -214,20 +214,111 @@ test("verify gate: an edit arms Stop once per prompt; green runs disarm it", () 
 	assert.equal(stop(true), undefined, "never blocks while a stop hook is already active");
 	call({ hook_event_name: "UserPromptSubmit" });
 
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
 	bash("npm test");
 	assert.equal(stop()?.decision, "block", "typecheck has not run yet");
 	call({ hook_event_name: "UserPromptSubmit" });
 	bash("npm run typecheck");
 	assert.equal(stop(), undefined, "all commands green");
 
+	call({ hook_event_name: "UserPromptSubmit" });
 	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: "src/b.ts" } });
 	bash("npm test");
 	bash("npm run typecheck", true);
-	call({ hook_event_name: "UserPromptSubmit" });
 	assert.equal(stop()?.decision, "block", "a failing check keeps the workspace unverified");
 	call({ hook_event_name: "UserPromptSubmit" });
 	bash(`node "${join(root, "scripts", "verify.ts")}"`);
 	assert.equal(stop(), undefined, "a passing verify script run counts as fully green");
+});
+
+test("verify gate: a turn without edits isn't sent back for earlier unverified edits; the user is told once", () => {
+	// Transcripts (2026-10..11): 40% of verify-gate firings repeated the previous turn's file list in turns with no edit.
+	const { call } = setup();
+	const stop = () => call({ hook_event_name: "Stop" }).output;
+	call({ hook_event_name: "UserPromptSubmit" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	assert.equal(stop()?.decision, "block", "the turn that edited is sent back once");
+	// The agent edits again while answering the send-back and stops: that Stop judges the new edit too.
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	call({ hook_event_name: "Stop", stop_hook_active: true });
+
+	call({ hook_event_name: "UserPromptSubmit" });
+	const quiet = stop();
+	assert.equal(quiet?.decision, undefined, "a later turn with no edit is not sent back");
+	assert.match(String(quiet?.systemMessage), /still unverified.*src\/a\.ts/);
+	call({ hook_event_name: "UserPromptSubmit" });
+	assert.equal(stop(), undefined, "the user is told once per set of edits");
+
+	call({ hook_event_name: "UserPromptSubmit" });
+	call({ hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_input: { command: "npm test" } });
+	assert.equal(stop(), undefined, "a failing check without a new edit: silent");
+
+	call({ hook_event_name: "UserPromptSubmit" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: "src/b.ts" } });
+	assert.equal(stop()?.decision, "block", "a new edit arms it again");
+	call({ hook_event_name: "UserPromptSubmit" });
+	assert.equal(stop()?.decision, undefined, "the Stop that sent it back judged it: the next turn isn't sent back");
+});
+
+test("verify gate: edits a Stop held for a running verify are still sent back after a task notification", () => {
+	// Review of 0.38.3: a background run's notification fires UserPromptSubmit before the run's result is judged.
+	const { started, finished, stop, call } = launchedVerify();
+	started(process.pid);
+	assert.equal(stop(), undefined, "silent while the run is going");
+	finished({ ok: false });
+	call({ hook_event_name: "UserPromptSubmit" });
+	assert.equal(stop()?.decision, "block", "the run failed: the turn that edited is sent back");
+});
+
+test("verify gate: another gate's block over a held Stop doesn't judge the verify gate's edits", () => {
+	// Review round 2 of 0.38.3: the answer to the approval gate's block ran with stop_hook_active while verify was running.
+	const { started, finished, stop, call, projectDir } = launchedVerify();
+	started(process.pid);
+	mkdirSync(join(projectDir, "docs", "tasks"), { recursive: true });
+	writeFileSync(join(projectDir, "docs", "tasks", "2026-11-10-x.md"), "# X\n\nStatus: design approved (2026-11-10)\n");
+	assert.match(String(stop()?.reason), /Approval gate/);
+	rmSync(join(projectDir, "docs", "tasks"), { recursive: true, force: true });
+	call({ hook_event_name: "Stop", stop_hook_active: true });
+	finished({ ok: false });
+	call({ hook_event_name: "UserPromptSubmit" });
+	const back = stop();
+	assert.equal(back?.decision, "block");
+	assert.match(String(back?.reason), /Verify gate/);
+});
+
+test("verify gate: the earlier-edits notice rides along with another gate's block, and a broken verify.json is named", () => {
+	const { call, projectDir } = setupGit();
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
+	call({ hook_event_name: "UserPromptSubmit" });
+	mkdirSync(join(projectDir, "docs", "tasks"), { recursive: true });
+	writeFileSync(join(projectDir, "docs", "tasks", "2026-11-10-x.md"), "# X\n\nStatus: design approved (2026-11-10)\n");
+	const both = call({ hook_event_name: "Stop" }).output;
+	assert.match(String(both?.reason), /Approval gate/);
+	assert.match(String(both?.systemMessage), /earlier edits are still unverified/);
+
+	const broken = setup({ ".claude/verify.json": "{ nope" });
+	broken.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	broken.call({ hook_event_name: "Stop", stop_hook_active: true });
+	broken.call({ hook_event_name: "UserPromptSubmit" });
+	const named = broken.call({ hook_event_name: "Stop" }).output;
+	assert.match(`${named?.reason} ${named?.systemMessage}`, /can't be read/);
+});
+
+test("verify gate: state from before 0.38.3 is still sent back; without commands a later turn gets the kit-init notice", () => {
+	const old = setup();
+	old.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	const legacy = loadState(old.env.stateDir, "s1") as unknown as Record<string, unknown>;
+	delete legacy.judged;
+	saveState(old.env.stateDir, "s1", legacy as never);
+	old.call({ hook_event_name: "UserPromptSubmit" });
+	assert.equal(old.call({ hook_event_name: "Stop" }).output?.decision, "block", "unjudged edits fail closed");
+
+	const none = setup({});
+	none.call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: "src/a.ts" } });
+	none.call({ hook_event_name: "Stop", stop_hook_active: true });
+	none.call({ hook_event_name: "UserPromptSubmit" });
+	assert.match(String(none.call({ hook_event_name: "Stop" }).output?.systemMessage), /no verification commands/i);
 });
 
 test("runsVerifyScript recognises only a run of the kit's own script", () => {
@@ -982,6 +1073,8 @@ test("verify gate: a piped verify run counts when the script recorded a passing 
 	assert.equal(stop()?.decision, "block", "a run older than the last edit proves nothing");
 
 	call({ hook_event_name: "UserPromptSubmit" });
+	// An edit in this turn: only a turn that edited is sent back.
+	edit();
 	run(true, ["npm test"]);
 	verify();
 	assert.equal(stop()?.decision, "block", "a run of a different command set proves nothing");

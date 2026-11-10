@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.3
+
+- **The verify gate sends Claude back once per set of edits.** Edits a Stop had already sent back or let finish (no check was run, or a failing one was reported) sent every later answer back with the same file list: 40% of the gate's firings in recent transcripts. Now they get one notice to you per set of edits; a new edit is sent back as before, and so are edits a Stop held while a verify run was still going.
+
 ## 0.38.2
 
 - **The `implementer`'s push asks in every reading.** `g\rit push`, which bash with `igncr` reads as the own-branch push, asked nothing from the implementer; it asks now, with the implementer's reason.
