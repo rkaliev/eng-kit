@@ -270,6 +270,41 @@ test("verify gate: edits a Stop held for a running verify are still sent back af
 	assert.equal(stop()?.decision, "block", "the run failed: the turn that edited is sent back");
 });
 
+test("verify gate: another gate's block over a held Stop doesn't judge the verify gate's edits", () => {
+	// Review round 2 of 0.38.3: the answer to the approval gate's block ran with stop_hook_active while verify was running.
+	const { started, finished, stop, call, projectDir } = launchedVerify();
+	started(process.pid);
+	mkdirSync(join(projectDir, "docs", "tasks"), { recursive: true });
+	writeFileSync(join(projectDir, "docs", "tasks", "2026-11-10-x.md"), "# X\n\nStatus: design approved (2026-11-10)\n");
+	assert.match(String(stop()?.reason), /Approval gate/);
+	rmSync(join(projectDir, "docs", "tasks"), { recursive: true, force: true });
+	call({ hook_event_name: "Stop", stop_hook_active: true });
+	finished({ ok: false });
+	call({ hook_event_name: "UserPromptSubmit" });
+	const back = stop();
+	assert.equal(back?.decision, "block");
+	assert.match(String(back?.reason), /Verify gate/);
+});
+
+test("verify gate: the earlier-edits notice rides along with another gate's block, and a broken verify.json is named", () => {
+	const { call, projectDir } = setupGit();
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
+	call({ hook_event_name: "UserPromptSubmit" });
+	mkdirSync(join(projectDir, "docs", "tasks"), { recursive: true });
+	writeFileSync(join(projectDir, "docs", "tasks", "2026-11-10-x.md"), "# X\n\nStatus: design approved (2026-11-10)\n");
+	const both = call({ hook_event_name: "Stop" }).output;
+	assert.match(String(both?.reason), /Approval gate/);
+	assert.match(String(both?.systemMessage), /earlier edits are still unverified/);
+
+	const broken = setup({ ".claude/verify.json": "{ nope" });
+	broken.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	broken.call({ hook_event_name: "Stop", stop_hook_active: true });
+	broken.call({ hook_event_name: "UserPromptSubmit" });
+	const named = broken.call({ hook_event_name: "Stop" }).output;
+	assert.match(`${named?.reason} ${named?.systemMessage}`, /can't be read/);
+});
+
 test("verify gate: state from before 0.38.3 is still sent back; without commands a later turn gets the kit-init notice", () => {
 	const old = setup();
 	old.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });

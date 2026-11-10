@@ -688,9 +688,10 @@ function stop(input: HookInput, env: HookEnv): HookResult {
 function stopGates(input: HookInput, env: HookEnv): HookResult {
 	const sessionId = input.session_id ?? "";
 	if (input.stop_hook_active) {
-		// The agent already answered a send-back: what it edited since is judged now, so it isn't sent back later for it.
+		// The agent already answered the verify gate's send-back: what it edited since is judged now, so it isn't sent
+		// back later for it. Another gate's block (or another plugin's) judges nothing: a verify run may still be going.
 		const held = loadState(env.stateDir, sessionId);
-		if (held.unverified && held.judged !== held.editedAt) saveState(env.stateDir, sessionId, { ...held, judged: held.editedAt });
+		if (held.reminded && held.unverified && held.judged !== held.editedAt) saveState(env.stateDir, sessionId, { ...held, judged: held.editedAt });
 		return {};
 	}
 	// A change no command reported (a background process, a subagent's script) is found here, before a run is settled.
