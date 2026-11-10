@@ -1727,10 +1727,14 @@ test("guard: the implementer's own-branch push asks; the main agent's passes", (
 		assert.equal(pre("git push", agent), "ask", agent);
 		assert.equal(pre("git push -u origin feat/a 2>&1", agent), "ask", agent);
 		assert.equal(pre("git pu\rsh", agent), "ask", `a push only bash with igncr reads asks: ${agent}`);
+		// Review round 4 of 0.38.1: another reading is the own-branch push, which the guard exempts.
+		assert.equal(pre("g\rit push", agent), "ask", `the igncr reading is the own-branch push: ${agent}`);
+		assert.equal(pre("git\r push", agent), "ask", `the igncr reading is the own-branch push: ${agent}`);
 	}
+	assert.equal(pre("git push --force\r", "eng-kit:implementer"), "deny", "a block is never softened to the implementer's question");
 	assert.equal(pre("git status", "eng-kit:implementer"), undefined, "the implementer's other git calls are untouched");
-	const reason = (handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push" }, agent_type: "eng-kit:implementer" }, env).output!.hookSpecificOutput as Record<string, string>).permissionDecisionReason;
-	assert.match(String(reason), /implementer doesn't push; the coordinator does after review/);
+	const reason = (command: string) => (handle({ session_id: "s", cwd: projectDir, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, agent_type: "eng-kit:implementer" }, env).output!.hookSpecificOutput as Record<string, string>).permissionDecisionReason;
+	for (const command of ["git push", "git pu\rsh"]) assert.match(String(reason(command)), /implementer doesn't push; the coordinator does after review/, JSON.stringify(command));
 });
 
 test("token ledger: a reviewer's tokens are recorded on every SubagentStop path, sent back or not", () => {
