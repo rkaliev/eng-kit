@@ -332,7 +332,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		}
 		const state = loadState(env.stateDir, sessionId);
 		const edited = [...state.edited.filter((e) => e !== label), label].slice(-MAX_LISTED);
-		saveState(env.stateDir, sessionId, { ...state, unverified: true, green: [], edited, editedAt: Date.now(), editedTurn: state.turn });
+		saveState(env.stateDir, sessionId, { ...state, unverified: true, green: [], edited, editedAt: Date.now() });
 		// The edit is counted; the next comparison starts after it.
 		bestEffort(() => trackTree(env, sessionId));
 		return {};
@@ -439,7 +439,7 @@ function bestEffort(fn: () => unknown): void {
 
 function markEdited(state: SessionState, paths: string[]): SessionState {
 	const edited = [...state.edited.filter((e) => !paths.includes(e)), ...paths].slice(-MAX_LISTED);
-	return { ...state, unverified: true, green: [], edited, editedAt: Date.now(), editedTurn: state.turn };
+	return { ...state, unverified: true, green: [], edited, editedAt: Date.now() };
 }
 const RUN_MAX_AGE_MS = 15 * 60 * 1000;
 /** How long a launch may go without the script's start record before it counts as never started. */
@@ -686,26 +686,39 @@ function stop(input: HookInput, env: HookEnv): HookResult {
 }
 
 function stopGates(input: HookInput, env: HookEnv): HookResult {
-	if (input.stop_hook_active) return {};
 	const sessionId = input.session_id ?? "";
+	if (input.stop_hook_active) {
+		// The agent already answered a send-back: what it edited since is judged now, so it isn't sent back later for it.
+		const held = loadState(env.stateDir, sessionId);
+		if (held.unverified && held.judged !== held.editedAt) saveState(env.stateDir, sessionId, { ...held, judged: held.editedAt });
+		return {};
+	}
 	// A change no command reported (a background process, a subagent's script) is found here, before a run is settled.
 	const { state, running } = settleLaunch(env, sessionId, trackTree(env, sessionId).state);
 	const reasons: string[] = [];
 	let systemMessage: string | undefined;
 	const next = { ...state };
 
-	// A verification run still going will report back; asking for another would only run the checks twice. Only a
-	// turn that edited is sent back: edits left unverified in an earlier turn (the agent ran no check, or reported a
-	// failing one) are told to the user once instead of sending every later answer back (transcripts 2026-10..11: 40%
-	// of firings repeated the previous turn's file list).
-	const editedThisTurn = state.editedTurn === undefined || state.editedTurn === state.turn;
-	if (state.unverified && !state.reminded && !running && !editedThisTurn) {
-		if (state.noted !== state.editedAt && resolveVerifyCommands(env.projectDir).commands.length > 0) {
+	// A verification run still going will report back; asking for another would only run the checks twice, and the
+	// edits stay unjudged for the next Stop. Edits a Stop already judged (the agent ran no check, or reported a failing
+	// one) are told to the user once instead of sending every later answer back (transcripts 2026-10..11: 40% of
+	// firings repeated the previous one's file list).
+	const judged = state.judged === state.editedAt;
+	if (state.unverified && !state.reminded && !running && judged) {
+		const { commands, error } = resolveVerifyCommands(env.projectDir);
+		if (commands.length > 0 && !error && state.noted !== state.editedAt) {
 			next.noted = state.editedAt;
 			const files = state.edited.length > 0 ? `: ${state.edited.join(", ")}` : "";
-			systemMessage = `eng-kit verify gate: edits from an earlier turn are still unverified${files}. Ask for the checks to be run when you want them verified.`;
+			systemMessage = `eng-kit verify gate: earlier edits are still unverified${files}. Ask for the checks to be run when you want them verified.`;
+		} else if ((commands.length === 0 || error) && !state.notified) {
+			next.notified = true;
+			const kitInit = existsSync(join(env.root, "skills")) ? "/eng-kit:kit-init" : "/kit-init";
+			systemMessage = error
+				? `eng-kit verify gate: edits weren't checked because the verification commands can't be read: ${error}`
+				: `eng-kit verify gate: no verification commands found, so edits in this session weren't checked. Run ${kitInit} or add .claude/verify.json ({"commands": ["npm test"]}).`;
 		}
 	} else if (state.unverified && !state.reminded && !running) {
+		next.judged = state.editedAt;
 		const { commands, error } = resolveVerifyCommands(env.projectDir);
 		if (error) {
 			next.reminded = true;
@@ -782,8 +795,9 @@ function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session
 function userPromptSubmit(input: HookInput, env: HookEnv): HookResult {
 	const sessionId = input.session_id ?? "";
 	const state = loadState(env.stateDir, sessionId);
-	// Each prompt is a new turn: the verify gate sends back only a turn that edited.
-	saveState(env.stateDir, sessionId, { ...state, reminded: false, approvalReminded: false, workDocsReminded: false, turn: state.turn + 1 });
+	if (state.reminded || state.approvalReminded || state.workDocsReminded) {
+		saveState(env.stateDir, sessionId, { ...state, reminded: false, approvalReminded: false, workDocsReminded: false });
+	}
 	return {};
 }
 function strings(value: unknown): string[] {

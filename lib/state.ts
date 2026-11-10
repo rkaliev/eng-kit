@@ -22,11 +22,10 @@ export interface SessionState {
 	edited: string[];
 	/** When the last counted edit happened (ms since epoch). */
 	editedAt: number;
-	/** User prompts so far in this session (UserPromptSubmit counts them). */
-	turn: number;
-	/** The `turn` of the last counted edit; absent in a state from before 0.38.3, which counts as the current turn. */
-	editedTurn?: number;
-	/** The `editedAt` of unverified edits the user was already told about in a turn that made none. */
+	/** The `editedAt` of the edits a Stop last judged (sent back, or let finish); absent until one did. A Stop held by a
+	 * running verify judges nothing, so its edits are judged at the next Stop, whatever prompt or notification came between. */
+	judged?: number;
+	/** The `editedAt` of unverified edits the user was already told about at a Stop that had judged them before. */
 	noted?: number;
 	/** The last fingerprint of the project's git working tree (lib/worktree.ts); absent until the first one. */
 	tree?: Tree;
@@ -67,7 +66,7 @@ export interface RunStart {
 	commands: string[];
 }
 
-const EMPTY: SessionState = { unverified: false, green: [], reminded: false, approvalReminded: false, workDocsReminded: false, edited: [], editedAt: 0, turn: 0, notified: false, gitOff: false, slowParts: [], pending: {} };
+const EMPTY: SessionState = { unverified: false, green: [], reminded: false, approvalReminded: false, workDocsReminded: false, edited: [], editedAt: 0, notified: false, gitOff: false, slowParts: [], pending: {} };
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** `$CLAUDE_PLUGIN_DATA` when running as a plugin, else a folder in the OS temp dir. */
@@ -90,8 +89,7 @@ export function loadState(dir: string, sessionId: string): SessionState {
 			workDocsReminded: raw.workDocsReminded === true,
 			edited: Array.isArray(raw.edited) ? raw.edited.filter((c): c is string => typeof c === "string") : [],
 			editedAt: typeof raw.editedAt === "number" ? raw.editedAt : 0,
-			turn: typeof raw.turn === "number" ? raw.turn : 0,
-			editedTurn: typeof raw.editedTurn === "number" ? raw.editedTurn : undefined,
+			judged: typeof raw.judged === "number" ? raw.judged : undefined,
 			noted: typeof raw.noted === "number" ? raw.noted : undefined,
 			tree: isTree(raw.tree) ? raw.tree : undefined,
 			notified: raw.notified === true,

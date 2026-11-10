@@ -52,7 +52,7 @@ When unsure, take the heavier path. If hidden complexity shows up mid-task, stop
 
 ## Tools in Claude Code
 
-- **Verification:** the kit verify script (named in the session context) runs the project's checks; prefer it as evidence. A Stop hook returns you once if this turn's edits haven't passed the checks.
+- **Verification:** the kit verify script (named in the session context) runs the project's checks; prefer it as evidence. A Stop hook returns you once for new edits that haven't passed the checks.
 - **Delegation:** the Agent tool: `Explore` to scout, `reviewer` to review, `implementer` for one plan task; independent ones in one message, each with a self-contained prompt.
 - **Tasks:** a todo for multi-step work.
 - **Guard:** a hook denies irreversible or secret-leaking calls and asks before outward-facing ones, except your own work branch's push. Never reword a denied command to get past it; ask.
