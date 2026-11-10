@@ -2,7 +2,7 @@
 
 ## 0.38.4
 
-- **No change in what the guard decides.** The comment scan is split from `blankQuoted` into its own function. The docs state the comment scan's PowerShell limit and the review gate's heredoc gaps, and the README points to which git steps count as read-only before a landing. Tests pin a quoted or escaped `)` before a landing with its reason and several apostrophe comments in a row, and the review-gate tests remove every temp folder they make.
+- **No change in what the guard decides.** The comment scan is split from `blankQuoted` into its own function. The comment scan's code comment states its PowerShell limit, the docs name the review gate's heredoc gap, and the README points to which git steps count as read-only before a landing. Tests pin a quoted or escaped `)` before a landing with its reason and several apostrophe comments in a row, and the review-gate tests remove every temp folder they make.
 
 ## 0.38.3
 
