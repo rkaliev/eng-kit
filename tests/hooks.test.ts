@@ -214,20 +214,45 @@ test("verify gate: an edit arms Stop once per prompt; green runs disarm it", () 
 	assert.equal(stop(true), undefined, "never blocks while a stop hook is already active");
 	call({ hook_event_name: "UserPromptSubmit" });
 
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
 	bash("npm test");
 	assert.equal(stop()?.decision, "block", "typecheck has not run yet");
 	call({ hook_event_name: "UserPromptSubmit" });
 	bash("npm run typecheck");
 	assert.equal(stop(), undefined, "all commands green");
 
+	call({ hook_event_name: "UserPromptSubmit" });
 	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: "src/b.ts" } });
 	bash("npm test");
 	bash("npm run typecheck", true);
-	call({ hook_event_name: "UserPromptSubmit" });
 	assert.equal(stop()?.decision, "block", "a failing check keeps the workspace unverified");
 	call({ hook_event_name: "UserPromptSubmit" });
 	bash(`node "${join(root, "scripts", "verify.ts")}"`);
 	assert.equal(stop(), undefined, "a passing verify script run counts as fully green");
+});
+
+test("verify gate: a turn without edits isn't sent back for earlier unverified edits; the user is told once", () => {
+	// Transcripts (2026-10..11): 40% of verify-gate firings repeated the previous turn's file list in turns with no edit.
+	const { call } = setup();
+	const stop = () => call({ hook_event_name: "Stop" }).output;
+	call({ hook_event_name: "UserPromptSubmit" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	assert.equal(stop()?.decision, "block", "the turn that edited is sent back once");
+
+	call({ hook_event_name: "UserPromptSubmit" });
+	const quiet = stop();
+	assert.equal(quiet?.decision, undefined, "a later turn with no edit is not sent back");
+	assert.match(String(quiet?.systemMessage), /still unverified.*src\/a\.ts/);
+	call({ hook_event_name: "UserPromptSubmit" });
+	assert.equal(stop(), undefined, "the user is told once per set of edits");
+
+	call({ hook_event_name: "UserPromptSubmit" });
+	call({ hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_input: { command: "npm test" } });
+	assert.equal(stop()?.decision, undefined, "a failing check without a new edit isn't sent back again");
+
+	call({ hook_event_name: "UserPromptSubmit" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: "src/b.ts" } });
+	assert.equal(stop()?.decision, "block", "a new edit arms it again");
 });
 
 test("runsVerifyScript recognises only a run of the kit's own script", () => {
@@ -982,6 +1007,8 @@ test("verify gate: a piped verify run counts when the script recorded a passing 
 	assert.equal(stop()?.decision, "block", "a run older than the last edit proves nothing");
 
 	call({ hook_event_name: "UserPromptSubmit" });
+	// An edit in this turn: only a turn that edited is sent back.
+	edit();
 	run(true, ["npm test"]);
 	verify();
 	assert.equal(stop()?.decision, "block", "a run of a different command set proves nothing");

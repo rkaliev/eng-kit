@@ -332,7 +332,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		}
 		const state = loadState(env.stateDir, sessionId);
 		const edited = [...state.edited.filter((e) => e !== label), label].slice(-MAX_LISTED);
-		saveState(env.stateDir, sessionId, { ...state, unverified: true, green: [], edited, editedAt: Date.now() });
+		saveState(env.stateDir, sessionId, { ...state, unverified: true, green: [], edited, editedAt: Date.now(), editedTurn: state.turn });
 		// The edit is counted; the next comparison starts after it.
 		bestEffort(() => trackTree(env, sessionId));
 		return {};
@@ -439,7 +439,7 @@ function bestEffort(fn: () => unknown): void {
 
 function markEdited(state: SessionState, paths: string[]): SessionState {
 	const edited = [...state.edited.filter((e) => !paths.includes(e)), ...paths].slice(-MAX_LISTED);
-	return { ...state, unverified: true, green: [], edited, editedAt: Date.now() };
+	return { ...state, unverified: true, green: [], edited, editedAt: Date.now(), editedTurn: state.turn };
 }
 const RUN_MAX_AGE_MS = 15 * 60 * 1000;
 /** How long a launch may go without the script's start record before it counts as never started. */
@@ -694,8 +694,18 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 	let systemMessage: string | undefined;
 	const next = { ...state };
 
-	// A verification run still going will report back; asking for another would only run the checks twice.
-	if (state.unverified && !state.reminded && !running) {
+	// A verification run still going will report back; asking for another would only run the checks twice. Only a
+	// turn that edited is sent back: edits left unverified in an earlier turn (the agent ran no check, or reported a
+	// failing one) are told to the user once instead of sending every later answer back (transcripts 2026-10..11: 40%
+	// of firings repeated the previous turn's file list).
+	const editedThisTurn = state.editedTurn === undefined || state.editedTurn === state.turn;
+	if (state.unverified && !state.reminded && !running && !editedThisTurn) {
+		if (state.noted !== state.editedAt && resolveVerifyCommands(env.projectDir).commands.length > 0) {
+			next.noted = state.editedAt;
+			const files = state.edited.length > 0 ? `: ${state.edited.join(", ")}` : "";
+			systemMessage = `eng-kit verify gate: edits from an earlier turn are still unverified${files}. Ask for the checks to be run when you want them verified.`;
+		}
+	} else if (state.unverified && !state.reminded && !running) {
 		const { commands, error } = resolveVerifyCommands(env.projectDir);
 		if (error) {
 			next.reminded = true;
@@ -772,9 +782,8 @@ function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session
 function userPromptSubmit(input: HookInput, env: HookEnv): HookResult {
 	const sessionId = input.session_id ?? "";
 	const state = loadState(env.stateDir, sessionId);
-	if (state.reminded || state.approvalReminded || state.workDocsReminded) {
-		saveState(env.stateDir, sessionId, { ...state, reminded: false, approvalReminded: false, workDocsReminded: false });
-	}
+	// Each prompt is a new turn: the verify gate sends back only a turn that edited.
+	saveState(env.stateDir, sessionId, { ...state, reminded: false, approvalReminded: false, workDocsReminded: false, turn: state.turn + 1 });
 	return {};
 }
 function strings(value: unknown): string[] {
