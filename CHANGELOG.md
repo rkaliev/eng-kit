@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.4
+
+- **No change in what the guard decides.** The comment scan is split from `blankQuoted` into its own function. The docs state the comment scan's PowerShell limit and the review gate's heredoc gaps, and the README points to which git steps count as read-only before a landing. Tests pin a quoted or escaped `)` before a landing with its reason and several apostrophe comments in a row, and the review-gate tests remove every temp folder they make.
+
 ## 0.38.3
 
 - **The verify gate sends Claude back once per set of edits.** Edits a Stop had already sent back or let finish (no check was run, or a failing one was reported) sent every later answer back with the same file list: 40% of the gate's firings in recent transcripts. Now they get one notice to you per set of edits; a new edit is sent back as before, and so are edits a Stop held while a verify run was still going.
