@@ -1186,6 +1186,27 @@ test("verify gate: a verify call moved to the background counts when it finishes
 	assert.equal(loadState(atCall.env.stateDir, "s1").unverified, false, "the next shell call settles it");
 });
 
+test("verify gate: a failed verify run takes its commands out of green (0.39.1)", () => {
+	const commands = ["npm test", "npm run typecheck"];
+	const fg = setupGit();
+	fg.call({ hook_event_name: "SessionStart", source: "startup" });
+	fg.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	fg.bash("npm test");
+	fg.bash(`node "${join(root, "scripts", "verify.ts")}"`, { hook_event_name: "PostToolUseFailure" }, () =>
+		writeRun(fg.projectDir, { ok: false, commands, startedAt: Date.now(), finishedAt: Date.now() }, fg.env.runsRoot),
+	);
+	const reason = String(fg.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.doesNotMatch(reason, /--only/, "in the foreground");
+	assert.match(reason, /`npm test`/, "in the foreground");
+
+	const bg = launchedVerify();
+	bg.bash("npm test");
+	bg.finished({ ok: false });
+	const bgReason = String(bg.stop()?.reason);
+	assert.doesNotMatch(bgReason, /--only/, "settled from the record");
+	assert.match(bgReason, /`npm test`/, "settled from the record");
+});
+
 test("verify gate: a launched run that failed, ran other commands or started too early doesn't count", () => {
 	const cases: Array<[string, (l: ReturnType<typeof launchedVerify>) => void]> = [
 		["failed", (l) => l.finished({ ok: false })],

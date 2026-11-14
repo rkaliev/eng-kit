@@ -366,7 +366,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (args.run_in_background === true) return {};
 	// A call that changed files proves nothing about them, whatever checks it also ran.
 	if (marked.length > 0) return {};
-	creditCall(env, sessionId, state, { shell, commands, failed, isVerifyRun });
+	creditCall(env, sessionId, state, { shell, commands, failed, isVerifyRun, own: scriptRun });
 	// A check's own changes (a formatter, `lint --fix`) are off the count for the checks that ran, not for the others.
 	if (own.exact.length + own.guessed.length > 0) {
 		const ran = isVerifyRun ? (scriptRun?.commands ?? []) : commands.filter((c) => commandMatches(shell, c));
@@ -385,13 +385,23 @@ function ownRun(state: SessionState, toolUseId: string | undefined, run: RunReco
 }
 
 /** Credits the checks a shell call ran: the verify script by its run record, a configured command by its exit code. */
-function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean }): void {
-	const { shell, commands, failed, isVerifyRun } = call;
+function creditCall(
+	env: HookEnv,
+	sessionId: string,
+	state: SessionState,
+	call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean; own: RunRecord | undefined },
+): void {
+	const { shell, commands, failed, isVerifyRun, own } = call;
 	if (!state.unverified) return;
 	const credit = (passed: string[]) => saveState(env.stateDir, sessionId, credited(state, commands, passed));
 
 	if (isVerifyRun) {
 		if (commands.length === 0) return;
+		// A run of this call that failed: its commands don't stand green any more, like a failed plain command.
+		if (own && !own.ok) {
+			saveState(env.stateDir, sessionId, withoutGreen(state, commands, own.commands));
+			return;
+		}
 		const run = readRun(env.projectDir, env.runsRoot);
 		if (run) {
 			// The script records its own result, so a pipe that hides the exit code doesn't matter. A run that started before
@@ -410,7 +420,7 @@ function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: 
 	const ran = commands.filter((c) => commandMatches(shell, c));
 	if (ran.length === 0) return;
 	if (!failed) credit(ran);
-	else saveState(env.stateDir, sessionId, credited({ ...state, green: state.green.filter((c) => !ran.includes(c)) }, commands, []));
+	else saveState(env.stateDir, sessionId, withoutGreen(state, commands, ran));
 }
 
 function isFolder(path: string): boolean {
@@ -428,6 +438,11 @@ function isFileAt(projectDir: string, abs: string, label: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/** `state` (unverified) after `failed` failed: they leave the green commands. */
+function withoutGreen(state: SessionState, commands: string[], failed: string[]): SessionState {
+	return credited({ ...state, green: state.green.filter((c) => !failed.includes(c)) }, commands, []);
 }
 
 /** `state` (unverified) after `passed` passed: they join the green commands, and the edits are verified once all are. */
@@ -541,7 +556,10 @@ function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ende
 	if (run && run.finishedAt >= launch) {
 		const { commands } = resolveVerifyCommands(env.projectDir);
 		const passed = run.ok && run.startedAt !== undefined && run.startedAt >= launch && run.startedAt >= state.editedAt && commands.length > 0;
-		return settled(passed && state.unverified ? credited(state, commands, run.commands) : state);
+		if (passed && state.unverified) return settled(credited(state, commands, run.commands));
+		// The launched run failed: its commands don't stand green any more.
+		const failedOwn = !run.ok && run.startedAt !== undefined && run.startedAt >= launch && state.unverified;
+		return settled(failedOwn ? withoutGreen(state, commands, run.commands) : state);
 	}
 	const start = readRunStart(env.projectDir, env.runsRoot);
 	if (start && start.startedAt >= launch ? runGoing(start, env.projectDir) : !ended && Date.now() - launch < LAUNCH_GRACE_MS) return { state, running: true };
