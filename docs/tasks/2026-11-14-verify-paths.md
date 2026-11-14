@@ -137,16 +137,16 @@ Files:
 **Files:** Modify `lib/verify-run.ts`, `scripts/verify.ts` · Create `tests/verify-run.test.ts`
 **Interfaces:** Consumes Task 1 · Produces `parseVerifyArgs(argv: string[]): { only: string[]; dir?: string; error?: string }`, `runVerification(cwd, run?, only?: string[]): VerifyReport` with `VerifyReport.exitCode: 0 | 1 | 2`.
 
-- [ ] Write failing tests with a fake runner and a temp project (`commands: ["a","b","c"]`):
+- [x] Write failing tests with a fake runner and a temp project (`commands: ["a","b","c"]`):
   - `parseVerifyArgs(["--only","a","--only","c"])` → `{ only: ["a","c"] }`; `["/p"]` → `{ only: [], dir: "/p" }`; `["--only"]` → error `--only needs a command`.
   - `only: ["c","a"]` runs `a` then `c` (config order), `commands` = `["a","c"]`, report has no line for `b`.
   - `only: ["zz"]` → runs nothing, `exitCode` 2, report `--only "zz" is not one of the verification commands`.
   - verify.json with a bad `paths` entry → report contains `Note: paths: "b" needs a non-empty list of globs`.
   - no `only` → runs a, b, c (unchanged).
-- [ ] Run `node --test tests/verify-run.test.ts` → expect FAIL: runs `["a","b","c"]` where `["a","c"]` expected
-- [ ] Implement; `scripts/verify.ts` writes no start or result record when `exitCode === 2`, records `commands` = the commands run selected
-- [ ] Run the test file → PASS, then the full suite
-- [ ] Commit `feat(verify): run a subset of the commands with --only`
+- [x] Run `node --test tests/verify-run.test.ts` → expect FAIL: runs `["a","b","c"]` where `["a","c"]` expected
+- [x] Implement; `scripts/verify.ts` writes no start or result record when `exitCode === 2`, records `commands` = the commands run selected
+- [x] Run the test file → PASS, then the full suite
+- [x] Commit `feat(verify): run a subset of the commands with --only`
 
 ### Task 3: the gate recognises `--only`
 
@@ -195,3 +195,6 @@ Files:
 
 Baseline 2026-11-14: kit verify script from the workspace root → all checks passed (both editions' typecheck and tests). Drift: none since Base.
 Task 1: complete (3e3cd12..60a5591, `npm test` → 783 pass, typecheck clean; the unknown-file and CLAUDE.md tests mutation-checked)
+Ruling: `selectCommands` exported from `lib/verify-run.ts` (not in the plan) — the script needs the selection before its start record, and an unknown command must write none — cost if wrong: one extra export.
+Ruling: added a script-level test (spawns `verify.ts` with `TMPDIR` pointed at a temp folder) for "writes no result record" — the plan's unit tests couldn't see records — mutation-checked twice.
+Task 2: complete (2870d41..5d57cd9, `npm test` → 788 pass, typecheck clean)
