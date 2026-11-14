@@ -189,7 +189,7 @@ Files:
 
 ### Task 6: live check (criterion 11)
 
-- [ ] In a scratchpad git project with `{"commands":["node fmt.mjs","node test.mjs"],"paths":{"node test.mjs":["src/**"]},"ignore":[]}` and the branch plugin (`claude -p --plugin-dir <src_claude>`), ask for a one-line change to `docs/a.md` → transcript shows a send-back with `--only "node fmt.mjs"`, the agent's run, and no second send-back; record cost in Progress
+- [x] In a scratchpad git project with `{"commands":["node fmt.mjs","node test.mjs"],"paths":{"node test.mjs":["src/**"]},"ignore":[]}` and the branch plugin (`claude -p --plugin-dir <src_claude>`), ask for a one-line change to `docs/a.md` → transcript shows a send-back with `--only "node fmt.mjs"`, the agent's run, and no second send-back; record cost in Progress
 
 ## Progress
 
@@ -205,3 +205,6 @@ Ruling: the paths notice fires at the first Stop with unverified edits (not on r
 Task 4: complete (8e0c072..5e25ab1, `npm test` → 798 pass, existing tests unchanged (C6), typecheck clean; C5 and stale-record tests passed before the change and were mutation-checked)
 Ruling: verification-before-completion's "no filtered subset" rule gets a clause that the gate's `--only` is not one — without it the skill contradicts the gate.
 Task 5: complete (b1569be..7388b8a, kit verify script from the workspace root → all 4 checks pass incl. skill word-count lint; package-lock version bumped too)
+Task 6 run 1 (claude 2.1.325, sonnet, `--setting-sources project` so the installed 0.38.4 stays off): send-back named `--only "node fmt.mjs"`, but the agent ran it as `…; echo exit=$?`, which the gate never credits (state: `unverified: true`, `green: ["node test.mjs"]`).
+Ruling: the send-back now says to run the script "as a command of its own, with nothing chained after it" (de388de, test-first; text only, the crediting rule unchanged, as the user ruled for 0.38.0) — cost if wrong: one longer sentence.
+Task 6: complete (run 2: send-back with `--only "node fmt.mjs"`, agent ran it bare, state `unverified: false`, `green` both commands; $0.18 for both runs)
