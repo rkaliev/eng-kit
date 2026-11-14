@@ -1207,6 +1207,37 @@ test("verify gate: a failed verify run takes its commands out of green (0.39.1)"
 	assert.match(bgReason, /`npm test`/, "settled from the record");
 });
 
+test("verify gate: a failed --only run takes only the commands it ran out of green (0.39.1 review, V3)", () => {
+	const only = ["npm run typecheck"];
+	const fg = setupGit();
+	fg.call({ hook_event_name: "SessionStart", source: "startup" });
+	fg.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	fg.bash("npm test");
+	fg.bash(`node "${join(root, "scripts", "verify.ts")}" --only "npm run typecheck"`, { hook_event_name: "PostToolUseFailure" }, () =>
+		writeRun(fg.projectDir, { ok: false, commands: only, startedAt: Date.now(), finishedAt: Date.now() }, fg.env.runsRoot),
+	);
+	assert.match(String(fg.call({ hook_event_name: "Stop" }).output?.reason), /--only "npm run typecheck"/, "in the foreground, npm test stays green");
+
+	const bg = launchedVerify();
+	bg.bash("npm test");
+	bg.finished({ ok: false, commands: only });
+	assert.match(String(bg.stop()?.reason), /--only "npm run typecheck"/, "settled from the record, npm test stays green");
+});
+
+test("verify gate: a failed verify call that also changed files takes its commands out of green (0.39.1 review, V4)", () => {
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify({ commands: ["fmt", "test"], paths: { test: ["src/**"] }, ignore: [] }), "docs/x.md": "x\n" });
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	ctx.bash("test");
+	ctx.bash(`node "${join(root, "scripts", "verify.ts")}" --only "test"`, { hook_event_name: "PostToolUseFailure" }, () => {
+		writeRun(ctx.projectDir, { ok: false, commands: ["test"], startedAt: Date.now(), finishedAt: Date.now() }, ctx.env.runsRoot);
+		writeFileSync(join(ctx.projectDir, "docs", "x.md"), "written by the run\n");
+	});
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.doesNotMatch(reason, /--only/, "test failed: both are owed");
+	assert.match(reason, /`test`/);
+});
+
 test("verify gate: a launched run that failed, ran other commands or started too early doesn't count", () => {
 	const cases: Array<[string, (l: ReturnType<typeof launchedVerify>) => void]> = [
 		["failed", (l) => l.finished({ ok: false })],

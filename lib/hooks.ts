@@ -364,9 +364,15 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, !failed && isVerifyRun ? input.tool_use_id : undefined), ended);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
+	// A run of this call that failed: its commands don't stand green any more, like a failed plain command, also when the
+	// call changed files (a formatter in the run).
+	if (isVerifyRun && scriptRun && !scriptRun.ok) {
+		if (state.unverified && commands.length > 0) saveState(env.stateDir, sessionId, withoutGreen(state, commands, scriptRun.commands));
+		return {};
+	}
 	// A call that changed files proves nothing about them, whatever checks it also ran.
 	if (marked.length > 0) return {};
-	creditCall(env, sessionId, state, { shell, commands, failed, isVerifyRun, own: scriptRun });
+	creditCall(env, sessionId, state, { shell, commands, failed, isVerifyRun });
 	// A check's own changes (a formatter, `lint --fix`) are off the count for the checks that ran, not for the others.
 	if (own.exact.length + own.guessed.length > 0) {
 		const ran = isVerifyRun ? (scriptRun?.commands ?? []) : commands.filter((c) => commandMatches(shell, c));
@@ -385,23 +391,13 @@ function ownRun(state: SessionState, toolUseId: string | undefined, run: RunReco
 }
 
 /** Credits the checks a shell call ran: the verify script by its run record, a configured command by its exit code. */
-function creditCall(
-	env: HookEnv,
-	sessionId: string,
-	state: SessionState,
-	call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean; own: RunRecord | undefined },
-): void {
-	const { shell, commands, failed, isVerifyRun, own } = call;
+function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean }): void {
+	const { shell, commands, failed, isVerifyRun } = call;
 	if (!state.unverified) return;
 	const credit = (passed: string[]) => saveState(env.stateDir, sessionId, credited(state, commands, passed));
 
 	if (isVerifyRun) {
 		if (commands.length === 0) return;
-		// A run of this call that failed: its commands don't stand green any more, like a failed plain command.
-		if (own && !own.ok) {
-			saveState(env.stateDir, sessionId, withoutGreen(state, commands, own.commands));
-			return;
-		}
 		const run = readRun(env.projectDir, env.runsRoot);
 		if (run) {
 			// The script records its own result, so a pipe that hides the exit code doesn't matter. A run that started before
@@ -516,7 +512,7 @@ function markEdited(projectDir: string, state: SessionState, certain: string[], 
 	const { scopes } = resolveVerifyPaths(projectDir, commands);
 	// `passed` ran in the call that made these changes: they aren't owed again for them.
 	const owing = commands.filter((c) => !passed.includes(c));
-	// A label that is gone (a deleted file or submodule) may have been a folder: it also owes the commands with globs inside it.
+	// A label that is gone (a deleted file or submodule) may have been a folder: it also owes the commands with a glob that can match a path inside it.
 	const owedBy = (paths: string[]) => {
 		const gone = paths.flatMap((p) => (existsSync(join(projectDir, p)) ? [] : commandsUnder(p, owing, scopes)));
 		const owed = new Set([...owedCommands(paths, owing, scopes), ...gone]);
@@ -539,8 +535,8 @@ const RUN_MARGIN_MS = 60_000;
 
 /**
  * Settles this session's launch of the verify script by the script's record: a finished run that passed the configured
- * commands, started at or after the launch and after the last counted change, clears the gate; any other finished run
- * drops the launch. A run whose start record can still be going (`runGoing`), or a launch younger than
+ * commands, started at or after the launch and after the last counted change, clears the gate; a failed one started at or
+ * after the launch takes its commands out of the green set; any finished run drops the launch. A run whose start record can still be going (`runGoing`), or a launch younger than
  * `LAUNCH_GRACE_MS` with no record yet (unless the call already `ended`), is `running`. Anything else drops the launch, so a run that died can't
  * hold Stop silent.
  */
