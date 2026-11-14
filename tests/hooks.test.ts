@@ -2078,3 +2078,36 @@ test("verify paths: an unverified state from 0.38.x (green empty) still owes eve
 	assert.match(reason, /`test`/, "a src edit before a docs edit still owes test");
 	assert.doesNotMatch(reason, /--only/);
 });
+
+test("verify paths: a changed submodule (a folder label) owes every command (round 2, Q3)", () => {
+	const config = { commands: ["fmt", "test"], paths: { fmt: ["docs/**"], test: ["src/**", "vendor/lib/**"] }, ignore: [] };
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify(config) });
+	const sub = join(ctx.projectDir, "vendor", "lib");
+	mkdirSync(sub, { recursive: true });
+	const subGit = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: sub, stdio: "pipe" });
+	subGit("init", "-q", "-b", "main");
+	writeFileSync(join(sub, "x.ts"), "export const x = 1;\n");
+	subGit("add", "-A");
+	subGit("commit", "-q", "-m", "sub");
+	ctx.git("add", "vendor/lib");
+	ctx.git("commit", "-q", "-m", "add submodule");
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.bash("node gen.js", {}, () => writeFileSync(join(sub, "x.ts"), "export const x = 2;\n"));
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /`fmt`/);
+	assert.match(reason, /`test`/);
+});
+
+test("verify paths: a verify-script subset run's own changes owe the commands it didn't run (round 2, Q5)", () => {
+	const config = { commands: ["fmt", "test"], paths: { test: ["src/**"] }, ignore: [] };
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify(config), "docs/x.md": "x\n" });
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "docs/x.md" } });
+	ctx.bash(`node "${join(root, "scripts", "verify.ts")}" --only "fmt" 2>&1 | tail -5`, {}, () => {
+		writeRun(ctx.projectDir, { ok: true, commands: ["fmt"], startedAt: Date.now(), finishedAt: Date.now() }, ctx.env.runsRoot);
+		writeFileSync(join(ctx.projectDir, "src/a.ts"), "export const a = 2;\n");
+	});
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /--only "test"/);
+	assert.doesNotMatch(reason, /`fmt`/);
+});

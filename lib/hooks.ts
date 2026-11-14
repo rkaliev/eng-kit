@@ -11,7 +11,7 @@
  *   (implemented task files must be deleted), at most one reminder each per user prompt.
  * - UserPromptSubmit: re-arms the gate for the new prompt.
  */
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, taskFileReminders, taskFileWarning } from "./approvals.ts";
@@ -348,7 +348,8 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const shell = String(args.command ?? "");
 	const { commands } = resolveVerifyCommands(env.projectDir);
 	// Files this command changed, whatever wrote them (a failed or background command may have written too). Only a
-	// verification run that passed and did nothing else keeps its own changes (a formatter, `lint --fix`) off the count.
+	// verification run that passed and did nothing else keeps its own changes (a formatter, `lint --fix`) off the count for the
+	// checks it ran; they still owe the others (below).
 	const scriptRun = readRun(env.projectDir, env.runsRoot);
 	const scriptPassed = !!scriptRun?.ok && Date.now() - scriptRun.finishedAt < RUN_MAX_AGE_MS;
 	const exempt =
@@ -404,6 +405,14 @@ function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: 
 	else saveState(env.stateDir, sessionId, credited({ ...state, green: state.green.filter((c) => !ran.includes(c)) }, commands, []));
 }
 
+function isFolder(path: string): boolean {
+	try {
+		return statSync(path).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
 /** Whether `abs` names the file itself at `label`: it exists, and its real path (symlinks resolved, letter case as stored) is `label`. */
 function isFileAt(projectDir: string, abs: string, label: string): boolean {
 	try {
@@ -448,8 +457,9 @@ function trackTree(
 	const ignored = ignoreFilter(env.projectDir, ignore);
 	const split = callChangesSplit(before, tree, env.projectDir, after);
 	const exact = split.exact.filter((p) => !ignored(p));
-	const guessed = split.guessed.filter((p) => !ignored(p) && !exact.includes(p));
-	const paths = [...exact, ...guessed];
+	// A text target stays a guess even when the fingerprint lists the same label: it may name another file.
+	const guessed = split.guessed.filter((p) => !ignored(p));
+	const paths = [...new Set([...exact, ...guessed])];
 	// Only a call compared with its own snapshot can claim the changes as a verification run's own.
 	const exempted = !!(after?.exempt && own);
 	const marked = paths.length > 0 && !exempted ? paths : [];
@@ -479,7 +489,10 @@ function bestEffort(fn: () => unknown): void {
  * Counts edited `paths`: each owes the commands whose verify.json `paths` cover it (every command without an entry), and
  * those leave the green ones. Paths no command covers change nothing; without commands every edit counts, as before.
  */
-function markEdited(projectDir: string, state: SessionState, exact: string[], guessed: string[] = [], passed: string[] = []): SessionState {
+function markEdited(projectDir: string, state: SessionState, certain: string[], guesses: string[] = [], passed: string[] = []): SessionState {
+	// A folder label (a submodule git lists by its path) stands for any file in it.
+	const exact = certain.filter((p) => !isFolder(join(projectDir, p)));
+	const guessed = [...new Set([...guesses, ...certain.filter((p) => !exact.includes(p))])];
 	const { commands } = resolveVerifyCommands(projectDir);
 	const { scopes } = resolveVerifyPaths(projectDir, commands);
 	// `passed` ran in the call that made these changes: they aren't owed again for them.
@@ -490,7 +503,8 @@ function markEdited(projectDir: string, state: SessionState, exact: string[], gu
 	const owed = guessed.length > 0 ? owing : owedBy(counted);
 	// Before the first counted edit, or after a green run, every command stands green.
 	const green = (state.unverified ? state.green : commands).filter((c) => !owed.includes(c));
-	const edited = [...state.edited.filter((e) => !counted.includes(e)), ...counted].slice(-MAX_LISTED);
+	const listed = [...new Set(counted)];
+	const edited = [...state.edited.filter((e) => !listed.includes(e)), ...listed].slice(-MAX_LISTED);
 	return { ...state, unverified: true, green, edited, editedAt: Date.now() };
 }
 const RUN_MAX_AGE_MS = 15 * 60 * 1000;
