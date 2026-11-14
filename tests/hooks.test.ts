@@ -358,6 +358,24 @@ test("runsVerifyScript recognises only a run of the kit's own script", () => {
 	for (const command of mentions) assert.equal(runsVerifyScript(command, "/k", "/p"), false, command);
 });
 
+test("runsVerifyScript recognises a run with the --only pairs the gate names, and nothing else after the script", () => {
+	for (const command of [
+		'node /k/scripts/verify.ts --only "npm test"',
+		'node /k/scripts/verify.ts --only "npm test" --only "npm run lint" 2>&1 | tail -5',
+		'node /k/scripts/verify.ts --only "a && b"',
+	])
+		assert.equal(runsVerifyScript(command, "/k", "/p"), true, command);
+	for (const command of [
+		"node /k/scripts/verify.ts --only",
+		"node /k/scripts/verify.ts --only a extra",
+		"node /k/scripts/verify.ts /p",
+		"node /k/scripts/verify.ts --all",
+		"cd x && node /k/scripts/verify.ts --only a",
+		"node /k/scripts/verify.ts --only a &",
+	])
+		assert.equal(runsVerifyScript(command, "/k", "/p"), false, command);
+});
+
 test("verify gate: mentioning the verify script doesn't clear it", () => {
 	const script = join(root, "scripts", "verify.ts");
 	for (const command of [`cat ${script}`, `grep x ${script}`, `sed -n 1p ${script}`, "node scripts/verify.ts", `cd src && node ${script}`]) {

@@ -549,10 +549,15 @@ export function runsVerifyScript(shell: string, root: string, cwd: string): bool
 	);
 }
 
-/** `node <path>` where the path, resolved against `cwd` (a `\` read as `/`), is the kit's `scripts/verify.ts`. */
+/**
+ * `node <path>` where the path, resolved against `cwd` (a `\` read as `/`), is the kit's `scripts/verify.ts`, followed
+ * only by `--only <command>` pairs (the subset the verify gate names).
+ */
 function isKitScript(words: string[], root: string, cwd: string): boolean {
+	const pairs = words.slice(2);
+	if (pairs.length % 2 !== 0 || pairs.some((w, i) => (i % 2 === 0 ? w !== "--only" : w === ""))) return false;
 	// The session context names a path without `..`; folding one away could hide what the shell actually runs.
-	if (words.length !== 2 || words[0] !== "node" || /(^|\/)\.\.(\/|$)/.test(words[1]!)) return false;
+	if (words.length < 2 || words[0] !== "node" || /(^|\/)\.\.(\/|$)/.test(words[1]!)) return false;
 	const absolute = (path: string) => {
 		const p = path.replaceAll("\\", "/");
 		return posix.normalize(/^([A-Za-z]:)?\//.test(p) ? p : resolve(cwd, p).replaceAll("\\", "/"));
