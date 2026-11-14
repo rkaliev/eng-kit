@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.39.1
+
+- **A deleted folder owes every check whose globs reach inside it.** A submodule (or a file that may have been a folder) that is gone owed only the commands whose `paths` globs started with its path, so one covered by `**/*.ts` or `vendor/*/src/**` was never checked. Now any glob that can match a path inside it counts.
+- **A failed verify run takes its commands out of the green set.** A check that passed after an edit stayed green when a later verify-script run of it failed, in the foreground (also when the run changed files) or in the background; now a failed run owes its commands again, and only the ones it ran.
+- **A verify call keeps its own changes off the count only by its own run record.** A call that wrote no record (or one from before the call) could borrow an earlier passing record and keep the changes it made off the count; now those changes owe the checks that cover them.
+- **`apps/*` over package folders is reported beside READMEs and dot files.** A `README.md`, `.DS_Store`, `.gitkeep` or a symlinked package next to the packages hid the problem.
+- **Community files:** a code of conduct, contributing guide, security policy, issue forms and a pull request template. Security reports go through GitHub's private vulnerability reporting.
+
 ## 0.39.0
 
 - **The verify gate asks only for the checks that cover what changed.** `"paths": {"<command>": ["<glob>", …]}` in `.claude/verify.json` says which files a command checks; a command without an entry checks every file. A change owes only the commands whose globs cover it, the Stop reason names just those, and `node <kit>/scripts/verify.ts --only "<command>"` (repeatable) runs them in config order, says so in its header and records what it ran. A one-file docs edit in a monorepo whose formatter reads Markdown no longer runs every suite. Only a path the hooks are sure of narrows what is owed: a file a shell command's text names, a whole folder, an edited path through a symlink or in another letter case, and verify.json itself owe every command; globs match in any letter case. A changed submodule counts as a whole folder, and a deleted one owes the commands with globs inside it. Globs use `*`, `**` and `?`; a broken entry, or a glob that can never match a file (outside the project, a bare folder name, `apps/*` over package folders, or `{a,b}`, `[ab]`, `!` syntax), is reported once and its command checks every file; an unknown `--only` command runs nothing and exits 2. Without `paths`, every edit still owes every command.

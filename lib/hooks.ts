@@ -21,7 +21,7 @@ import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordR
 import { canonical } from "./repos.ts";
 import { guardBaseline, guardScope, hooksPaths, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
-import { loadState, pruneStates, readRun, readRunStart, saveState, type RunStart, type SessionState } from "./state.ts";
+import { loadState, pruneStates, readRun, readRunStart, saveState, type RunRecord, type RunStart, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { verifyTimeoutSec } from "./verify-run.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
@@ -350,7 +350,8 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	// Files this command changed, whatever wrote them (a failed or background command may have written too). Only a
 	// verification run that passed and did nothing else keeps its own changes (a formatter, `lint --fix`) off the count for the
 	// checks it ran; they still owe the others (below).
-	const scriptRun = readRun(env.projectDir, env.runsRoot);
+	// Only the record of a run this call launched speaks for it: an older one (an earlier run, a call that wrote none) doesn't.
+	const scriptRun = ownRun(loadState(env.stateDir, sessionId), input.tool_use_id, readRun(env.projectDir, env.runsRoot));
 	const scriptPassed = !!scriptRun?.ok && Date.now() - scriptRun.finishedAt < RUN_MAX_AGE_MS;
 	const exempt =
 		!failed && verificationOnly(shell, commands, (words) => scriptPassed && isKitScript(words, env.root, input.cwd || env.projectDir, commands));
@@ -363,6 +364,12 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, !failed && isVerifyRun ? input.tool_use_id : undefined), ended);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
+	// A run of this call that failed: its commands don't stand green any more, like a failed plain command, also when the
+	// call changed files (a formatter in the run).
+	if (isVerifyRun && scriptRun && !scriptRun.ok) {
+		if (state.unverified && commands.length > 0) saveState(env.stateDir, sessionId, withoutGreen(state, commands, scriptRun.commands));
+		return {};
+	}
 	// A call that changed files proves nothing about them, whatever checks it also ran.
 	if (marked.length > 0) return {};
 	creditCall(env, sessionId, state, { shell, commands, failed, isVerifyRun });
@@ -374,6 +381,13 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		if (next !== after) saveState(env.stateDir, sessionId, next);
 	}
 	return {};
+}
+
+/** `run` if the verify call `toolUseId` launched it: the call's PreToolUse noted the call, and the run started after that. */
+function ownRun(state: SessionState, toolUseId: string | undefined, run: RunRecord | undefined): RunRecord | undefined {
+	const call = state.verifyCall;
+	if (!run || !toolUseId || call?.id !== toolUseId || run.startedAt === undefined || run.startedAt < call.at) return undefined;
+	return run;
 }
 
 /** Credits the checks a shell call ran: the verify script by its run record, a configured command by its exit code. */
@@ -402,7 +416,7 @@ function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: 
 	const ran = commands.filter((c) => commandMatches(shell, c));
 	if (ran.length === 0) return;
 	if (!failed) credit(ran);
-	else saveState(env.stateDir, sessionId, credited({ ...state, green: state.green.filter((c) => !ran.includes(c)) }, commands, []));
+	else saveState(env.stateDir, sessionId, withoutGreen(state, commands, ran));
 }
 
 function isFolder(path: string): boolean {
@@ -420,6 +434,11 @@ function isFileAt(projectDir: string, abs: string, label: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/** `state` (unverified) after `failed` failed: they leave the green commands. */
+function withoutGreen(state: SessionState, commands: string[], failed: string[]): SessionState {
+	return credited({ ...state, green: state.green.filter((c) => !failed.includes(c)) }, commands, []);
 }
 
 /** `state` (unverified) after `passed` passed: they join the green commands, and the edits are verified once all are. */
@@ -493,7 +512,7 @@ function markEdited(projectDir: string, state: SessionState, certain: string[], 
 	const { scopes } = resolveVerifyPaths(projectDir, commands);
 	// `passed` ran in the call that made these changes: they aren't owed again for them.
 	const owing = commands.filter((c) => !passed.includes(c));
-	// A label that is gone (a deleted file or submodule) may have been a folder: it also owes the commands with globs inside it.
+	// A label that is gone (a deleted file or submodule) may have been a folder: it also owes the commands with a glob that can match a path inside it.
 	const owedBy = (paths: string[]) => {
 		const gone = paths.flatMap((p) => (existsSync(join(projectDir, p)) ? [] : commandsUnder(p, owing, scopes)));
 		const owed = new Set([...owedCommands(paths, owing, scopes), ...gone]);
@@ -516,8 +535,8 @@ const RUN_MARGIN_MS = 60_000;
 
 /**
  * Settles this session's launch of the verify script by the script's record: a finished run that passed the configured
- * commands, started at or after the launch and after the last counted change, clears the gate; any other finished run
- * drops the launch. A run whose start record can still be going (`runGoing`), or a launch younger than
+ * commands, started at or after the launch and after the last counted change, clears the gate; a failed one started at or
+ * after the launch takes its commands out of the green set; any finished run drops the launch. A run whose start record can still be going (`runGoing`), or a launch younger than
  * `LAUNCH_GRACE_MS` with no record yet (unless the call already `ended`), is `running`. Anything else drops the launch, so a run that died can't
  * hold Stop silent.
  */
@@ -533,7 +552,10 @@ function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ende
 	if (run && run.finishedAt >= launch) {
 		const { commands } = resolveVerifyCommands(env.projectDir);
 		const passed = run.ok && run.startedAt !== undefined && run.startedAt >= launch && run.startedAt >= state.editedAt && commands.length > 0;
-		return settled(passed && state.unverified ? credited(state, commands, run.commands) : state);
+		if (passed && state.unverified) return settled(credited(state, commands, run.commands));
+		// The launched run failed: its commands don't stand green any more.
+		const failedOwn = !run.ok && run.startedAt !== undefined && run.startedAt >= launch && state.unverified;
+		return settled(failedOwn ? withoutGreen(state, commands, run.commands) : state);
 	}
 	const start = readRunStart(env.projectDir, env.runsRoot);
 	if (start && start.startedAt >= launch ? runGoing(start, env.projectDir) : !ended && Date.now() - launch < LAUNCH_GRACE_MS) return { state, running: true };

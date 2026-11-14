@@ -630,15 +630,43 @@ test("verify gate: a change made before a check started is not the check's own",
 
 test("verify gate: a piped verify script keeps its own writes only while its record says it passed", () => {
 	for (const ok of [true, false]) {
-		const { call, bash, edit, run } = setupGit();
+		const { call, bash, edit, projectDir, env } = setupGit();
 		call({ hook_event_name: "SessionStart", source: "startup" });
 		bash("npm test");
 		bash("npm run typecheck");
-		run(ok);
-		bash(`node "${join(root, "scripts", "verify.ts")}" 2>&1 | tail -30`, {}, () => edit("export const a = 2;\n"));
+		const commands = ["npm test", "npm run typecheck"];
+		// The script writes its record during the call; a record from before the call is another run's (0.39.1).
+		bash(`node "${join(root, "scripts", "verify.ts")}" 2>&1 | tail -30`, {}, () => {
+			writeRun(projectDir, { ok, commands, startedAt: Date.now(), finishedAt: Date.now() }, env.runsRoot);
+			edit("export const a = 2;\n");
+		});
 		const out = call({ hook_event_name: "Stop" });
 		if (ok) assert.deepEqual(out, {}, "a passing run's formatter writes are its own");
 		else assert.match(String(out.output?.reason), /src\/a\.ts/, "a failing run's writes count");
+	}
+});
+
+test("verify gate: a verify call that wrote no record of its own exempts nothing (0.39.1)", () => {
+	const script = `node "${join(root, "scripts", "verify.ts")}" 2>&1 | tail -30`;
+	const commands = ["npm test", "npm run typecheck"];
+	const cases: Array<[string, (ctx: ReturnType<typeof setupGit>) => void, boolean]> = [
+		["a passing record from an earlier run", (ctx) => writeRun(ctx.projectDir, { ok: true, commands, startedAt: Date.now() - 60_000, finishedAt: Date.now() - 30_000 }, ctx.env.runsRoot), true],
+		["a record without a start time", (ctx) => writeRun(ctx.projectDir, { ok: true, commands, finishedAt: Date.now() - 30_000 }, ctx.env.runsRoot), true],
+		["control: the call's own passing record", () => {}, false],
+	];
+	for (const [name, before, counts] of cases) {
+		const ctx = setupGit();
+		ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+		ctx.bash("npm test");
+		ctx.bash("npm run typecheck");
+		before(ctx);
+		ctx.bash(script, {}, () => {
+			if (!counts) writeRun(ctx.projectDir, { ok: true, commands, startedAt: Date.now(), finishedAt: Date.now() }, ctx.env.runsRoot);
+			ctx.edit("export const a = 2;\n");
+		});
+		const out = ctx.call({ hook_event_name: "Stop" });
+		if (counts) assert.match(String(out.output?.reason), /src\/a\.ts/, name);
+		else assert.deepEqual(out, {}, name);
 	}
 });
 
@@ -1156,6 +1184,58 @@ test("verify gate: a verify call moved to the background counts when it finishes
 	atCall.finished();
 	atCall.bash("ls");
 	assert.equal(loadState(atCall.env.stateDir, "s1").unverified, false, "the next shell call settles it");
+});
+
+test("verify gate: a failed verify run takes its commands out of green (0.39.1)", () => {
+	const commands = ["npm test", "npm run typecheck"];
+	const fg = setupGit();
+	fg.call({ hook_event_name: "SessionStart", source: "startup" });
+	fg.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	fg.bash("npm test");
+	fg.bash(`node "${join(root, "scripts", "verify.ts")}"`, { hook_event_name: "PostToolUseFailure" }, () =>
+		writeRun(fg.projectDir, { ok: false, commands, startedAt: Date.now(), finishedAt: Date.now() }, fg.env.runsRoot),
+	);
+	const reason = String(fg.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.doesNotMatch(reason, /--only/, "in the foreground");
+	assert.match(reason, /`npm test`/, "in the foreground");
+
+	const bg = launchedVerify();
+	bg.bash("npm test");
+	bg.finished({ ok: false });
+	const bgReason = String(bg.stop()?.reason);
+	assert.doesNotMatch(bgReason, /--only/, "settled from the record");
+	assert.match(bgReason, /`npm test`/, "settled from the record");
+});
+
+test("verify gate: a failed --only run takes only the commands it ran out of green (0.39.1 review, V3)", () => {
+	const only = ["npm run typecheck"];
+	const fg = setupGit();
+	fg.call({ hook_event_name: "SessionStart", source: "startup" });
+	fg.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	fg.bash("npm test");
+	fg.bash(`node "${join(root, "scripts", "verify.ts")}" --only "npm run typecheck"`, { hook_event_name: "PostToolUseFailure" }, () =>
+		writeRun(fg.projectDir, { ok: false, commands: only, startedAt: Date.now(), finishedAt: Date.now() }, fg.env.runsRoot),
+	);
+	assert.match(String(fg.call({ hook_event_name: "Stop" }).output?.reason), /--only "npm run typecheck"/, "in the foreground, npm test stays green");
+
+	const bg = launchedVerify();
+	bg.bash("npm test");
+	bg.finished({ ok: false, commands: only });
+	assert.match(String(bg.stop()?.reason), /--only "npm run typecheck"/, "settled from the record, npm test stays green");
+});
+
+test("verify gate: a failed verify call that also changed files takes its commands out of green (0.39.1 review, V4)", () => {
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify({ commands: ["fmt", "test"], paths: { test: ["src/**"] }, ignore: [] }), "docs/x.md": "x\n" });
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	ctx.bash("test");
+	ctx.bash(`node "${join(root, "scripts", "verify.ts")}" --only "test"`, { hook_event_name: "PostToolUseFailure" }, () => {
+		writeRun(ctx.projectDir, { ok: false, commands: ["test"], startedAt: Date.now(), finishedAt: Date.now() }, ctx.env.runsRoot);
+		writeFileSync(join(ctx.projectDir, "docs", "x.md"), "written by the run\n");
+	});
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.doesNotMatch(reason, /--only/, "test failed: both are owed");
+	assert.match(reason, /`test`/);
 });
 
 test("verify gate: a launched run that failed, ran other commands or started too early doesn't count", () => {
@@ -2114,6 +2194,24 @@ test("verify paths: a verify-script subset run's own changes owe the commands it
 
 test("verify paths: a deleted submodule owes the commands with globs inside it (round 3, T1)", () => {
 	const config = { commands: ["fmt", "test"], paths: { fmt: ["docs/**"], test: ["src/**", "vendor/lib/**"] }, ignore: [] };
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify(config) });
+	const sub = join(ctx.projectDir, "vendor", "lib");
+	mkdirSync(sub, { recursive: true });
+	const subGit = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: sub, stdio: "pipe" });
+	subGit("init", "-q", "-b", "main");
+	writeFileSync(join(sub, "x.ts"), "export const x = 1;\n");
+	subGit("add", "-A");
+	subGit("commit", "-q", "-m", "sub");
+	ctx.git("add", "vendor/lib");
+	ctx.git("commit", "-q", "-m", "add submodule");
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.bash("rm -rf vendor/lib", {}, () => rmSync(sub, { recursive: true, force: true }));
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /--only "test"/);
+});
+
+test("verify paths: a deleted submodule under a wildcard glob owes its command (0.39.1, U1)", () => {
+	const config = { commands: ["fmt", "test"], paths: { fmt: ["docs/**"], test: ["**/*.ts"] }, ignore: [] };
 	const ctx = setupGit({ ".claude/verify.json": JSON.stringify(config) });
 	const sub = join(ctx.projectDir, "vendor", "lib");
 	mkdirSync(sub, { recursive: true });
