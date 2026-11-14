@@ -183,9 +183,9 @@ Files:
 
 **Files:** those in Post-implementation · Test `tests/release.test.ts`, `tests/lint-skills.test.ts`
 
-- [ ] Update README, ARCHITECTURE(.ru), the three skills, kit-init, CHANGELOG 0.39.0, versions
-- [ ] Run the kit verify script from the workspace root → all checks pass (word-count lint on skills)
-- [ ] Commit `docs: verify paths`
+- [x] Update README, ARCHITECTURE(.ru), the three skills, kit-init, CHANGELOG 0.39.0, versions
+- [x] Run the kit verify script from the workspace root → all checks pass (word-count lint on skills)
+- [x] Commit `docs: verify paths`
 
 ### Task 6: live check (criterion 11)
 
@@ -203,3 +203,5 @@ Ruling: `markEdited(projectDir, state, paths)` serves both the Edit/Write branch
 Ruling: the `--only` words in the reason use double quotes unless the command holds `"`, `$`, a backtick or a backslash, then single quotes — the shell must pass the command text through unchanged.
 Ruling: the paths notice fires at the first Stop with unverified edits (not on read-only sessions) — a bad map only matters once something is owed.
 Task 4: complete (8e0c072..5e25ab1, `npm test` → 798 pass, existing tests unchanged (C6), typecheck clean; C5 and stale-record tests passed before the change and were mutation-checked)
+Ruling: verification-before-completion's "no filtered subset" rule gets a clause that the gate's `--only` is not one — without it the skill contradicts the gate.
+Task 5: complete (b1569be..7388b8a, kit verify script from the workspace root → all 4 checks pass incl. skill word-count lint; package-lock version bumped too)
