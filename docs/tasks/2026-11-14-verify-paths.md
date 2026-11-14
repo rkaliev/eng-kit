@@ -163,7 +163,7 @@ Files:
 **Files:** Modify `lib/hooks.ts`, `lib/state.ts` · Test `tests/hooks.test.ts`
 **Interfaces:** Consumes Tasks 1–3. Replaces `sameCommands(run.commands, commands)` in `postToolUse` and `settleLaunch` with `green ∪ run.commands` then recompute.
 
-- [ ] Write failing tests, project with `.claude/verify.json` `{"commands":["fmt","test"],"paths":{"test":["src/**"]},"ignore":[]}`:
+- [x] Write failing tests, project with `.claude/verify.json` `{"commands":["fmt","test"],"paths":{"test":["src/**"]},"ignore":[]}`:
   - C1: Edit `docs/x.md` → Stop reason contains `--only "fmt"` and `` `fmt` `` and not `` `test` ``.
   - C2: then a run record `{ok:true, commands:["fmt"]}` after a verify call with `--only fmt` → next Stop undefined; with a `src/a.ts` edit too and the same record → Stop blocks naming `test`.
   - C3: Edit `docs/x.md` then `src/a.ts` → reason names both and no `--only` (all owed); Bash `fmt` passes → reason after next prompt names only `test`.
@@ -171,13 +171,13 @@ Files:
   - C5: Edit `.claude/verify.json` → all owed; Edit with no `file_path` → all owed.
   - C8: bad `paths` entry → first Stop has a `systemMessage` naming the problem; a second Stop in the session has none (`pathsNoted`).
   - Review focus: a subset record with `startedAt` before the edit doesn't credit; a bare piped `--only` run without a record doesn't credit; a shell command writing `docs/y.md` (trackTree) owes only `fmt`.
-- [ ] Run `node --test tests/hooks.test.ts` → FAIL at C1 (reason lists `test`)
-- [ ] Implement:
+- [x] Run `node --test tests/hooks.test.ts` → FAIL at C1 (reason lists `test`)
+- [x] Implement:
   - `oweFor(env, state, paths): SessionState` used by the Edit/Write branch and `markEdited`: base = `state.unverified ? state.green : commands`; owed = `owedCommands(paths, commands, scopes)`; nothing owed → state unchanged; else `green = base − owed`, `unverified = true`, `edited`/`editedAt` as today.
   - Crediting: passed fresh record → `green ∪ run.commands`, `unverified = commands.some(c => !green.has(c))`, `edited: []` when verified; the no-record fallback credits only a bare call (no `--only`).
   - Stop: owed = commands not in `green`; subset → `` Run `<script> --only "<c>"…` (its output is already short) or: `c`… ``; all → as today. Path problems → `systemMessage` once (`pathsNoted`), alongside any other message.
-- [ ] Run the test file → PASS; full suite, all existing hooks tests unchanged (criterion 6)
-- [ ] Commit `feat(verify): owe and credit commands by path`
+- [x] Run the test file → PASS; full suite, all existing hooks tests unchanged (criterion 6)
+- [x] Commit `feat(verify): owe and credit commands by path`
 
 ### Task 5: docs and version
 
@@ -199,3 +199,7 @@ Ruling: `selectCommands` exported from `lib/verify-run.ts` (not in the plan) —
 Ruling: added a script-level test (spawns `verify.ts` with `TMPDIR` pointed at a temp folder) for "writes no result record" — the plan's unit tests couldn't see records — mutation-checked twice.
 Task 2: complete (2870d41..5d57cd9, `npm test` → 788 pass, typecheck clean)
 Task 3: complete (1ffc408..4dfb6bc, `npm test` → all pass, typecheck clean; rows in a new test next to the existing table)
+Ruling: `markEdited(projectDir, state, paths)` serves both the Edit/Write branch and shell changes (one place for owing, not a separate `oweFor`); `edited` lists only paths that owe something — cost if wrong: the reason's file list is shorter.
+Ruling: the `--only` words in the reason use double quotes unless the command holds `"`, `$`, a backtick or a backslash, then single quotes — the shell must pass the command text through unchanged.
+Ruling: the paths notice fires at the first Stop with unverified edits (not on read-only sessions) — a bad map only matters once something is owed.
+Task 4: complete (8e0c072..5e25ab1, `npm test` → 798 pass, existing tests unchanged (C6), typecheck clean; C5 and stale-record tests passed before the change and were mutation-checked)
