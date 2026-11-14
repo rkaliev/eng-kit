@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { commandMatches, DEFAULT_IGNORE, isIgnored, parseAgentsCommands, resolveIgnore, resolveVerifyCommands } from "../lib/commands.ts";
+import { commandMatches, DEFAULT_IGNORE, isIgnored, owedCommands, parseAgentsCommands, resolveIgnore, resolveVerifyCommands, resolveVerifyPaths } from "../lib/commands.ts";
 
 test("parses verification commands from an AGENTS.md Commands section", () => {
 	const md = `# App
@@ -90,4 +90,50 @@ test("an unreadable Makefile doesn't break command detection", () => {
 	mkdirSync(join(dir, "Makefile"));
 	assert.deepEqual(resolveVerifyCommands(dir), { commands: [], source: "none" });
 	assert.deepEqual(resolveVerifyCommands(dir, { detect: false }), { commands: [], source: "none" });
+});
+
+test("owedCommands: a change is owed by the commands whose paths cover it; a command without paths covers every file", () => {
+	const scopes = new Map([["test", ["src/**"]]]);
+	assert.deepEqual(owedCommands(["docs/a.md"], ["fmt", "test"], scopes), ["fmt"]);
+	assert.deepEqual(owedCommands(["src/a.ts"], ["fmt", "test"], scopes), ["fmt", "test"]);
+	assert.deepEqual(owedCommands(["x.txt"], ["fmt", "test"], new Map([["fmt", ["src/**"]], ["test", ["src/**"]]])), [], "no command covers it");
+});
+
+test("owedCommands: an unknown file or the verify config itself owes every command, in config order", () => {
+	const scopes = new Map([["fmt", ["src/**"]], ["test", ["src/**"]]]);
+	assert.deepEqual(owedCommands(["(unknown file)"], ["fmt", "test"], scopes), ["fmt", "test"]);
+	assert.deepEqual(owedCommands([".claude/verify.json"], ["fmt", "test"], scopes), ["fmt", "test"]);
+});
+
+test("resolveVerifyPaths reads verify.json paths and reports entries that would hide a check", () => {
+	const project = (config: object) => {
+		const dir = mkdtempSync(join(tmpdir(), "paths-"));
+		mkdirSync(join(dir, ".claude"));
+		writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify(config));
+		return dir;
+	};
+	const commands = ["npm run fmt", "npm test"];
+	const valid = resolveVerifyPaths(project({ commands, paths: { "npm test": ["src/**"] } }), commands);
+	assert.deepEqual([...valid.scopes], [["npm test", ["src/**"]]]);
+	assert.deepEqual(valid.problems, []);
+
+	assert.deepEqual(resolveVerifyPaths(project({ commands, paths: { "npm tset": ["src/**"] } }), commands), {
+		scopes: new Map(),
+		problems: ['paths: "npm tset" is not one of the commands'],
+	});
+	for (const bad of [[], "src/**", [1]]) {
+		assert.deepEqual(resolveVerifyPaths(project({ commands, paths: { "npm test": bad } }), commands), {
+			scopes: new Map(),
+			problems: ['paths: "npm test" needs a non-empty list of globs'],
+		}, JSON.stringify(bad));
+	}
+	assert.deepEqual(resolveVerifyPaths(project({ commands, paths: ["src/**"] }), commands), { scopes: new Map(), problems: ["paths must be an object"] });
+});
+
+test("resolveVerifyPaths: paths apply only to commands from verify.json, not to CLAUDE.md ones", () => {
+	const dir = mkdtempSync(join(tmpdir(), "paths-"));
+	writeFileSync(join(dir, "CLAUDE.md"), "## Commands\n- `npm test`\n");
+	mkdirSync(join(dir, ".claude"));
+	writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify({ paths: { "npm test": ["src/**"] } }));
+	assert.deepEqual(resolveVerifyPaths(dir, ["npm test"]), { scopes: new Map(), problems: [] });
 });
