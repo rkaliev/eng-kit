@@ -21,7 +21,7 @@ import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordR
 import { canonical } from "./repos.ts";
 import { guardBaseline, guardScope, hooksPaths, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
-import { loadState, pruneStates, readRun, readRunStart, saveState, type RunStart, type SessionState } from "./state.ts";
+import { loadState, pruneStates, readRun, readRunStart, saveState, type RunRecord, type RunStart, type SessionState } from "./state.ts";
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { verifyTimeoutSec } from "./verify-run.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
@@ -350,7 +350,8 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	// Files this command changed, whatever wrote them (a failed or background command may have written too). Only a
 	// verification run that passed and did nothing else keeps its own changes (a formatter, `lint --fix`) off the count for the
 	// checks it ran; they still owe the others (below).
-	const scriptRun = readRun(env.projectDir, env.runsRoot);
+	// Only the record of a run this call launched speaks for it: an older one (an earlier run, a call that wrote none) doesn't.
+	const scriptRun = ownRun(loadState(env.stateDir, sessionId), input.tool_use_id, readRun(env.projectDir, env.runsRoot));
 	const scriptPassed = !!scriptRun?.ok && Date.now() - scriptRun.finishedAt < RUN_MAX_AGE_MS;
 	const exempt =
 		!failed && verificationOnly(shell, commands, (words) => scriptPassed && isKitScript(words, env.root, input.cwd || env.projectDir, commands));
@@ -374,6 +375,13 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		if (next !== after) saveState(env.stateDir, sessionId, next);
 	}
 	return {};
+}
+
+/** `run` if the verify call `toolUseId` launched it: the call's PreToolUse noted the call, and the run started after that. */
+function ownRun(state: SessionState, toolUseId: string | undefined, run: RunRecord | undefined): RunRecord | undefined {
+	const call = state.verifyCall;
+	if (!run || !toolUseId || call?.id !== toolUseId || run.startedAt === undefined || run.startedAt < call.at) return undefined;
+	return run;
 }
 
 /** Credits the checks a shell call ran: the verify script by its run record, a configured command by its exit code. */

@@ -646,6 +646,30 @@ test("verify gate: a piped verify script keeps its own writes only while its rec
 	}
 });
 
+test("verify gate: a verify call that wrote no record of its own exempts nothing (0.39.1)", () => {
+	const script = `node "${join(root, "scripts", "verify.ts")}" 2>&1 | tail -30`;
+	const commands = ["npm test", "npm run typecheck"];
+	const cases: Array<[string, (ctx: ReturnType<typeof setupGit>) => void, boolean]> = [
+		["a passing record from an earlier run", (ctx) => writeRun(ctx.projectDir, { ok: true, commands, startedAt: Date.now() - 60_000, finishedAt: Date.now() - 30_000 }, ctx.env.runsRoot), true],
+		["a record without a start time", (ctx) => writeRun(ctx.projectDir, { ok: true, commands, finishedAt: Date.now() - 30_000 }, ctx.env.runsRoot), true],
+		["control: the call's own passing record", () => {}, false],
+	];
+	for (const [name, before, counts] of cases) {
+		const ctx = setupGit();
+		ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+		ctx.bash("npm test");
+		ctx.bash("npm run typecheck");
+		before(ctx);
+		ctx.bash(script, {}, () => {
+			if (!counts) writeRun(ctx.projectDir, { ok: true, commands, startedAt: Date.now(), finishedAt: Date.now() }, ctx.env.runsRoot);
+			ctx.edit("export const a = 2;\n");
+		});
+		const out = ctx.call({ hook_event_name: "Stop" });
+		if (counts) assert.match(String(out.output?.reason), /src\/a\.ts/, name);
+		else assert.deepEqual(out, {}, name);
+	}
+});
+
 test("verify gate: git stash after a green run marks the workspace", () => {
 	const { call, bash, edit, git } = setupGit();
 	call({ hook_event_name: "SessionStart", source: "startup" });
