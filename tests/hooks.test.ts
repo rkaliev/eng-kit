@@ -1889,3 +1889,110 @@ test("token ledger: SubagentStop records the subagent's tokens and Stop the sess
 	call({ hook_event_name: "Stop", transcript_path: transcript(29), cwd: other });
 	assert.equal(branchSummary(other, "feat/o", env.usageRoot).byAgent.main, 10, "the session moved to another repository: only what it added there");
 });
+
+/** A project whose verify.json maps `test` to `src/**`; `fmt` checks every file (docs included: `ignore` is empty). */
+function pathsProject(config: object = { commands: ["fmt", "test"], paths: { test: ["src/**"] }, ignore: [] }) {
+	const ctx = setup({ ".claude/verify.json": JSON.stringify(config) });
+	const script = join(root, "scripts", "verify.ts");
+	const edit = (file_path?: string) => ctx.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: file_path === undefined ? {} : { file_path } });
+	const stop = () => ctx.call({ hook_event_name: "Stop" }).output;
+	/** The verify script ran `only` and recorded a passing run, started `ago` ms back. */
+	const verified = (only: string[], ago = 0) => {
+		writeRun(ctx.projectDir, { ok: true, commands: only, startedAt: Date.now() - ago, finishedAt: Date.now() - ago }, ctx.env.runsRoot);
+		const command = `node "${script}" ${only.map((c) => `--only "${c}"`).join(" ")} 2>&1 | tail -5`;
+		ctx.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });
+	};
+	return { ...ctx, script, edit, stop, verified };
+}
+
+test("verify paths: a doc edit owes only the commands that cover it, and the gate names them with --only (C1)", () => {
+	const { edit, stop } = pathsProject();
+	edit("docs/x.md");
+	const reason = String(stop()?.reason);
+	assert.match(reason, /--only "fmt"/);
+	assert.match(reason, /`fmt`/);
+	assert.doesNotMatch(reason, /`test`/);
+});
+
+test("verify paths: a passed run of the owed subset clears the gate; one missing an owed command doesn't (C2)", () => {
+	const subset = pathsProject();
+	subset.edit("docs/x.md");
+	subset.verified(["fmt"]);
+	assert.equal(subset.stop(), undefined);
+
+	const missing = pathsProject();
+	missing.edit("docs/x.md");
+	missing.edit("src/a.ts");
+	missing.verified(["fmt"]);
+	const reason = String(missing.stop()?.reason);
+	assert.match(reason, /--only "test"/);
+	assert.doesNotMatch(reason, /`fmt`/);
+});
+
+test("verify paths: owed commands add up, and a passed command removes only itself (C3)", () => {
+	const both = pathsProject();
+	both.edit("docs/x.md");
+	both.edit("src/a.ts");
+	const reason = String(both.stop()?.reason);
+	assert.match(reason, /`fmt`/);
+	assert.match(reason, /`test`/);
+	assert.doesNotMatch(reason, /--only/, "every command is owed: the plain call");
+
+	const ran = pathsProject();
+	ran.edit("docs/x.md");
+	ran.edit("src/a.ts");
+	ran.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "fmt" } });
+	assert.match(String(ran.stop()?.reason), /--only "test"/);
+});
+
+test("verify paths: an edit no command covers leaves the workspace verified (C4)", () => {
+	const { edit, stop, env } = pathsProject({ commands: ["fmt", "test"], paths: { fmt: ["src/**"], test: ["src/**"] }, ignore: [] });
+	edit("notes.txt");
+	assert.equal(stop(), undefined);
+	assert.deepEqual(loadState(env.stateDir, "s1").edited, []);
+	assert.equal(loadState(env.stateDir, "s1").unverified, false);
+});
+
+test("verify paths: an edit of verify.json or of an unknown file owes every command (C5)", () => {
+	for (const file of [".claude/verify.json", undefined]) {
+		const { edit, stop } = pathsProject();
+		edit(file);
+		const reason = String(stop()?.reason);
+		assert.match(reason, /`fmt`/, String(file));
+		assert.match(reason, /`test`/, String(file));
+	}
+});
+
+test("verify paths: a bad paths entry is told once per session, and that command covers every file (C8)", () => {
+	const { edit, stop, call } = pathsProject({ commands: ["fmt", "test"], paths: { test: [] }, ignore: [] });
+	edit("docs/x.md");
+	const first = stop()!;
+	assert.match(String(first.reason), /`test`/, "the command with a bad entry checks every file");
+	assert.match(String(first.systemMessage), /paths: "test" needs a non-empty list of globs/);
+	call({ hook_event_name: "UserPromptSubmit" });
+	edit("docs/y.md");
+	assert.doesNotMatch(String(stop()?.systemMessage), /paths/);
+});
+
+test("verify paths: a subset record older than the last edit proves nothing", () => {
+	const { edit, stop, verified } = pathsProject();
+	edit("docs/x.md");
+	verified(["fmt"], 60_000);
+	assert.equal(stop()?.decision, "block");
+});
+
+test("verify paths: without a record, an unpiped --only run proves nothing (it can't tell what ran)", () => {
+	const { edit, stop, call, script } = pathsProject();
+	edit("docs/x.md");
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node "${script}" --only "fmt"` } });
+	assert.equal(stop()?.decision, "block");
+});
+
+test("verify paths: a file a shell command writes owes by its path too", () => {
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify({ commands: ["fmt", "test"], paths: { test: ["src/**"] }, ignore: [] }) });
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.bash("echo x > y.md", {}, () => writeFileSync(join(ctx.projectDir, "y.md"), "x\n"));
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /--only "fmt"/);
+	assert.match(reason, /y\.md/);
+});
