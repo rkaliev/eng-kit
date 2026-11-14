@@ -152,11 +152,11 @@ Files:
 
 **Files:** Modify `lib/hooks.ts` (`isKitScript`) · Test `tests/hooks.test.ts` (`runsVerifyScript recognises only a run of the kit's own script`)
 
-- [ ] Add rows: true for `node /k/scripts/verify.ts --only "npm test"`, `… --only "npm test" --only "npm run lint" 2>&1 | tail -5`, `… --only "a && b"`; false for `… --only`, `… --only a extra`, `… /p`, `… --all`, `cd x && node /k/scripts/verify.ts --only a`, `… --only a &`
-- [ ] Run `node --test tests/hooks.test.ts` → FAIL on the first `--only` row (false)
-- [ ] Implement: after the script word, accept only `--only <word>` pairs
-- [ ] Run → PASS, full suite
-- [ ] Commit `feat(verify): credit verify runs with --only`
+- [x] Add rows: true for `node /k/scripts/verify.ts --only "npm test"`, `… --only "npm test" --only "npm run lint" 2>&1 | tail -5`, `… --only "a && b"`; false for `… --only`, `… --only a extra`, `… /p`, `… --all`, `cd x && node /k/scripts/verify.ts --only a`, `… --only a &`
+- [x] Run `node --test tests/hooks.test.ts` → FAIL on the first `--only` row (false)
+- [x] Implement: after the script word, accept only `--only <word>` pairs
+- [x] Run → PASS, full suite
+- [x] Commit `feat(verify): credit verify runs with --only`
 
 ### Task 4: owed edits, subset crediting and the Stop wording
 
@@ -198,3 +198,4 @@ Task 1: complete (3e3cd12..60a5591, `npm test` → 783 pass, typecheck clean; th
 Ruling: `selectCommands` exported from `lib/verify-run.ts` (not in the plan) — the script needs the selection before its start record, and an unknown command must write none — cost if wrong: one extra export.
 Ruling: added a script-level test (spawns `verify.ts` with `TMPDIR` pointed at a temp folder) for "writes no result record" — the plan's unit tests couldn't see records — mutation-checked twice.
 Task 2: complete (2870d41..5d57cd9, `npm test` → 788 pass, typecheck clean)
+Task 3: complete (1ffc408..4dfb6bc, `npm test` → all pass, typecheck clean; rows in a new test next to the existing table)
