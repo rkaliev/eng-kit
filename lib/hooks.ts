@@ -15,7 +15,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, taskFileReminders, taskFileWarning } from "./approvals.ts";
-import { commandMatches, owedCommands, resolveIgnore, resolveVerifyCommands, resolveVerifyPaths, UNKNOWN_FILE } from "./commands.ts";
+import { commandMatches, commandsUnder, owedCommands, resolveIgnore, resolveVerifyCommands, resolveVerifyPaths, UNKNOWN_FILE } from "./commands.ts";
 import { checkCommand, checkPath, otherReadings, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
 import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
 import { canonical } from "./repos.ts";
@@ -25,7 +25,7 @@ import { loadState, pruneStates, readRun, readRunStart, saveState, type RunStart
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { verifyTimeoutSec } from "./verify-run.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { callChangesSplit, ignoredPath, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
+import { callChangesSplit, ignoredPath, trackedChanges, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -455,11 +455,7 @@ function trackTree(
 	const own = after && callId !== undefined ? state.pending[callId] : undefined;
 	const before = own ?? state.tree;
 	const ignored = ignoreFilter(env.projectDir, ignore);
-	const split = callChangesSplit(before, tree, env.projectDir, after);
-	const exact = split.exact.filter((p) => !ignored(p));
-	// A text target stays a guess even when the fingerprint lists the same label: it may name another file.
-	const guessed = split.guessed.filter((p) => !ignored(p));
-	const paths = [...new Set([...exact, ...guessed])];
+	const { exact, guessed, paths } = trackedChanges(callChangesSplit(before, tree, env.projectDir, after), ignored);
 	// Only a call compared with its own snapshot can claim the changes as a verification run's own.
 	const exempted = !!(after?.exempt && own);
 	const marked = paths.length > 0 && !exempted ? paths : [];
@@ -497,7 +493,12 @@ function markEdited(projectDir: string, state: SessionState, certain: string[], 
 	const { scopes } = resolveVerifyPaths(projectDir, commands);
 	// `passed` ran in the call that made these changes: they aren't owed again for them.
 	const owing = commands.filter((c) => !passed.includes(c));
-	const owedBy = (paths: string[]) => owedCommands(paths, owing, scopes);
+	// A label that is gone (a deleted file or submodule) may have been a folder: it also owes the commands with globs inside it.
+	const owedBy = (paths: string[]) => {
+		const gone = paths.flatMap((p) => (existsSync(join(projectDir, p)) ? [] : commandsUnder(p, owing, scopes)));
+		const owed = new Set([...owedCommands(paths, owing, scopes), ...gone]);
+		return owing.filter((c) => owed.has(c));
+	};
 	const counted = commands.length === 0 ? [...exact, ...guessed] : [...exact.filter((p) => owedBy([p]).length > 0), ...(owing.length > 0 ? guessed : [])];
 	if (counted.length === 0) return state;
 	const owed = guessed.length > 0 ? owing : owedBy(counted);

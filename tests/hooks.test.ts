@@ -2111,3 +2111,22 @@ test("verify paths: a verify-script subset run's own changes owe the commands it
 	assert.match(reason, /--only "test"/);
 	assert.doesNotMatch(reason, /`fmt`/);
 });
+
+test("verify paths: a deleted submodule owes the commands with globs inside it (round 3, T1)", () => {
+	const config = { commands: ["fmt", "test"], paths: { fmt: ["docs/**"], test: ["src/**", "vendor/lib/**"] }, ignore: [] };
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify(config) });
+	const sub = join(ctx.projectDir, "vendor", "lib");
+	mkdirSync(sub, { recursive: true });
+	const subGit = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: sub, stdio: "pipe" });
+	subGit("init", "-q", "-b", "main");
+	writeFileSync(join(sub, "x.ts"), "export const x = 1;\n");
+	subGit("add", "-A");
+	subGit("commit", "-q", "-m", "sub");
+	ctx.git("add", "vendor/lib");
+	ctx.git("commit", "-q", "-m", "add submodule");
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.bash("rm -rf vendor/lib", {}, () => rmSync(sub, { recursive: true, force: true }));
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /--only "test"/);
+});
+
