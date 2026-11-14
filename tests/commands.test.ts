@@ -137,3 +137,29 @@ test("resolveVerifyPaths: paths apply only to commands from verify.json, not to 
 	writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify({ paths: { "npm test": ["src/**"] } }));
 	assert.deepEqual(resolveVerifyPaths(dir, ["npm test"]), { scopes: new Map(), problems: [] });
 });
+
+test("owedCommands: a label that may stand for another file owes every command (round 1, R1)", () => {
+	const scopes = new Map([["fmt", ["docs/**"]], ["test", ["src/**"]]]);
+	for (const label of ["$OUT/a.ts", "src/`x`.ts", "~/a.ts", "@src/a.ts", "repoA/", "src/../a.ts", "/abs/src/a.ts", "C:/src/a.ts"]) {
+		assert.deepEqual(owedCommands([label], ["fmt", "test"], scopes), ["fmt", "test"], label);
+	}
+});
+
+test("owedCommands: on a case-insensitive file system globs match in any case, so a change owes more, never less", () => {
+	const scopes = new Map([["test", ["src/**"]]]);
+	assert.deepEqual(owedCommands(["SRC/a.ts"], ["fmt", "test"], scopes, { foldCase: true }), ["fmt", "test"]);
+	assert.deepEqual(owedCommands([".CLAUDE/Verify.json"], ["fmt", "test"], new Map([["fmt", ["x/**"]], ["test", ["x/**"]]]), { foldCase: true }), ["fmt", "test"]);
+	assert.deepEqual(owedCommands(["SRC/a.ts"], ["fmt", "test"], scopes, { foldCase: false }), ["fmt"]);
+});
+
+test("resolveVerifyPaths: a glob that can never match a project path is a problem, and its command checks every file (R7)", () => {
+	const commands = ["npm test"];
+	for (const glob of ["./src/**", "src/", "/abs/src/**", "~/src/**", "C:/src/**", "src\\**", "../src/**", "src/../x/**"]) {
+		const dir = mkdtempSync(join(tmpdir(), "paths-"));
+		mkdirSync(join(dir, ".claude"));
+		writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify({ commands, paths: { "npm test": ["lib/**", glob] } }));
+		const r = resolveVerifyPaths(dir, commands);
+		assert.equal(r.scopes.has("npm test"), false, glob);
+		assert.deepEqual(r.problems, [`paths: "npm test" has a glob that can never match a project path: ${JSON.stringify(glob)} (write it relative to the project, like "src/**")`], glob);
+	}
+});

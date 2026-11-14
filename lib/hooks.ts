@@ -11,7 +11,7 @@
  *   (implemented task files must be deleted), at most one reminder each per user prompt.
  * - UserPromptSubmit: re-arms the gate for the new prompt.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
 import { approvalReminder, taskFileReminders, taskFileWarning } from "./approvals.ts";
@@ -25,7 +25,7 @@ import { loadState, pruneStates, readRun, readRunStart, saveState, type RunStart
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { verifyTimeoutSec } from "./verify-run.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { callChanges, ignoredPath, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
+import { callChangesSplit, ignoredPath, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -229,7 +229,7 @@ function preToolUse(input: HookInput, env: HookEnv): HookResult {
 	}
 	// A run of the verify script may end in the background; its record then counts only for the launch noted here,
 	// once Claude Code reports the call (a permission rule or another hook may still deny it).
-	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && input.tool_use_id && runsVerifyScript(String(args.command ?? ""), env.root, cwd)) {
+	if (SHELL_TOOLS.has(tool) && decision.action === "allow" && input.tool_use_id && runsVerifyScript(String(args.command ?? ""), env.root, cwd, resolveVerifyCommands(env.projectDir).commands)) {
 		const sessionId = input.session_id ?? "";
 		const call = { id: input.tool_use_id, at: Date.now() };
 		bestEffort(() => saveState(env.stateDir, sessionId, { ...loadState(env.stateDir, sessionId), verifyCall: call }));
@@ -323,15 +323,19 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		if (failed) return {};
 		const path = String(args.file_path ?? args.notebook_path ?? "");
 		let label = UNKNOWN_FILE;
+		let certain = false;
 		if (path) {
-			const rel = relative(env.projectDir, resolve(input.cwd || env.projectDir, path));
+			const abs = resolve(input.cwd || env.projectDir, path);
+			const rel = relative(env.projectDir, abs);
 			// Plans, memory and scratch files outside the project don't change what the checks verify.
 			if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return {};
 			if (ignoredPath(env.projectDir, rel, resolveIgnore(env.projectDir))) return {};
 			label = rel.replaceAll("\\", "/");
+			certain = isFileAt(env.projectDir, abs, label);
 		}
 		const state = loadState(env.stateDir, sessionId);
-		const next = markEdited(env.projectDir, state, [label]);
+		// Only a path that is the file itself may narrow the commands owed (verify.json `paths`); any other owes them all.
+		const next = certain ? markEdited(env.projectDir, state, [label]) : markEdited(env.projectDir, state, [], [label]);
 		if (next !== state) saveState(env.stateDir, sessionId, next);
 		// The edit is counted; the next comparison starts after it.
 		bestEffort(() => trackTree(env, sessionId));
@@ -348,11 +352,11 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	const scriptRun = readRun(env.projectDir, env.runsRoot);
 	const scriptPassed = !!scriptRun?.ok && Date.now() - scriptRun.finishedAt < RUN_MAX_AGE_MS;
 	const exempt =
-		!failed && verificationOnly(shell, commands, (words) => scriptPassed && isKitScript(words, env.root, input.cwd || env.projectDir));
+		!failed && verificationOnly(shell, commands, (words) => scriptPassed && isKitScript(words, env.root, input.cwd || env.projectDir, commands));
 	const tracked = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt, powershell: tool === "PowerShell" });
-	const { marked } = tracked;
+	const { marked, own } = tracked;
 	// A verify call reported in the foreground has ended, unless its run wrote a start and goes on in the background.
-	const isVerifyRun = runsVerifyScript(shell, env.root, input.cwd || env.projectDir);
+	const isVerifyRun = runsVerifyScript(shell, env.root, input.cwd || env.projectDir, commands);
 	const ended = args.run_in_background !== true && isVerifyRun;
 	// Only a verify call that started counts as a launch; a failed report (a background task that didn't start) doesn't.
 	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, !failed && isVerifyRun ? input.tool_use_id : undefined), ended);
@@ -360,31 +364,53 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (args.run_in_background === true) return {};
 	// A call that changed files proves nothing about them, whatever checks it also ran.
 	if (marked.length > 0) return {};
+	creditCall(env, sessionId, state, { shell, commands, failed, isVerifyRun });
+	// A check's own changes (a formatter, `lint --fix`) are off the count for the checks that ran, not for the others.
+	if (own.exact.length + own.guessed.length > 0) {
+		const ran = isVerifyRun ? (scriptRun?.commands ?? []) : commands.filter((c) => commandMatches(shell, c));
+		const after = loadState(env.stateDir, sessionId);
+		const next = markEdited(env.projectDir, after, own.exact, own.guessed, ran);
+		if (next !== after) saveState(env.stateDir, sessionId, next);
+	}
+	return {};
+}
 
-	if (!state.unverified) return {};
+/** Credits the checks a shell call ran: the verify script by its run record, a configured command by its exit code. */
+function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean }): void {
+	const { shell, commands, failed, isVerifyRun } = call;
+	if (!state.unverified) return;
 	const credit = (passed: string[]) => saveState(env.stateDir, sessionId, credited(state, commands, passed));
 
 	if (isVerifyRun) {
-		if (commands.length === 0) return {};
+		if (commands.length === 0) return;
 		const run = readRun(env.projectDir, env.runsRoot);
 		if (run) {
-			// The script records its own result, so a pipe that hides the exit code doesn't matter.
-			const fresh = run.finishedAt >= state.editedAt && Date.now() - run.finishedAt < RUN_MAX_AGE_MS;
+			// The script records its own result, so a pipe that hides the exit code doesn't matter. A run that started before
+			// the last counted change didn't check it, however late it finished.
+			const fresh = (run.startedAt === undefined || run.startedAt >= state.editedAt) && run.finishedAt >= state.editedAt && Date.now() - run.finishedAt < RUN_MAX_AGE_MS;
 			if (run.ok && fresh) credit(run.commands);
-			return {};
+			return;
 		}
 		// No record (it could not be written): trust only an unpiped exit code, and only of a run of every command (with
 		// `--only`, nothing says which ran). A run still going (Claude Code moved the call to the background) has no exit
 		// code yet; its result is settled from the record (`settleLaunch`).
 		const words = tokenize(shell);
 		if (!failed && !words.includes("|") && !words.includes("--only") && !readRunStart(env.projectDir, env.runsRoot)) credit(commands);
-		return {};
+		return;
 	}
 	const ran = commands.filter((c) => commandMatches(shell, c));
-	if (ran.length === 0) return {};
+	if (ran.length === 0) return;
 	if (!failed) credit(ran);
 	else saveState(env.stateDir, sessionId, credited({ ...state, green: state.green.filter((c) => !ran.includes(c)) }, commands, []));
-	return {};
+}
+
+/** Whether `abs` names the file itself at `label`: it exists, and its real path (symlinks resolved, letter case as stored) is `label`. */
+function isFileAt(projectDir: string, abs: string, label: string): boolean {
+	try {
+		return relative(realpathSync.native(projectDir), realpathSync.native(abs)).replaceAll("\\", "/") === label;
+	} catch {
+		return false;
+	}
 }
 
 /** `state` (unverified) after `passed` passed: they join the green commands, and the edits are verified once all are. */
@@ -411,7 +437,7 @@ function trackTree(
 	sessionId: string,
 	callId?: string,
 	after?: { command: string; cwd: string; exempt: boolean; powershell?: boolean },
-): { state: SessionState; marked: string[] } {
+): { state: SessionState; marked: string[]; own: { exact: string[]; guessed: string[] } } {
 	const ignore = resolveIgnore(env.projectDir);
 	const why: { slow?: boolean; slowParts?: string[] } = {};
 	const known = loadState(env.stateDir, sessionId);
@@ -420,10 +446,15 @@ function trackTree(
 	const own = after && callId !== undefined ? state.pending[callId] : undefined;
 	const before = own ?? state.tree;
 	const ignored = ignoreFilter(env.projectDir, ignore);
-	const paths = callChanges(before, tree, env.projectDir, after).filter((p) => !ignored(p));
+	const split = callChangesSplit(before, tree, env.projectDir, after);
+	const exact = split.exact.filter((p) => !ignored(p));
+	const guessed = split.guessed.filter((p) => !ignored(p) && !exact.includes(p));
+	const paths = [...exact, ...guessed];
 	// Only a call compared with its own snapshot can claim the changes as a verification run's own.
-	const marked = paths.length > 0 && !(after?.exempt && own) ? paths : [];
-	if (marked.length > 0) state = markEdited(env.projectDir, state, marked);
+	const exempted = !!(after?.exempt && own);
+	const marked = paths.length > 0 && !exempted ? paths : [];
+	// Targets read from the command's text may be other files than they look: they owe every command.
+	if (marked.length > 0) state = markEdited(env.projectDir, state, exact, guessed);
 	const pending = { ...state.pending };
 	if (callId !== undefined) delete pending[callId];
 	if (callId !== undefined && !after && tree) pending[callId] = tree;
@@ -431,7 +462,7 @@ function trackTree(
 	const slowParts = [...new Set([...state.slowParts, ...(why.slowParts ?? [])])];
 	state = { ...state, tree: tree ?? state.tree, gitOff: state.gitOff || why.slow === true, slowParts, pending: kept };
 	saveState(env.stateDir, sessionId, state);
-	return { state, marked };
+	return { state, marked, own: exempted ? { exact, guessed } : { exact: [], guessed: [] } };
 }
 
 /** Change tracking is a best effort where it runs ahead of something that matters (the guard, the bootstrap). */
@@ -448,12 +479,15 @@ function bestEffort(fn: () => unknown): void {
  * Counts edited `paths`: each owes the commands whose verify.json `paths` cover it (every command without an entry), and
  * those leave the green ones. Paths no command covers change nothing; without commands every edit counts, as before.
  */
-function markEdited(projectDir: string, state: SessionState, paths: string[]): SessionState {
+function markEdited(projectDir: string, state: SessionState, exact: string[], guessed: string[] = [], passed: string[] = []): SessionState {
 	const { commands } = resolveVerifyCommands(projectDir);
 	const { scopes } = resolveVerifyPaths(projectDir, commands);
-	const counted = commands.length === 0 ? paths : paths.filter((p) => owedCommands([p], commands, scopes).length > 0);
+	// `passed` ran in the call that made these changes: they aren't owed again for them.
+	const owing = commands.filter((c) => !passed.includes(c));
+	const owedBy = (paths: string[]) => owedCommands(paths, owing, scopes);
+	const counted = commands.length === 0 ? [...exact, ...guessed] : [...exact.filter((p) => owedBy([p]).length > 0), ...(owing.length > 0 ? guessed : [])];
 	if (counted.length === 0) return state;
-	const owed = owedCommands(counted, commands, scopes);
+	const owed = guessed.length > 0 ? owing : owedBy(counted);
 	// Before the first counted edit, or after a green run, every command stands green.
 	const green = (state.unverified ? state.green : commands).filter((c) => !owed.includes(c));
 	const edited = [...state.edited.filter((e) => !counted.includes(e)), ...counted].slice(-MAX_LISTED);
@@ -517,10 +551,9 @@ function runGoing(start: RunStart, projectDir: string): boolean {
 	}
 }
 
-/** `command` as one shell word: in double quotes when nothing in it expands there, else in single quotes. */
+/** `command` (no `'` or `\` in it) as one word in bash, zsh and PowerShell: double quotes unless something expands there. */
 function shellWord(command: string): string {
-	if (!/["$`\\]/.test(command)) return `"${command}"`;
-	return `'${command.replaceAll("'", `'\\''`)}'`;
+	return /["$`]/.test(command) ? `'${command}'` : `"${command}"`;
 }
 
 const SEPARATORS = new Set(["&&", "||", ";", "|", "|&", "&", "\n"]);
@@ -533,7 +566,7 @@ const PIPE_READERS = new Set(["tail", "head", "grep", "tee", "select-object", "s
  * `Select-Object`, `Select-String`, `Tee-Object`). A mention of the path (`cat`, `grep`, an editor, a heredoc body),
  * another `scripts/verify.ts`, a run chained with `&&` or `;`, or one sent to the background with `&` is not.
  */
-export function runsVerifyScript(shell: string, root: string, cwd: string): boolean {
+export function runsVerifyScript(shell: string, root: string, cwd: string, commands: string[] = []): boolean {
 	const segments: Array<{ words: string[]; joinedBy: string }> = [];
 	let words: string[] = [];
 	let joinedBy = "";
@@ -564,7 +597,7 @@ export function runsVerifyScript(shell: string, root: string, cwd: string): bool
 	return (
 		!background &&
 		!!first &&
-		isKitScript(first.words, root, cwd) &&
+		isKitScript(first.words, root, cwd, commands) &&
 		rest.every((seg) => seg.joinedBy === "|" && PIPE_READERS.has((seg.words[0] ?? "").toLowerCase()))
 	);
 }
@@ -573,9 +606,10 @@ export function runsVerifyScript(shell: string, root: string, cwd: string): bool
  * `node <path>` where the path, resolved against `cwd` (a `\` read as `/`), is the kit's `scripts/verify.ts`, followed
  * only by `--only <command>` pairs (the subset the verify gate names).
  */
-function isKitScript(words: string[], root: string, cwd: string): boolean {
+function isKitScript(words: string[], root: string, cwd: string, commands: string[]): boolean {
 	const pairs = words.slice(2);
-	if (pairs.length % 2 !== 0 || pairs.some((w, i) => (i % 2 === 0 ? w !== "--only" : w === ""))) return false;
+	// Each `--only` word must be a configured command as written: anything else runs nothing, or runs code of its own.
+	if (pairs.length % 2 !== 0 || pairs.some((w, i) => (i % 2 === 0 ? w !== "--only" : !commands.includes(w)))) return false;
 	// The session context names a path without `..`; folding one away could hide what the shell actually runs.
 	if (words.length < 2 || words[0] !== "node" || /(^|\/)\.\.(\/|$)/.test(words[1]!)) return false;
 	const absolute = (path: string) => {
@@ -756,7 +790,8 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 			const changed = state.edited.length > 0 ? ` Changed since the last green run: ${state.edited.join(", ")}.` : "";
 			// verify.json `paths` can leave some commands green: name only the owed ones, and the script's `--only` for them.
 			const owed = commands.filter((c) => !state.green.includes(c));
-			const subset = owed.length > 0 && owed.length < commands.length;
+			// `--only` only in a form the gate credits as written: single quotes hold anything but `'`, and the gate reads `\` as `/`.
+			const subset = owed.length > 0 && owed.length < commands.length && owed.every((c) => !/['\\]/.test(c));
 			const script = subset ? `${verifyScriptCommand(env.root)} ${owed.map((c) => `--only ${shellWord(c)}`).join(" ")}` : verifyScriptCommand(env.root);
 			const how = `Run \`${script}\` as a command of its own, with nothing chained after it (its output is already short), or: ${(subset ? owed : commands).map((c) => `\`${c}\``).join(", ")}, and read the output.`;
 			reasons.push(
