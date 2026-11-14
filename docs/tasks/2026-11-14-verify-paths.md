@@ -1,6 +1,6 @@
 # Verify gate asks only for the checks that cover the changed files
 
-Status: plan approved (2026-11-14)
+Status: in progress
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
 Base: 336df00
 Links: None
@@ -124,13 +124,13 @@ Files:
 **Files:** Modify `lib/commands.ts` · Test `tests/commands.test.ts`
 **Interfaces:** Produces `resolveVerifyPaths(cwd: string, commands: string[]): { scopes: Map<string, string[]>; problems: string[] }` and `owedCommands(changed: string[], commands: string[], scopes: Map<string, string[]>): string[]`; exports `VERIFY_FILE = ".claude/verify.json"`.
 
-- [ ] Write failing tests (stubs return `{ scopes: new Map(), problems: [] }` and `[...commands]`):
+- [x] Write failing tests (stubs return `{ scopes: new Map(), problems: [] }` and `[...commands]`):
   - `owedCommands`: scopes `{test: ["src/**"]}`, commands `["fmt","test"]`: `["docs/a.md"]` → `["fmt"]`; `["src/a.ts"]` → `["fmt","test"]`; scopes covering both commands with `["x.txt"]` matching none → `[]`; `["(unknown file)"]` and `[".claude/verify.json"]` → all, in config order.
   - `resolveVerifyPaths`: valid map → scope for the command; key not in commands → not in scopes, problem `paths: "npm tset" is not one of the commands`; value `[]`, `"src/**"`, `[1]` → not in scopes, problem `paths: "npm test" needs a non-empty list of globs`; `paths` not an object → one problem `paths must be an object`; no verify.json / commands from CLAUDE.md → empty map, no problems.
-- [ ] Run `node --test tests/commands.test.ts` → expect FAIL on the `["fmt"]` assertion (received `["fmt","test"]`)
-- [ ] Implement in `lib/commands.ts`; read `paths` only when `resolveVerifyCommands(cwd).source === ".claude/verify.json"`
-- [ ] Run `node --test tests/commands.test.ts` → PASS, then the full suite
-- [ ] Commit `feat(verify): owed commands from verify.json paths`
+- [x] Run `node --test tests/commands.test.ts` → expect FAIL on the `["fmt"]` assertion (received `["fmt","test"]`)
+- [x] Implement in `lib/commands.ts`; read `paths` only when `resolveVerifyCommands(cwd).source === ".claude/verify.json"`
+- [x] Run `node --test tests/commands.test.ts` → PASS, then the full suite
+- [x] Commit `feat(verify): owed commands from verify.json paths`
 
 ### Task 2: `verify.ts --only`
 
@@ -193,4 +193,5 @@ Files:
 
 ## Progress
 
-None yet
+Baseline 2026-11-14: kit verify script from the workspace root → all checks passed (both editions' typecheck and tests). Drift: none since Base.
+Task 1: complete (3e3cd12..60a5591, `npm test` → 783 pass, typecheck clean; the unknown-file and CLAUDE.md tests mutation-checked)
