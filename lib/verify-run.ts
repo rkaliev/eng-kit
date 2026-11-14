@@ -87,11 +87,14 @@ export function runVerification(cwd: string, run: Runner = runShell, only: strin
 	const skipped = commands.slice(results.length).map((c) => `SKIP  ${c}  (earlier check failed)`);
 	const failed = results.find((r) => r.code !== 0);
 	const report = [
-		`Verification (${resolved.source}): ${ok ? "all checks passed" : "FAILED"}`,
+		// A subset names itself, so a report quoting the header doesn't claim checks that didn't run.
+		commands.length < resolved.commands.length
+			? `Verification (${resolved.source}, --only: ${commands.length} of ${resolved.commands.length}): ${ok ? "selected checks passed" : "FAILED"}`
+			: `Verification (${resolved.source}): ${ok ? "all checks passed" : "FAILED"}`,
 		...lines,
 		...skipped,
 		...(failed ? ["", `Output tail of \`${failed.command}\`:`, failed.tail] : []),
-		...problems.map((p) => `Note: ${p} (that command checks every file).`),
+		...problems.map((p) => `Note: ${p} (a command a broken entry names checks every file).`),
 	].join("\n");
 	return { ok, commands, results, report, exitCode: ok ? 0 : 1 };
 }

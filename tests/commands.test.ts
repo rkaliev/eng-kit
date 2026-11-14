@@ -1,9 +1,20 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { commandMatches, DEFAULT_IGNORE, isIgnored, owedCommands, parseAgentsCommands, resolveIgnore, resolveVerifyCommands, resolveVerifyPaths } from "../lib/commands.ts";
+
+/** Temp folders the `paths` tests make, removed when the file's tests end. */
+const made: string[] = [];
+after(() => {
+	for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
+function temp(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	made.push(dir);
+	return dir;
+}
 
 test("parses verification commands from an AGENTS.md Commands section", () => {
 	const md = `# App
@@ -58,6 +69,7 @@ test("a bash call proves a verification command only when it runs it exactly and
 	assert.equal(commandMatches("cd packages/app && npm run typecheck", "npm run typecheck"), false, "another directory proves nothing here");
 	assert.equal(commandMatches("npm test -- --grep x", "npm test"), false, "filtered runs do not prove the suite");
 	assert.equal(commandMatches("echo npm test", "npm test"), false);
+	assert.equal(commandMatches('node /k/scripts/verify.ts --only "a && b"', "a"), false, "a quoted --only word is one argument");
 });
 
 test("ignore globs: defaults cover docs, verify.json can override them", () => {
@@ -107,7 +119,7 @@ test("owedCommands: an unknown file or the verify config itself owes every comma
 
 test("resolveVerifyPaths reads verify.json paths and reports entries that would hide a check", () => {
 	const project = (config: object) => {
-		const dir = mkdtempSync(join(tmpdir(), "paths-"));
+		const dir = temp("paths-");
 		mkdirSync(join(dir, ".claude"));
 		writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify(config));
 		return dir;
@@ -131,7 +143,7 @@ test("resolveVerifyPaths reads verify.json paths and reports entries that would 
 });
 
 test("resolveVerifyPaths: paths apply only to commands from verify.json, not to CLAUDE.md ones", () => {
-	const dir = mkdtempSync(join(tmpdir(), "paths-"));
+	const dir = temp("paths-");
 	writeFileSync(join(dir, "CLAUDE.md"), "## Commands\n- `npm test`\n");
 	mkdirSync(join(dir, ".claude"));
 	writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify({ paths: { "npm test": ["src/**"] } }));
@@ -155,7 +167,7 @@ test("owedCommands: on a case-insensitive file system globs match in any case, s
 test("resolveVerifyPaths: a glob that can never match a project path is a problem, and its command checks every file (R7)", () => {
 	const commands = ["npm test"];
 	for (const glob of ["./src/**", "src/", "/abs/src/**", "~/src/**", "C:/src/**", "src\\**", "../src/**", "src/../x/**"]) {
-		const dir = mkdtempSync(join(tmpdir(), "paths-"));
+		const dir = temp("paths-");
 		mkdirSync(join(dir, ".claude"));
 		writeFileSync(join(dir, ".claude", "verify.json"), JSON.stringify({ commands, paths: { "npm test": ["lib/**", glob] } }));
 		const r = resolveVerifyPaths(dir, commands);

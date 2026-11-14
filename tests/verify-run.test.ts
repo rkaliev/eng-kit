@@ -39,6 +39,7 @@ test("runVerification with only runs those commands in config order and reports 
 	assert.equal(r.ok, true);
 	assert.equal(r.exitCode, 0);
 	assert.doesNotMatch(r.report, /\bb\b/);
+	assert.match(r.report, /^Verification \(\.claude\/verify\.json, --only: 2 of 3\): selected checks passed$/m, "a subset doesn't claim all checks");
 });
 
 test("runVerification with an unknown --only command runs nothing and exits 2", () => {

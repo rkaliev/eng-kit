@@ -808,7 +808,7 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 		const { problems } = resolveVerifyPaths(env.projectDir, resolveVerifyCommands(env.projectDir).commands);
 		if (problems.length > 0) {
 			next.pathsNoted = true;
-			const note = `eng-kit verify gate: ${problems.join("; ")} in .claude/verify.json, so those commands check every file.`;
+			const note = `eng-kit verify gate: ${problems.join("; ")} in .claude/verify.json; a command a broken entry names checks every file.`;
 			systemMessage = systemMessage ? `${systemMessage}\n${note}` : note;
 		}
 	}
