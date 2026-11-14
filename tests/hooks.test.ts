@@ -358,6 +358,28 @@ test("runsVerifyScript recognises only a run of the kit's own script", () => {
 	for (const command of mentions) assert.equal(runsVerifyScript(command, "/k", "/p"), false, command);
 });
 
+test("runsVerifyScript recognises a run with the --only pairs the gate names, and nothing else after the script", () => {
+	for (const command of [
+		'node /k/scripts/verify.ts --only "npm test"',
+		'node /k/scripts/verify.ts --only "npm test" --only "npm run lint" 2>&1 | tail -5',
+		'node /k/scripts/verify.ts --only "a && b"',
+	])
+		assert.equal(runsVerifyScript(command, "/k", "/p", ["npm test", "npm run lint", "a && b"]), true, command);
+	for (const command of [
+		"node /k/scripts/verify.ts --only",
+		"node /k/scripts/verify.ts --only a extra",
+		"node /k/scripts/verify.ts /p",
+		"node /k/scripts/verify.ts --all",
+		"cd x && node /k/scripts/verify.ts --only a",
+		"node /k/scripts/verify.ts --only a &",
+		'node /k/scripts/verify.ts --only "zz"',
+		'node /k/scripts/verify.ts --only "$(sed -i s/x/y/ src/a.ts; echo a)"',
+	])
+		assert.equal(runsVerifyScript(command, "/k", "/p", ["a", "npm test"]), false, command);
+	assert.equal(runsVerifyScript("node /k/scripts/verify.ts --only 'echo $HOME'", "/k", "/p", ["echo $HOME"]), true, "the gate's single-quoted form");
+	assert.equal(runsVerifyScript('node /k/scripts/verify.ts --only "npm test"', "/k", "/p"), false, "without configured commands no --only word counts");
+});
+
 test("verify gate: mentioning the verify script doesn't clear it", () => {
 	const script = join(root, "scripts", "verify.ts");
 	for (const command of [`cat ${script}`, `grep x ${script}`, `sed -n 1p ${script}`, "node scripts/verify.ts", `cd src && node ${script}`]) {
@@ -455,13 +477,16 @@ test("verify gate: a change no command reported is found at Stop", () => {
 	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
 });
 
-test("verify gate: a verification run that changes files doesn't mark the workspace again", () => {
+test("verify gate: a verification run's own changes owe the checks that didn't run in it, not itself", () => {
+	// User ruling 2026-11-14 (0.39.0 review round 1, R11 «Везде»): npm test passed before the typecheck run changed the code.
 	const { call, edit, bash } = setupGit();
 	call({ hook_event_name: "SessionStart", source: "startup" });
 	bash("sed -i '' 's/1/2/' src/a.ts", {}, () => edit("export const a = 2;\n"));
 	bash("npm test");
 	bash("npm run typecheck", {}, () => edit("export const a = 3;\n"));
-	assert.deepEqual(call({ hook_event_name: "Stop" }), {}, "the typecheck run's own change keeps npm test green");
+	const reason = String(call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /`npm test`/);
+	assert.doesNotMatch(reason, /`npm run typecheck`/, "the typecheck run's own change doesn't owe it again");
 });
 
 test("verify gate: a session without a fingerprint takes one instead of counting an edit", () => {
@@ -1871,3 +1896,237 @@ test("token ledger: SubagentStop records the subagent's tokens and Stop the sess
 	call({ hook_event_name: "Stop", transcript_path: transcript(29), cwd: other });
 	assert.equal(branchSummary(other, "feat/o", env.usageRoot).byAgent.main, 10, "the session moved to another repository: only what it added there");
 });
+
+/** A project whose verify.json maps `test` to `src/**`; `fmt` checks every file (docs included: `ignore` is empty). */
+function pathsProject(config: object = { commands: ["fmt", "test"], paths: { test: ["src/**"] }, ignore: [] }) {
+	const files = { "docs/x.md": "x\n", "docs/y.md": "y\n", "src/a.ts": "export const a = 1;\n", "notes.txt": "n\n" };
+	const ctx = setup({ ".claude/verify.json": JSON.stringify(config), ...files });
+	const script = join(root, "scripts", "verify.ts");
+	const edit = (file_path?: string) => ctx.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: file_path === undefined ? {} : { file_path } });
+	const stop = () => ctx.call({ hook_event_name: "Stop" }).output;
+	/** The verify script ran `only` and recorded a passing run, started `ago` ms back. */
+	const verified = (only: string[], ago = 0) => {
+		writeRun(ctx.projectDir, { ok: true, commands: only, startedAt: Date.now() - ago, finishedAt: Date.now() - ago }, ctx.env.runsRoot);
+		const command = `node "${script}" ${only.map((c) => `--only "${c}"`).join(" ")} 2>&1 | tail -5`;
+		ctx.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command } });
+	};
+	return { ...ctx, script, edit, stop, verified };
+}
+
+test("verify paths: a doc edit owes only the commands that cover it, and the gate names them with --only (C1)", () => {
+	const { edit, stop } = pathsProject();
+	edit("docs/x.md");
+	const reason = String(stop()?.reason);
+	assert.match(reason, /--only "fmt"/);
+	assert.match(reason, /`fmt`/);
+	assert.doesNotMatch(reason, /`test`/);
+	// A live run (2026-11-14) chained `; echo exit=$?` after the script, which the gate never credits.
+	assert.match(reason, /as a command of its own, with nothing chained after it/);
+});
+
+test("verify paths: a passed run of the owed subset clears the gate; one missing an owed command doesn't (C2)", () => {
+	const subset = pathsProject();
+	subset.edit("docs/x.md");
+	subset.verified(["fmt"]);
+	assert.equal(subset.stop(), undefined);
+
+	const missing = pathsProject();
+	missing.edit("docs/x.md");
+	missing.edit("src/a.ts");
+	missing.verified(["fmt"]);
+	const reason = String(missing.stop()?.reason);
+	assert.match(reason, /--only "test"/);
+	assert.doesNotMatch(reason, /`fmt`/);
+});
+
+test("verify paths: owed commands add up, and a passed command removes only itself (C3)", () => {
+	const both = pathsProject();
+	both.edit("docs/x.md");
+	both.edit("src/a.ts");
+	const reason = String(both.stop()?.reason);
+	assert.match(reason, /`fmt`/);
+	assert.match(reason, /`test`/);
+	assert.doesNotMatch(reason, /--only/, "every command is owed: the plain call");
+
+	const ran = pathsProject();
+	ran.edit("docs/x.md");
+	ran.edit("src/a.ts");
+	ran.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "fmt" } });
+	assert.match(String(ran.stop()?.reason), /--only "test"/);
+});
+
+test("verify paths: an edit no command covers leaves the workspace verified (C4)", () => {
+	const { edit, stop, env } = pathsProject({ commands: ["fmt", "test"], paths: { fmt: ["src/**"], test: ["src/**"] }, ignore: [] });
+	edit("notes.txt");
+	assert.equal(stop(), undefined);
+	assert.deepEqual(loadState(env.stateDir, "s1").edited, []);
+	assert.equal(loadState(env.stateDir, "s1").unverified, false);
+});
+
+test("verify paths: an edit of verify.json or of an unknown file owes every command (C5)", () => {
+	for (const file of [".claude/verify.json", undefined]) {
+		const { edit, stop } = pathsProject();
+		edit(file);
+		const reason = String(stop()?.reason);
+		assert.match(reason, /`fmt`/, String(file));
+		assert.match(reason, /`test`/, String(file));
+	}
+});
+
+test("verify paths: a bad paths entry is told once per session, and that command covers every file (C8)", () => {
+	const { edit, stop, call } = pathsProject({ commands: ["fmt", "test"], paths: { test: [] }, ignore: [] });
+	edit("docs/x.md");
+	const first = stop()!;
+	assert.match(String(first.reason), /`test`/, "the command with a bad entry checks every file");
+	assert.match(String(first.systemMessage), /paths: "test" needs a non-empty list of globs/);
+	call({ hook_event_name: "UserPromptSubmit" });
+	edit("docs/y.md");
+	assert.doesNotMatch(String(stop()?.systemMessage), /paths/);
+});
+
+test("verify paths: a subset record older than the last edit proves nothing", () => {
+	const { edit, stop, verified } = pathsProject();
+	edit("docs/x.md");
+	verified(["fmt"], 60_000);
+	assert.equal(stop()?.decision, "block");
+});
+
+test("verify paths: without a record, an unpiped --only run proves nothing (it can't tell what ran)", () => {
+	const { edit, stop, call, script } = pathsProject();
+	edit("docs/x.md");
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node "${script}" --only "fmt"` } });
+	assert.equal(stop()?.decision, "block");
+});
+
+test("verify paths: a file a shell command writes owes by its path too", () => {
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify({ commands: ["fmt", "test"], paths: { test: ["src/**"] }, ignore: [] }) });
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.bash("echo x > y.md", {}, () => writeFileSync(join(ctx.projectDir, "y.md"), "x\n"));
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /--only "fmt"/);
+	assert.match(reason, /y\.md/);
+});
+
+test("verify paths: an edited path that isn't the file itself (missing, through a symlink, other case) owes every command (round 1, R1)", () => {
+	const missing = pathsProject();
+	missing.edit("docs/new.md");
+	assert.doesNotMatch(String(missing.stop()?.reason), /--only/, "a file that doesn't exist after the edit");
+
+	const linked = pathsProject();
+	symlinkSync(join(linked.projectDir, "docs"), join(linked.projectDir, "manual"));
+	linked.edit("manual/x.md");
+	assert.doesNotMatch(String(linked.stop()?.reason), /--only/, "a path through a symlink");
+});
+
+test("verify paths: a path in another letter case owes every command on a case-insensitive file system", { skip: !["darwin", "win32"].includes(process.platform) && "platform: case-insensitive file system" }, () => {
+	const p = pathsProject();
+	p.edit("DOCS/x.md");
+	assert.doesNotMatch(String(p.stop()?.reason), /--only/);
+});
+
+test("verify paths: shell targets read from the command's text owe every command (round 1, R1)", () => {
+	const p = pathsProject();
+	p.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "echo x >> docs/x.md" } });
+	assert.doesNotMatch(String(p.stop()?.reason), /--only/);
+});
+
+test("verify paths: a record that started before the last edit doesn't credit through an --only call that ran nothing (round 1, R2)", () => {
+	const { edit, stop, call, script, projectDir, env } = pathsProject();
+	edit("docs/x.md");
+	writeRun(projectDir, { ok: true, commands: ["fmt", "test"], startedAt: Date.now() - 60_000, finishedAt: Date.now() + 1000 }, env.runsRoot);
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node "${script}" --only "zz" | tail -5` } });
+	assert.equal(stop()?.decision, "block");
+	const again = pathsProject();
+	again.edit("docs/x.md");
+	writeRun(again.projectDir, { ok: true, commands: ["fmt", "test"], startedAt: Date.now() - 60_000, finishedAt: Date.now() + 1000 }, again.env.runsRoot);
+	again.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: `node "${again.script}" --only "fmt" | tail -5` } });
+	assert.equal(again.stop()?.decision, "block", "a configured --only word with a stale record");
+});
+
+test("verify paths: the reason offers --only only in a form the gate credits (round 1, R4)", () => {
+	const quote = pathsProject({ commands: ["node -e 'x'", "test"], paths: { test: ["src/**"] }, ignore: [] });
+	quote.edit("docs/x.md");
+	const reason = String(quote.stop()?.reason);
+	assert.doesNotMatch(reason, /--only/, "a command with ' gets the bare script");
+	assert.match(reason, /`node -e 'x'`/);
+
+	const dollar = pathsProject({ commands: ["echo $HOME", "test"], paths: { test: ["src/**"] }, ignore: [] });
+	dollar.edit("docs/x.md");
+	assert.match(String(dollar.stop()?.reason), /--only 'echo \$HOME'/);
+});
+
+test("verify paths: a check's own changes owe the commands that didn't run in it (round 1, R11)", () => {
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify({ commands: ["fmt", "test"], paths: { test: ["src/**"] }, ignore: [] }), "docs/x.md": "x\n" });
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "docs/x.md" } });
+	ctx.bash("fmt", {}, () => writeFileSync(join(ctx.projectDir, "src/a.ts"), "export const a = 2;\n"));
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /`test`/);
+	assert.doesNotMatch(reason, /`fmt`/, "fmt passed and its own change doesn't owe it again");
+});
+
+test("verify paths: an unverified state from 0.38.x (green empty) still owes every command after a docs edit (round 1, R6)", () => {
+	const p = pathsProject();
+	saveState(p.env.stateDir, "s1", { ...loadState(p.env.stateDir, "s1"), unverified: true, green: [], edited: ["src/a.ts"], editedAt: Date.now() - 1000 });
+	p.edit("docs/x.md");
+	assert.doesNotMatch(String(p.stop()?.reason), /--only/);
+
+	const order = pathsProject();
+	order.edit("src/a.ts");
+	order.edit("docs/x.md");
+	const reason = String(order.stop()?.reason);
+	assert.match(reason, /`test`/, "a src edit before a docs edit still owes test");
+	assert.doesNotMatch(reason, /--only/);
+});
+
+test("verify paths: a changed submodule (a folder label) owes every command (round 2, Q3)", () => {
+	const config = { commands: ["fmt", "test"], paths: { fmt: ["docs/**"], test: ["src/**", "vendor/lib/**"] }, ignore: [] };
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify(config) });
+	const sub = join(ctx.projectDir, "vendor", "lib");
+	mkdirSync(sub, { recursive: true });
+	const subGit = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: sub, stdio: "pipe" });
+	subGit("init", "-q", "-b", "main");
+	writeFileSync(join(sub, "x.ts"), "export const x = 1;\n");
+	subGit("add", "-A");
+	subGit("commit", "-q", "-m", "sub");
+	ctx.git("add", "vendor/lib");
+	ctx.git("commit", "-q", "-m", "add submodule");
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.bash("node gen.js", {}, () => writeFileSync(join(sub, "x.ts"), "export const x = 2;\n"));
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /`fmt`/);
+	assert.match(reason, /`test`/);
+});
+
+test("verify paths: a verify-script subset run's own changes owe the commands it didn't run (round 2, Q5)", () => {
+	const config = { commands: ["fmt", "test"], paths: { test: ["src/**"] }, ignore: [] };
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify(config), "docs/x.md": "x\n" });
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "docs/x.md" } });
+	ctx.bash(`node "${join(root, "scripts", "verify.ts")}" --only "fmt" 2>&1 | tail -5`, {}, () => {
+		writeRun(ctx.projectDir, { ok: true, commands: ["fmt"], startedAt: Date.now(), finishedAt: Date.now() }, ctx.env.runsRoot);
+		writeFileSync(join(ctx.projectDir, "src/a.ts"), "export const a = 2;\n");
+	});
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /--only "test"/);
+	assert.doesNotMatch(reason, /`fmt`/);
+});
+
+test("verify paths: a deleted submodule owes the commands with globs inside it (round 3, T1)", () => {
+	const config = { commands: ["fmt", "test"], paths: { fmt: ["docs/**"], test: ["src/**", "vendor/lib/**"] }, ignore: [] };
+	const ctx = setupGit({ ".claude/verify.json": JSON.stringify(config) });
+	const sub = join(ctx.projectDir, "vendor", "lib");
+	mkdirSync(sub, { recursive: true });
+	const subGit = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: sub, stdio: "pipe" });
+	subGit("init", "-q", "-b", "main");
+	writeFileSync(join(sub, "x.ts"), "export const x = 1;\n");
+	subGit("add", "-A");
+	subGit("commit", "-q", "-m", "sub");
+	ctx.git("add", "vendor/lib");
+	ctx.git("commit", "-q", "-m", "add submodule");
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	ctx.bash("rm -rf vendor/lib", {}, () => rmSync(sub, { recursive: true, force: true }));
+	const reason = String(ctx.call({ hook_event_name: "Stop" }).output?.reason);
+	assert.match(reason, /--only "test"/);
+});
+

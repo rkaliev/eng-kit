@@ -31,6 +31,8 @@ export interface SessionState {
 	tree?: Tree;
 	/** The user was already told this session that there are no verification commands. */
 	notified: boolean;
+	/** The user was already told this session what is wrong with verify.json `paths`. */
+	pathsNoted?: boolean;
 	/** git timed out or listed too many files once: the command text decides for the rest of the session. */
 	gitOff: boolean;
 	/** Workspace parts over the entry limit or out of their share twice running: not fingerprinted again this session (see `treeFingerprint`). */
@@ -93,6 +95,7 @@ export function loadState(dir: string, sessionId: string): SessionState {
 			noted: typeof raw.noted === "number" ? raw.noted : undefined,
 			tree: isTree(raw.tree) ? raw.tree : undefined,
 			notified: raw.notified === true,
+			pathsNoted: raw.pathsNoted === true || undefined,
 			gitOff: raw.gitOff === true,
 			slowParts: Array.isArray(raw.slowParts) ? raw.slowParts.filter((p): p is string => typeof p === "string") : [],
 			pending:
