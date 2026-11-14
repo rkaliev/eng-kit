@@ -1912,6 +1912,8 @@ test("verify paths: a doc edit owes only the commands that cover it, and the gat
 	assert.match(reason, /--only "fmt"/);
 	assert.match(reason, /`fmt`/);
 	assert.doesNotMatch(reason, /`test`/);
+	// A live run (2026-11-14) chained `; echo exit=$?` after the script, which the gate never credits.
+	assert.match(reason, /as a command of its own, with nothing chained after it/);
 });
 
 test("verify paths: a passed run of the owed subset clears the gate; one missing an owed command doesn't (C2)", () => {

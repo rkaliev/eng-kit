@@ -758,7 +758,7 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 			const owed = commands.filter((c) => !state.green.includes(c));
 			const subset = owed.length > 0 && owed.length < commands.length;
 			const script = subset ? `${verifyScriptCommand(env.root)} ${owed.map((c) => `--only ${shellWord(c)}`).join(" ")}` : verifyScriptCommand(env.root);
-			const how = `Run \`${script}\` (its output is already short) or: ${(subset ? owed : commands).map((c) => `\`${c}\``).join(", ")}, and read the output.`;
+			const how = `Run \`${script}\` as a command of its own, with nothing chained after it (its output is already short), or: ${(subset ? owed : commands).map((c) => `\`${c}\``).join(", ")}, and read the output.`;
 			reasons.push(
 				`Verify gate: files changed since the last passing verification.${changed} ${how} Report only checks that actually ran in this session; if a check fails, fix the cause or say it is failing. Your next message is the last one the user reads: make it the complete final report (what changed, what the user must do next, the checks you ran and their results), not only the verification.`,
 			);
