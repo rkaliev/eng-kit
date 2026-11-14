@@ -630,12 +630,16 @@ test("verify gate: a change made before a check started is not the check's own",
 
 test("verify gate: a piped verify script keeps its own writes only while its record says it passed", () => {
 	for (const ok of [true, false]) {
-		const { call, bash, edit, run } = setupGit();
+		const { call, bash, edit, projectDir, env } = setupGit();
 		call({ hook_event_name: "SessionStart", source: "startup" });
 		bash("npm test");
 		bash("npm run typecheck");
-		run(ok);
-		bash(`node "${join(root, "scripts", "verify.ts")}" 2>&1 | tail -30`, {}, () => edit("export const a = 2;\n"));
+		const commands = ["npm test", "npm run typecheck"];
+		// The script writes its record during the call; a record from before the call is another run's (0.39.1).
+		bash(`node "${join(root, "scripts", "verify.ts")}" 2>&1 | tail -30`, {}, () => {
+			writeRun(projectDir, { ok, commands, startedAt: Date.now(), finishedAt: Date.now() }, env.runsRoot);
+			edit("export const a = 2;\n");
+		});
 		const out = call({ hook_event_name: "Stop" });
 		if (ok) assert.deepEqual(out, {}, "a passing run's formatter writes are its own");
 		else assert.match(String(out.output?.reason), /src\/a\.ts/, "a failing run's writes count");
