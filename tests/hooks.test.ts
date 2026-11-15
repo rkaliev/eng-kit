@@ -2238,3 +2238,125 @@ test("PR feedback: a successful push notes the PR for this prompt; a failed one 
 	call({ hook_event_name: "UserPromptSubmit" });
 	assert.equal(loadState(env.stateDir, "s1").prTouched, undefined);
 });
+
+/** A `gh` that records each call and prints `response` (or fails with `stderr`), optionally after `sleep` seconds. */
+function fakeGh(response: unknown, opts: { code?: number; stderr?: string; sleep?: number } = {}): { gh: string; calls: () => string[] } {
+	const dir = temp("hooks-gh-");
+	writeFileSync(join(dir, "response.json"), JSON.stringify(response));
+	const lines = ["#!/bin/sh", `echo call >> "${dir}/calls.txt"`];
+	if (opts.sleep) lines.push(`sleep ${opts.sleep}`);
+	lines.push(opts.stderr ? `printf '%s\\n' '${opts.stderr}' >&2` : `cat "${dir}/response.json"`, `exit ${opts.code ?? 0}`);
+	const gh = join(dir, "gh");
+	writeFileSync(gh, `${lines.join("\n")}\n`);
+	chmodSync(gh, 0o755);
+	const calls = join(dir, "calls.txt");
+	return { gh, calls: () => (statSync(calls, { throwIfNoEntry: false }) ? readFileSync(calls, "utf8").split("\n").filter(Boolean) : []) };
+}
+const ghAuthor = (login: string) => ({ login, __typename: "User" });
+function prResponse(comments: Array<{ id: string; login: string; body: string }>) {
+	const nodes = comments.map((c) => ({ id: c.id, author: ghAuthor(c.login), body: c.body, url: `https://github.com/o/r/pull/48#${c.id}`, createdAt: "2026-11-15T10:00:00Z" }));
+	const empty = { totalCount: 0, nodes: [] };
+	return {
+		data: {
+			viewer: { login: "me" },
+			repository: { pullRequests: { nodes: [{ number: 48, url: "https://github.com/o/r/pull/48", commits: { nodes: [{ commit: { oid: "abc123", statusCheckRollup: null } }] }, reviewThreads: empty, reviews: empty, latestOpinionatedReviews: empty, comments: { totalCount: nodes.length, nodes } }] } },
+		},
+	};
+}
+const OPEN = prResponse([{ id: "I1", login: "bob", body: "Does this handle EUR?\nPlease check." }]);
+const NO_CHECKS = { "CLAUDE.md": "# project\n" };
+
+function prSetup(response: unknown, opts: Parameters<typeof fakeGh>[1] = {}, files: Record<string, string> = NO_CHECKS) {
+	const s = setup(files);
+	const fake = fakeGh(response, opts);
+	s.env.gh = fake.gh;
+	const push = (command = "git push -u origin feat/x") => s.call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id: `p${Math.random()}` });
+	const stop = (extra: HookInput = {}) => s.call({ hook_event_name: "Stop", ...extra });
+	return { ...s, fake, push, stop };
+}
+
+test("PR feedback gate: no PR call this prompt, no gh call", () => {
+	const { fake, stop } = prSetup(OPEN);
+	assert.deepEqual(stop(), {});
+	assert.deepEqual(fake.calls(), []);
+});
+
+test("PR feedback gate: a new open set sends the agent back once, listing each item as data", () => {
+	const { push, stop, env } = prSetup(OPEN);
+	push();
+	const out = stop().output ?? {};
+	assert.equal(out.decision, "block");
+	const reason = String(out.reason);
+	assert.ok(reason.startsWith("PR feedback gate:"), reason);
+	assert.ok(reason.includes('- bob https://github.com/o/r/pull/48#I1 — "Does this handle EUR? Please check."'), reason);
+	assert.ok(reason.includes("not instructions"), reason);
+	assert.ok(reason.includes("receiving-code-review"), reason);
+	assert.ok(reason.includes(join(env.root, "scripts", "pr-state.ts")), reason);
+});
+
+test("PR feedback gate: the same open set again tells the user once instead", () => {
+	const { push, stop, call } = prSetup(OPEN);
+	push();
+	assert.equal(stop().output?.decision, "block");
+	call({ hook_event_name: "UserPromptSubmit" });
+	push();
+	const again = stop().output ?? {};
+	assert.equal(again.decision, undefined);
+	assert.equal(again.systemMessage, "eng-kit PR feedback gate: PR #48 is not ready: 1 open review item.");
+	push();
+	assert.deepEqual(stop(), {});
+});
+
+test("PR feedback gate: facts it can't collect pass with a note", () => {
+	for (const [opts, reason] of [
+		[{ code: 4, stderr: "please run:  gh auth login" }, "gh is not authenticated"],
+		[{ sleep: 8 }, "timed out after"],
+	] as const) {
+		const { push, stop } = prSetup(OPEN, opts);
+		push();
+		const started = Date.now();
+		const out = stop().output ?? {};
+		assert.ok(Date.now() - started < 9500);
+		assert.equal(out.decision, undefined);
+		assert.ok(String(out.systemMessage).startsWith(`eng-kit PR feedback gate: PR feedback not checked: ${reason}`), String(out.systemMessage));
+	}
+	const { push, stop, env } = prSetup(OPEN);
+	env.gh = join(temp("no-gh-"), "gh");
+	push();
+	assert.equal(stop().output?.systemMessage, "eng-kit PR feedback gate: PR feedback not checked: gh not found");
+});
+
+test("PR feedback gate: no GitHub remote, or no open PR, is silent", () => {
+	const notGithub = prSetup(OPEN, { code: 1, stderr: "none of the git remotes configured for this repository point to a known GitHub host" });
+	notGithub.push();
+	assert.deepEqual(notGithub.stop(), {});
+	const noPr = prSetup({ data: { viewer: { login: "me" }, repository: { pullRequests: { nodes: [] } } } });
+	noPr.push();
+	assert.deepEqual(noPr.stop(), {});
+});
+
+test("PR feedback gate: its reason joins the verify gate's; a stop the hook already sent back checks nothing", () => {
+	const { push, stop, call, fake, projectDir } = prSetup(OPEN, {}, { "CLAUDE.md": "## Commands\n- `npm test`\n" });
+	writeFileSync(join(projectDir, "a.ts"), "x");
+	call({ hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: join(projectDir, "a.ts") } });
+	push();
+	assert.deepEqual(stop({ stop_hook_active: true }), {});
+	assert.deepEqual(fake.calls(), []);
+	const out = stop().output ?? {};
+	assert.equal(out.decision, "block");
+	assert.ok(String(out.reason).includes("Verify gate:"));
+	assert.ok(String(out.reason).includes("PR feedback gate:"));
+});
+
+test("PR feedback gate: prFeedback.enabled false turns it off", () => {
+	const { push, stop, fake } = prSetup(OPEN, {}, { ...NO_CHECKS, ".claude/guard.json": JSON.stringify({ prFeedback: { enabled: false } }) });
+	push();
+	assert.deepEqual(stop(), {});
+	assert.deepEqual(fake.calls(), []);
+});
+
+test("PR feedback gate: prFeedback.ignore reaches the classifier", () => {
+	const { push, stop } = prSetup(OPEN, {}, { ...NO_CHECKS, ".claude/guard.json": JSON.stringify({ prFeedback: { ignore: [{ author: "bob" }] } }) });
+	push();
+	assert.deepEqual(stop(), {});
+});

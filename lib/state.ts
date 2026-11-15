@@ -51,6 +51,10 @@ export interface SessionState {
 	verifyCall?: { id: string; at: number };
 	/** The PR branches this prompt's shell calls touched (lib/reviews.ts `touchedPrs`): Stop checks their feedback. */
 	prTouched?: Array<{ dir: string; branch?: string }>;
+	/** The hash of the open PR feedback items the agent was last sent back for. */
+	prFeedbackSent?: string;
+	/** The last PR feedback note the user was shown, so the same one isn't repeated. */
+	prFeedbackNoted?: string;
 }
 
 /** What the verify script records about its own run, so a piped call still proves the result. */
@@ -116,6 +120,8 @@ export function loadState(dir: string, sessionId: string): SessionState {
 						.filter((t): t is { dir: string; branch?: string } => !!t && typeof t.dir === "string" && (t.branch === undefined || typeof t.branch === "string"))
 						.map((t) => (t.branch === undefined ? { dir: t.dir } : { dir: t.dir, branch: t.branch }))
 				: undefined,
+			prFeedbackSent: typeof raw.prFeedbackSent === "string" ? raw.prFeedbackSent : undefined,
+			prFeedbackNoted: typeof raw.prFeedbackNoted === "string" ? raw.prFeedbackNoted : undefined,
 		};
 	} catch {
 		return { ...EMPTY, green: [], edited: [], slowParts: [], pending: {} };
