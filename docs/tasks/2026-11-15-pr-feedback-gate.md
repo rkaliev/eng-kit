@@ -225,11 +225,11 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 
 **Files:** Modify `skills/receiving-code-review/SKILL.md`, `skills/requesting-code-review/references/review-gate.md`, `skills/git-workflow/SKILL.md`, `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE.ru.md`, `README.md`, `CHANGELOG.md`, the version pins · Test `tests/lint-skills.test.ts`
 
-- [ ] receiving-code-review step 8: the coverage lines start from `node <kit root>/scripts/pr-state.ts` output on a hosted PR; the gate sends you back while items stay open; a `changes-requested` item and an unchecked note both mean "not ready". Keep the skill within the lint's word limit, trimming nothing else.
-- [ ] git-workflow "after push" and `review-gate.md`: one sentence each, as Post-implementation lists.
-- [ ] ARCHITECTURE en/ru, README, CHANGELOG 0.40.0, version 0.40.0 in every pin found by `grep -rl 0.39.1` (excluding CHANGELOG and lockfile entries of other packages).
-- [ ] Run `npm test` (lint-skills included), `npm run typecheck`, `npm run validate` → PASS.
-- [ ] Commit `docs: PR feedback gate, 0.40.0`.
+- [x] receiving-code-review step 8: the coverage lines start from `node <kit root>/scripts/pr-state.ts` output on a hosted PR; the gate sends you back while items stay open; a `changes-requested` item and an unchecked note both mean "not ready". Keep the skill within the lint's word limit, trimming nothing else.
+- [x] git-workflow "after push" and `review-gate.md`: one sentence each, as Post-implementation lists.
+- [x] ARCHITECTURE en/ru, README, CHANGELOG 0.40.0, version 0.40.0 in every pin found by `grep -rl 0.39.1` (excluding CHANGELOG and lockfile entries of other packages).
+- [x] Run `npm test` (lint-skills included), `npm run typecheck`, `npm run validate` → PASS.
+- [x] Commit `docs: PR feedback gate, 0.40.0`.
 
 ### Task 6: pi port
 
@@ -260,3 +260,6 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 - Ruling: the four negative gate tests (no PR call, silent no-PR/non-GitHub, `enabled: false`, `ignore`) pass without the gate by nature; each was proved by a mutation that made it FAIL, then restored.
 - Ruling: under `stop_hook_active` the gate checks nothing (criterion 12), so after a send-back the user sees no "not ready" note in that same prompt; the agent's coverage report carries it.
 - Task 4: complete (f911681..08d1778, `node --test tests/hooks.test.ts` PR feedback tests → 9 pass; `npm test` → 863 tests, 852 pass, 11 skipped, 0 fail; typecheck clean; `npm run validate` → passed)
+- Ruling: receiving-code-review step 8 was reworded within the step to fit the 800-word body limit ("every required check passed", "Green checks or unchecked feedback aren't enough") — the plan's "trimming nothing else" held: no other step changed — none.
+- Ruling: GETTING-STARTED (en, ru) gained a troubleshooting entry for the gate's send-back and "not checked" note — the plan's Post-implementation missed that page — none.
+- Task 5: complete (60019ac..3265ead, `node --test tests/lint-skills.test.ts` → 44 pass; `npm test` → 863 tests, 852 pass, 11 skipped, 0 fail; typecheck clean; `npm run validate` → passed)
