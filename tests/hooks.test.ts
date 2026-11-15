@@ -2320,8 +2320,11 @@ test("PR feedback gate: facts it can't collect pass with a note", () => {
 		assert.equal(out.decision, undefined);
 		assert.ok(String(out.systemMessage).startsWith(`eng-kit PR feedback gate: PR feedback not checked: ${reason}`), String(out.systemMessage));
 	}
-	const { push, stop, env } = prSetup(OPEN);
+	const { push, stop, env, projectDir } = prSetup(OPEN);
 	env.gh = join(temp("no-gh-"), "gh");
+	// Without gh, only a repository with a remote on GitHub has feedback that went unchecked.
+	execFileSync("git", ["init", "-q", projectDir]);
+	execFileSync("git", ["-C", projectDir, "remote", "add", "origin", "git@github.com:o/r.git"]);
 	push();
 	assert.equal(stop().output?.systemMessage, "eng-kit PR feedback gate: PR feedback not checked: gh not found");
 });
@@ -2359,4 +2362,39 @@ test("PR feedback gate: prFeedback.ignore reaches the classifier", () => {
 	const { push, stop } = prSetup(OPEN, {}, { ...NO_CHECKS, ".claude/guard.json": JSON.stringify({ prFeedback: { ignore: [{ author: "bob" }] } }) });
 	push();
 	assert.deepEqual(stop(), {});
+});
+
+test("PR feedback gate: a changed open set sends the agent back again (F2)", () => {
+	const { push, stop, call, fake } = prSetup(OPEN);
+	push();
+	assert.equal(stop().output?.decision, "block");
+	call({ hook_event_name: "UserPromptSubmit" });
+	writeFileSync(join(dirname(fake.gh), "response.json"), JSON.stringify(prResponse([{ id: "I1", login: "bob", body: "Does this handle EUR?" }, { id: "I2", login: "carol", body: "And GBP?" }])));
+	push();
+	const again = stop().output ?? {};
+	assert.equal(again.decision, "block");
+	assert.ok(String(again.reason).includes("- carol"), String(again.reason));
+});
+
+test("PR feedback gate: the recheck command names the branch (F5)", () => {
+	const { push, stop, projectDir } = prSetup(OPEN);
+	push();
+	assert.ok(String(stop().output?.reason).includes(`--repo "${projectDir}" --branch "feat/x"`));
+});
+
+test("PR feedback gate: a PR read in part with nothing open is a note (F4)", () => {
+	const partial = prResponse([]);
+	const node = (partial.data.repository.pullRequests.nodes[0] as { comments: { totalCount: number } });
+	node.comments.totalCount = 140;
+	const { push, stop } = prSetup(partial);
+	push();
+	const out = stop().output ?? {};
+	assert.equal(out.decision, undefined);
+	assert.equal(out.systemMessage, "eng-kit PR feedback gate: PR #48 partly checked: comments: 0 of 140 read.");
+});
+
+test("PR feedback gate: at most three PR branches are kept per prompt (S3)", () => {
+	const { push, env } = prSetup(OPEN);
+	for (const b of ["a", "b", "c", "d", "e"]) push(`git push -u origin feat/${b}`);
+	assert.deepEqual(loadState(env.stateDir, "s1").prTouched?.map((t) => t.branch), ["feat/a", "feat/b", "feat/c"]);
 });

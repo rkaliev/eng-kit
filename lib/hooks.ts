@@ -16,7 +16,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
-import { checkFeedback } from "./pr-feedback.ts";
+import { checkFeedback, feedbackConfig, MAX_CHECKED } from "./pr-feedback.ts";
 import { approvalReminder, taskFileReminders, taskFileWarning } from "./approvals.ts";
 import { commandMatches, commandsUnder, owedCommands, resolveIgnore, resolveVerifyCommands, resolveVerifyPaths, UNKNOWN_FILE } from "./commands.ts";
 import { checkCommand, checkPath, otherReadings, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
@@ -313,20 +313,10 @@ function loadGuardConfig(projectDir: string, label = GUARD_FILE): { config: Guar
 			protectedPaths: strings(raw.protectedPaths),
 			workDocs: Array.isArray(raw.workDocs) ? strings(raw.workDocs) : undefined,
 			reviewGate: raw.reviewGate !== false,
-			prFeedback: prFeedbackConfig(raw.prFeedback),
+			prFeedback: raw.prFeedback === undefined ? undefined : feedbackConfig(raw.prFeedback),
 		},
 		warnings,
 	};
-}
-
-/** `prFeedback` from guard.json: only the shapes the gate reads; a bad pattern is reported by the classifier. */
-function prFeedbackConfig(value: unknown): GuardConfig["prFeedback"] {
-	if (!value || typeof value !== "object") return undefined;
-	const raw = value as { enabled?: unknown; ignore?: unknown };
-	const ignore = (Array.isArray(raw.ignore) ? raw.ignore : [])
-		.filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
-		.map((r) => ({ ...(typeof r.author === "string" ? { author: r.author } : {}), ...(typeof r.pattern === "string" ? { pattern: r.pattern } : {}) }));
-	return { enabled: raw.enabled !== false, ignore };
 }
 
 function postToolUse(input: HookInput, env: HookEnv): HookResult {
@@ -792,9 +782,10 @@ function handbackReport(path: string | undefined): string | undefined {
 }
 
 function stop(input: HookInput, env: HookEnv): HookResult {
+	const started = Date.now();
 	const result = stopGates(input, env);
-	// After the gates, so a slow transcript read can't cost a reminder.
-	recordUsage(env, input, "session");
+	// After the gates, so a slow transcript read can't cost a reminder, and only in the time they left.
+	recordUsage(env, input, "session", started + STOP_LEDGER_END_MS);
 	return result;
 }
 
@@ -896,7 +887,9 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 
 /** The PR feedback gate's share of the 10 s Stop hook: at most this long, and done by `PR_FEEDBACK_END_MS` after Stop started. */
 const PR_FEEDBACK_BUDGET_MS = 6000;
-const PR_FEEDBACK_END_MS = 9000;
+const PR_FEEDBACK_END_MS = 8000;
+/** The token ledger after the Stop gates gets the time left until this long after Stop started, inside the hook timeout. */
+const STOP_LEDGER_END_MS = 9000;
 
 /**
  * The PR feedback gate: for each PR branch this prompt touched, the open review items (lib/pr-feedback.ts). A set of
@@ -909,9 +902,9 @@ function prFeedbackGate(env: HookEnv, state: SessionState, started: number): { r
 	if (touched.length === 0 || config?.enabled === false) return { state: {} };
 	const deadline = Math.min(Date.now() + PR_FEEDBACK_BUDGET_MS, started + PR_FEEDBACK_END_MS);
 	const script = join(env.root, "scripts", "pr-state.ts");
-	const found = checkFeedback(touched, { deadline, gh: env.gh, config, recheck: (dir) => `node "${script}" --repo "${dir}"` });
+	const found = checkFeedback(touched, { deadline, gh: env.gh, config, recheck: (t) => `node "${script}" --repo "${t.dir}" --branch "${t.branch}"` });
 	const next: Partial<SessionState> = {};
-	const notes = [...found.errors];
+	const notes = [...found.errors, ...found.partial];
 	let reason: string | undefined;
 	if (found.hash !== undefined && found.hash !== state.prFeedbackSent) {
 		next.prFeedbackSent = found.hash;
@@ -940,8 +933,9 @@ function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session
 		// another repository than the project's), where the status line and usage-log read it.
 		const dir = input.cwd && branchOf(input.cwd) ? input.cwd : env.projectDir;
 		const branch = branchOf(dir);
-		const used = path && id ? readTranscriptUsage(path) : [];
-		if (!branch || !id || used.length === 0) return;
+		if (!branch || !id || (until !== undefined && Date.now() >= until)) return;
+		const used = path ? readTranscriptUsage(path) : [];
+		if (used.length === 0) return;
 		const tokens: Tokens = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
 		for (const { tokens: t } of used) for (const key of Object.keys(tokens) as Array<keyof Tokens>) tokens[key] += t[key];
 		if (kind === "session") return appendSessionSnapshot(dir, id, tokens, branch, env.usageRoot);
@@ -970,7 +964,8 @@ function notePrTouched(env: HookEnv, sessionId: string, touched: Array<{ dir: st
 	const state = loadState(env.stateDir, sessionId);
 	const known = state.prTouched ?? [];
 	const key = (t: { dir: string; branch?: string }) => `${t.dir}\0${t.branch ?? ""}`;
-	const added = touched.filter((t) => !known.some((k) => key(k) === key(t)));
+	// The gate checks at most MAX_CHECKED branches; later ones in the prompt aren't kept.
+	const added = touched.filter((t) => !known.some((k) => key(k) === key(t))).slice(0, Math.max(0, MAX_CHECKED - known.length));
 	if (added.length > 0) saveState(env.stateDir, sessionId, { ...state, prTouched: [...known, ...added] });
 }
 function strings(value: unknown): string[] {
