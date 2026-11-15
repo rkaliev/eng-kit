@@ -35,7 +35,7 @@ receiving-code-review step 8 already asks for one coverage line per review item,
 | 8 | Without such a call in the prompt, Stop runs no `gh` command | hook test (fake `gh` records calls) |
 | 9 | Open items whose ID set differs from the last one the agent was sent back for → Stop blocks once, listing author, `file:line`, URL and an excerpt per item and pointing to receiving-code-review | hook test |
 | 10 | The same open set again → no block; a `systemMessage` tells the user the PR is not ready with N open items | hook test |
-| 11 | No `gh`, no auth, network or API error, PR not found, or the collection budget (≈6 s, inside the 10 s hook timeout) exceeded → no block; one `systemMessage` "PR feedback not checked: <reason>" | hook tests, including a fake `gh` that sleeps |
+| 11 | No `gh`, no auth, network or API error, or the collection budget (≈6 s, inside the 10 s hook timeout) exceeded → no block; one `systemMessage` "PR feedback not checked: <reason>". A repository not on GitHub, or a branch with no open PR, is silent (user ruling 2026-11-15) | hook tests, including a fake `gh` that sleeps |
 | 12 | The PR gate's reason joins the verify gate's and the task-file gates' reasons in one block; `stop_hook_active` skips it | hook test |
 | 13 | `prFeedback.enabled: false` turns the gate off; the guard already asks before `.claude/guard.json` changes | hook test |
 | 14 | The pi edition behaves the same: `lib/pr-feedback.ts` byte-identical with pi's `extensions/lib/pr-feedback.ts`, `scripts/pr-state.ts` identical except its import path, the gate wired into pi's `agent_end` follow-up | pi tests mirroring 7–13; `cmp` and `diff` of the shared files |
@@ -255,7 +255,7 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 - Ruling: the `cd sub && git push` case moved to its own test with a real folder — the guard's folder tracking refuses a `cd` into a folder that doesn't exist, so `/repo/sub` fell back to `cwd` — none; regression-proved by reverting `shell.dir ?? cwd` to `cwd` (FAIL) and restoring (PASS).
 - Ruling: `touchedPrs` also skips tag refspecs (`refs/tags/…`) and deletions (`:branch`), and handles `+refs/heads/…` — a tag or deletion has no PR to check — none.
 - Task 3: complete (2ff8f6a..9205511, `node --test tests/reviews.test.ts` → 118 pass; `npm test` → 855 tests, 844 pass, 11 skipped, 0 fail; typecheck clean)
-- Ruling: a branch with no open PR is silent, like a non-GitHub repository, instead of criterion 11's "PR not found → note" — every push of a work branch before its PR is opened would otherwise print a note — a mistyped branch name goes unreported. **Needs the user's confirmation.**
+- Ruling: a branch with no open PR is silent, like a non-GitHub repository, instead of criterion 11's "PR not found → note" — every push of a work branch before its PR is opened would otherwise print a note — a mistyped branch name goes unreported. Confirmed by the user on 2026-11-15; criterion 11 updated.
 - Ruling: the gate runs after the task-file reminders, not before them — it gets what the other gates left of the 10 s hook, capped at 6 s and ending 9 s after Stop started — none.
 - Ruling: the four negative gate tests (no PR call, silent no-PR/non-GitHub, `enabled: false`, `ignore`) pass without the gate by nature; each was proved by a mutation that made it FAIL, then restored.
 - Ruling: under `stop_hook_active` the gate checks nothing (criterion 12), so after a send-back the user sees no "not ready" note in that same prompt; the agent's coverage report carries it.
