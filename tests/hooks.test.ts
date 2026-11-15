@@ -2256,12 +2256,9 @@ const ghAuthor = (login: string) => ({ login, __typename: "User" });
 function prResponse(comments: Array<{ id: string; login: string; body: string }>) {
 	const nodes = comments.map((c) => ({ id: c.id, author: ghAuthor(c.login), body: c.body, url: `https://github.com/o/r/pull/48#${c.id}`, createdAt: "2026-11-15T10:00:00Z" }));
 	const empty = { totalCount: 0, nodes: [] };
-	return {
-		data: {
-			viewer: { login: "me" },
-			repository: { pullRequests: { nodes: [{ number: 48, url: "https://github.com/o/r/pull/48", commits: { nodes: [{ commit: { oid: "abc123", statusCheckRollup: null } }] }, reviewThreads: empty, reviews: empty, latestOpinionatedReviews: empty, comments: { totalCount: nodes.length, nodes } }] } },
-		},
-	};
+	const pr = { number: 48, url: "https://github.com/o/r/pull/48", commits: { nodes: [{ commit: { oid: "abc123", statusCheckRollup: null } }] }, reviewThreads: empty, reviews: empty, latestOpinionatedReviews: empty, comments: { totalCount: nodes.length, nodes } };
+	// One response for both queries: the branch's PR list, then the PR itself.
+	return { data: { viewer: { login: "me" }, repository: { pullRequests: { nodes: [pr] }, pullRequest: pr } } };
 }
 const OPEN = prResponse([{ id: "I1", login: "bob", body: "Does this handle EUR?\nPlease check." }]);
 const NO_CHECKS = { "CLAUDE.md": "# project\n" };
@@ -2384,7 +2381,7 @@ test("PR feedback gate: the recheck command names the branch (F5)", () => {
 
 test("PR feedback gate: a PR read in part with nothing open is a note (F4)", () => {
 	const partial = prResponse([]);
-	const node = (partial.data.repository.pullRequests.nodes[0] as { comments: { totalCount: number } });
+	const node = partial.data.repository.pullRequest as { comments: { totalCount: number } };
 	node.comments.totalCount = 140;
 	const { push, stop } = prSetup(partial);
 	push();
