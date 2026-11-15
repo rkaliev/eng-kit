@@ -141,3 +141,121 @@ test("an author GitHub deleted counts as someone else", () => {
 	const r = classify(pr({ comments: conn([{ id: "I1", author: null, body: "hm", url: "https://x/I1", createdAt: "2026-11-15T10:00:00Z" }]) }), "me");
 	assert.deepEqual(r.open.map((i) => i.author), ["ghost"]);
 });
+
+// ---- collector and CLI (a fake `gh`) ----
+
+import { after } from "node:test";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { collectPrState, type PrState } from "../lib/pr-feedback.ts";
+
+const made: string[] = [];
+after(() => {
+	for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
+function temp(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	made.push(dir);
+	return dir;
+}
+
+/** A `gh` that records its arguments, then prints `response` (or `stderr`) and exits with `code`. */
+function fakeGh(response: unknown, opts: { code?: number; stderr?: string; sleep?: number } = {}): { gh: string; dir: string; calls: () => string[] } {
+	const dir = temp("fake-gh-");
+	writeFileSync(join(dir, "response.json"), JSON.stringify(response));
+	const lines = ["#!/bin/sh", `printf '%s\\n' "$*" | tr '\\n' ' ' >> "${dir}/calls.txt"`, `printf '\\n' >> "${dir}/calls.txt"`];
+	if (opts.sleep) lines.push(`sleep ${opts.sleep}`);
+	if (opts.stderr) lines.push(`printf '%s\\n' '${opts.stderr}' >&2`);
+	if (!opts.stderr) lines.push(`cat "${dir}/response.json"`);
+	lines.push(`exit ${opts.code ?? 0}`);
+	const gh = join(dir, "gh");
+	writeFileSync(gh, `${lines.join("\n")}\n`);
+	chmodSync(gh, 0o755);
+	const callsFile = join(dir, "calls.txt");
+	return { gh, dir, calls: () => (existsSync(callsFile) ? readFileSync(callsFile, "utf8").split("\n").filter(Boolean) : []) };
+}
+
+function response(prNode: Record<string, unknown> | undefined, login = "me") {
+	return { data: { viewer: { login }, repository: { pullRequests: { nodes: prNode ? [prNode] : [] } } } };
+}
+const PR_NODE = {
+	...pr({ comments: conn([comment("I1", human("bob"), "Does this handle EUR?", "2026-11-15T10:00:00Z")]) }),
+	number: 48,
+	url: "https://github.com/o/r/pull/48",
+	commits: {
+		nodes: [
+			{
+				commit: {
+					oid: "abc123",
+					statusCheckRollup: {
+						state: "FAILURE",
+						contexts: { nodes: [{ __typename: "CheckRun", name: "test", conclusion: "FAILURE" }, { __typename: "CheckRun", name: "lint", conclusion: "SUCCESS" }, { __typename: "StatusContext", context: "ci/legacy", state: "ERROR" }] },
+					},
+				},
+			},
+		],
+	},
+};
+
+test("collects in one gh call", () => {
+	const fake = fakeGh(response(PR_NODE));
+	const s = collectPrState({ dir: fake.dir, branch: "feat/x", deadlineMs: 5000, gh: fake.gh });
+	const calls = fake.calls();
+	assert.equal(calls.length, 1);
+	assert.ok(calls[0]!.startsWith("api graphql "));
+	for (const part of ["-F owner={owner}", "-F name={repo}", "-F branch=feat/x"]) assert.ok(calls[0]!.includes(part), part);
+	assert.equal(s.error, null);
+	assert.equal(s.github, true);
+	assert.deepEqual([s.pr, s.url, s.head, s.login], [48, "https://github.com/o/r/pull/48", "abc123", "me"]);
+	assert.deepEqual(s.open.map((i) => i.id), ["I1"]);
+	assert.deepEqual(s.checks, { state: "FAILURE", failed: ["test", "ci/legacy"] });
+});
+
+test("branch defaults to the current branch of dir", () => {
+	const fake = fakeGh(response(PR_NODE));
+	const repo = temp("pr-state-repo-");
+	spawnSync("git", ["init", "-q", "-b", "feat/x", repo]);
+	collectPrState({ dir: repo, deadlineMs: 5000, gh: fake.gh });
+	assert.ok(fake.calls()[0]?.includes("-F branch=feat/x"));
+});
+
+test("error cases", () => {
+	const base = { branch: "feat/x", deadlineMs: 5000 };
+	const missing = collectPrState({ ...base, dir: tmpdir(), gh: join(temp("no-gh-"), "gh") });
+	assert.equal(missing.error, "gh not found");
+	const auth = fakeGh({}, { code: 4, stderr: "To get started with GitHub CLI, please run:  gh auth login" });
+	assert.equal(collectPrState({ ...base, dir: auth.dir, gh: auth.gh }).error, "gh is not authenticated");
+	const other = fakeGh({}, { code: 1, stderr: "HTTP 502: Bad Gateway" });
+	assert.equal(collectPrState({ ...base, dir: other.dir, gh: other.gh }).error, "gh failed: HTTP 502: Bad Gateway");
+	const none = fakeGh(response(undefined));
+	const noPr = collectPrState({ ...base, dir: none.dir, gh: none.gh });
+	assert.equal(noPr.error, "no open PR for branch feat/x");
+	assert.equal(noPr.github, true);
+	const slow = fakeGh(response(PR_NODE), { sleep: 3 });
+	const started = Date.now();
+	assert.equal(collectPrState({ ...base, dir: slow.dir, gh: slow.gh, deadlineMs: 300 }).error, "timed out after 300 ms");
+	assert.ok(Date.now() - started < 2500);
+});
+
+test("not GitHub", () => {
+	const fake = fakeGh({}, { code: 1, stderr: "none of the git remotes configured for this repository point to a known GitHub host" });
+	const s = collectPrState({ dir: fake.dir, branch: "feat/x", deadlineMs: 5000, gh: fake.gh });
+	assert.equal(s.github, false);
+	assert.equal(s.error, "not a GitHub repository");
+});
+
+test("pr-state CLI exits 0, 1 or 2 and prints the state", () => {
+	const script = resolve(import.meta.dirname, "..", "scripts", "pr-state.ts");
+	const run = (fake: ReturnType<typeof fakeGh>) => {
+		const r = spawnSync(process.execPath, [script, "--branch", "feat/x", "--repo", fake.dir], { encoding: "utf8", env: { ...process.env, PATH: `${fake.dir}:${process.env.PATH}` } });
+		return { code: r.status, state: JSON.parse(r.stdout) as PrState };
+	};
+	const clean = run(fakeGh(response({ ...PR_NODE, comments: conn([]) })));
+	assert.deepEqual([clean.code, clean.state.open.length, clean.state.pr], [0, 0, 48]);
+	const open = run(fakeGh(response(PR_NODE)));
+	assert.deepEqual([open.code, open.state.open.map((i) => i.id)], [1, ["I1"]]);
+	const broken = run(fakeGh({}, { code: 1, stderr: "HTTP 502: Bad Gateway" }));
+	assert.deepEqual([broken.code, broken.state.error], [2, "gh failed: HTTP 502: Bad Gateway"]);
+});

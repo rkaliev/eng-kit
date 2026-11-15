@@ -3,6 +3,8 @@
  * Shared byte-for-byte by the Claude Code and pi editions; it imports only Node built-ins.
  */
 
+import { spawnSync } from "node:child_process";
+
 export type ItemKind = "thread" | "review" | "comment" | "changes-requested";
 
 export interface Item {
@@ -126,4 +128,99 @@ export function classify(pr: PrData, login: string, config: FeedbackConfig = {})
 		if (!ignored(author, "")) open.push(item);
 	}
 	return { open, closed, problems };
+}
+
+/** What `scripts/pr-state.ts` prints and the PR feedback gate reads. */
+export interface PrState {
+	pr: number | null;
+	url: string | null;
+	head: string | null;
+	login: string | null;
+	open: Item[];
+	closed: number;
+	checks: { state: string | null; failed: string[] };
+	problems: string[];
+	error: string | null;
+	/** False when the repository's remotes aren't on a GitHub host: the gate stays silent there. */
+	github: boolean;
+}
+
+const AUTHOR = "author { login __typename }";
+/** One query for everything the gate needs; `{owner}` and `{repo}` are filled in by `gh` from the folder's remote. */
+export const PR_QUERY = `query($owner: String!, $name: String!, $branch: String!) {
+  viewer { login }
+  repository(owner: $owner, name: $name) {
+    pullRequests(headRefName: $branch, states: OPEN, first: 1) {
+      nodes {
+        number url
+        commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 100) { nodes {
+          __typename ... on CheckRun { name conclusion } ... on StatusContext { context state } } } } } } }
+        reviewThreads(first: 100) { totalCount nodes { id isResolved path line
+          comments(last: 1) { totalCount nodes { id body url createdAt ${AUTHOR} } } } }
+        reviews(last: 100) { totalCount nodes { id state body url submittedAt ${AUTHOR} } }
+        latestOpinionatedReviews(first: 100) { totalCount nodes { id state url ${AUTHOR} } }
+        comments(last: 100) { totalCount nodes { id body url createdAt ${AUTHOR} } }
+      }
+    }
+  }
+}`;
+
+const FAILED_RUNS = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
+const FAILED_STATUSES = new Set(["FAILURE", "ERROR"]);
+
+function emptyState(error: string | null, github = true): PrState {
+	return { pr: null, url: null, head: null, login: null, open: [], closed: 0, checks: { state: null, failed: [] }, problems: [], error, github };
+}
+
+/**
+ * The PR feedback facts for the open PR of `branch` (default: the folder's current branch) in the GitHub repository
+ * of `dir`, from one `gh api graphql` call that must finish within `deadlineMs`. Never throws: whatever stops the
+ * collection is the state's `error`.
+ */
+export function collectPrState(opts: { dir: string; branch?: string; deadlineMs: number; gh?: string; config?: FeedbackConfig }): PrState {
+	const started = Date.now();
+	const left = () => opts.deadlineMs - (Date.now() - started);
+	const timedOut = () => emptyState(`timed out after ${opts.deadlineMs} ms`);
+	let branch = opts.branch;
+	if (!branch) {
+		const git = spawnSync("git", ["-C", opts.dir, "branch", "--show-current"], { encoding: "utf8", timeout: Math.max(1, left()) });
+		if (git.error && (git.error as NodeJS.ErrnoException).code === "ETIMEDOUT") return timedOut();
+		branch = git.status === 0 ? git.stdout.trim() : "";
+		if (!branch) return emptyState("no current branch");
+	}
+	if (left() <= 0) return timedOut();
+	const r = spawnSync(opts.gh ?? "gh", ["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", `branch=${branch}`, "-f", `query=${PR_QUERY}`], {
+		cwd: opts.dir,
+		encoding: "utf8",
+		timeout: Math.max(1, left()),
+		maxBuffer: 16 * 1024 * 1024,
+	});
+	const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
+	if (code === "ENOENT") return emptyState("gh not found");
+	if (code === "ETIMEDOUT" || (r.error === undefined && r.signal)) return timedOut();
+	if (r.error) return emptyState(`gh failed: ${r.error.message}`);
+	const stderr = (r.stderr ?? "").trim();
+	if (r.status !== 0) {
+		if (/none of the git remotes configured for this repository point to a known GitHub host/.test(stderr)) return emptyState("not a GitHub repository", false);
+		if (r.status === 4 || /gh auth login/.test(stderr)) return emptyState("gh is not authenticated");
+		return emptyState(`gh failed: ${stderr.split("\n")[0] || `exit ${r.status}`}`);
+	}
+	let parsed: { data?: { viewer?: { login?: string }; repository?: { pullRequests?: { nodes?: PrData[] } } }; errors?: Array<{ message?: string }> };
+	try {
+		parsed = JSON.parse(r.stdout);
+	} catch {
+		return emptyState("gh returned unreadable output");
+	}
+	if (parsed.errors?.length) return emptyState(`gh failed: ${parsed.errors[0]?.message ?? "GraphQL error"}`);
+	const login = parsed.data?.viewer?.login;
+	const node = parsed.data?.repository?.pullRequests?.nodes?.[0];
+	if (!node) return emptyState(`no open PR for branch ${branch}`);
+	if (!login) return emptyState("gh returned no login");
+	const { open, closed, problems } = classify(node, login, opts.config);
+	const commit = node.commits?.nodes[0]?.commit;
+	const rollup = commit?.statusCheckRollup;
+	const failed = (rollup?.contexts?.nodes ?? [])
+		.filter((c) => (c.conclusion && FAILED_RUNS.has(c.conclusion)) || (c.state && FAILED_STATUSES.has(c.state)))
+		.map((c) => c.name ?? c.context ?? "unnamed check");
+	return { pr: node.number, url: node.url, head: commit?.oid ?? null, login, open, closed, checks: { state: rollup?.state ?? null, failed }, problems, error: null, github: true };
 }
