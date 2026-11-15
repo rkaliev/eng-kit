@@ -2,7 +2,7 @@
 
 Status: design approved (2026-11-15)
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
-Base: eng-kit 130db5d106daaf758b42d5038a9536faff7562a9 · pi 43fadb73951f448fb2e5ba9be2b049aae6b026b2
+Base: eng-kit d42c7a1e14670967bba33f64ccfce67ac0281a9e · pi 43fadb73951f448fb2e5ba9be2b049aae6b026b2
 Links: None (workspace analysis of the fortune-os comparison, item "Coverage")
 
 <details><summary>Original request</summary>
@@ -28,9 +28,9 @@ receiving-code-review step 8 already asks for one coverage line per review item,
 | 1 | An inline thread is open unless it is resolved or its last comment is by the authenticated `gh` login | unit, `lib/pr-feedback.ts` fixtures |
 | 2 | A non-empty review body not by our login is open unless a comment by our login on the PR follows it | unit |
 | 3 | A top-level comment by a human not by our login is open unless a comment by our login follows it; a top-level comment whose author is a `Bot` is not an item | unit |
-| 4 | A reviewer whose latest review is CHANGES_REQUESTED yields one open `changes-requested` item; an approval with an empty body yields none | unit |
+| 4 | A reviewer whose latest approving or changes-requesting review (GitHub's `latestOpinionatedReviews`; a later COMMENTED review doesn't clear it) is CHANGES_REQUESTED yields one open `changes-requested` item; an approval with an empty body yields none | unit |
 | 5 | `prFeedback.ignore` in `.claude/guard.json` drops items by author login or by a regex on the text; an invalid regex is reported, not thrown, and drops nothing | unit |
-| 6 | `scripts/pr-state.ts` prints the JSON contract in Design, exits 0 with no open items, 1 with open items, 2 when facts can't be collected, with the reason in `error` | unit with a fake `gh` on `PATH` |
+| 6 | `scripts/pr-state.ts` prints the JSON contract in Design, exits 0 with no open items, 1 with open items, 2 when facts can't be collected, with the reason in `error` | unit with a fake `gh` |
 | 7 | A successful push to a branch, `gh pr create`, `gh pr comment`, `gh pr review` or a POST `gh api` call to a PR's comments in a prompt makes that prompt's Stop collect feedback for the branch; a new prompt clears it | hook tests |
 | 8 | Without such a call in the prompt, Stop runs no `gh` command | hook test (fake `gh` records calls) |
 | 9 | Open items whose ID set differs from the last one the agent was sent back for → Stop blocks once, listing author, `file:line`, URL and an excerpt per item and pointing to receiving-code-review | hook test |
@@ -38,7 +38,7 @@ receiving-code-review step 8 already asks for one coverage line per review item,
 | 11 | No `gh`, no auth, network or API error, PR not found, or the collection budget (≈6 s, inside the 10 s hook timeout) exceeded → no block; one `systemMessage` "PR feedback not checked: <reason>" | hook tests, including a fake `gh` that sleeps |
 | 12 | The PR gate's reason joins the verify gate's and the task-file gates' reasons in one block; `stop_hook_active` skips it | hook test |
 | 13 | `prFeedback.enabled: false` turns the gate off; the guard already asks before `.claude/guard.json` changes | hook test |
-| 14 | The pi edition behaves the same: `lib/pr-feedback.ts` and `scripts/pr-state.ts` byte-identical, the gate wired into pi's end-of-turn mechanism | pi tests mirroring 7–13; `tools/compare-editions.mts` reports no drift for the shared files |
+| 14 | The pi edition behaves the same: `lib/pr-feedback.ts` byte-identical with pi's `extensions/lib/pr-feedback.ts`, `scripts/pr-state.ts` identical except its import path, the gate wired into pi's `agent_end` follow-up | pi tests mirroring 7–13; `cmp` and `diff` of the shared files |
 | 15 | receiving-code-review step 8 names `pr-state.ts` as the source of the coverage facts; ARCHITECTURE (en, ru), README, `review-gate.md`, CHANGELOG describe the gate, its rules and its limits | skill lint; prose review |
 
 ## Scope
@@ -105,7 +105,143 @@ Minor release 0.40.0 in both editions, on by default. A user who doesn't want it
 
 ## Plan
 
-None yet
+> Execute with the executing-plans skill. Only this section uses `- [ ]` checkboxes.
+
+**Goal:** a Stop-hook gate (and pi `agent_end` follow-up) that sends the agent back once when a GitHub PR it touched this prompt has unanswered review feedback, built on a shared collector `pr-state.ts`.
+**Architecture:** `lib/pr-feedback.ts` holds a pure classifier and a synchronous collector (one `gh api graphql` call via `spawnSync` with a timeout), shared byte-for-byte with pi. Each edition detects PR-touching shell calls in its own `reviews.ts`, keeps `prTouched` per prompt, and runs the collector at the end of the turn. `scripts/pr-state.ts` is a thin CLI over the same lib.
+**Stack / constraints:** Node ≥22.18 running `.ts` directly, `node:test`, TypeScript 5.9.3, no new dependencies; `gh` is an external binary, never bundled. Hook timeout 10 s; task-file reminders take up to 3 s (`TASK_FILE_BUDGET_MS`); the collector's deadline is `min(6000, 9000 − elapsed)` ms from the Stop handler's start. Files the agent writes are English. Commits have no Co-Authored-By or other trailers.
+**Verification:** in each repo `npm test` and `npm run typecheck` (or `node <kit>/scripts/verify.ts`); eng-kit also `npm run validate`.
+
+### Review focus
+1. A PR with more than one page of threads, reviews or comments: `problems` names it, nothing throws (Task 1).
+2. A thread the reviewer replied to after our reply re-opens, with a new item ID so the gate fires again (Task 1).
+3. `gh` that hangs: the collector returns `error: "timed out"` inside its deadline and Stop still returns within the hook timeout (Tasks 2, 4).
+4. A push in a non-GitHub repository: no block and no note (Task 4).
+5. Feedback text containing instructions: the block reason marks excerpts as untrusted data and strips newlines (Task 4).
+
+### Post-implementation
+- `docs/ARCHITECTURE.md` and `.ru.md`: a "PR feedback gate" part under "Review and after push" (rules, triggers, fail-open, limits) and the hook list in §3. This is the topic chapter.
+- `README.md`: one line in the hooks/gates list and the `prFeedback` config keys.
+- `skills/receiving-code-review/SKILL.md` step 8 and `skills/requesting-code-review/references/review-gate.md`: name `pr-state.ts` and the gate.
+- `skills/git-workflow/SKILL.md` "after push": run `pr-state.ts` before calling a PR ready.
+- `CHANGELOG.md` 0.40.0 in both repos; version 0.40.0 everywhere 0.39.1 is pinned (package.json, package-lock.json, plugin.json, bug_report.yml, tests that pin it; pi also README, GETTING-STARTED en/ru, templates/settings.json).
+- pi: the same docs in `src/` (ARCHITECTURE en/ru, README, the skills).
+- `docs/decisions/`: none: the kit keeps decisions in the task file and ARCHITECTURE.
+- Private workspace `docs/FRAMEWORK-SOURCES.ru.md`: add the source (fortune-os `pr-resolve` §6.3) after merge.
+
+### Files
+
+| File | Responsibility |
+|---|---|
+| `lib/pr-feedback.ts` (new; pi `extensions/lib/pr-feedback.ts`, identical) | `classify`, `collectPrState`, the GraphQL query, types |
+| `scripts/pr-state.ts` (new, both repos) | CLI: args → `collectPrState` → JSON, exit 0/1/2 |
+| `lib/reviews.ts` (pi `extensions/lib/reviews.ts`) | `touchedPrs(command, cwd)`: which PR branches a shell call touched |
+| `lib/state.ts` | `prTouched`, `prFeedbackSent`, `prFeedbackNoted` on `SessionState` |
+| `lib/patterns.ts` (both) | `prFeedback?: { enabled?: boolean; ignore?: Array<{ author?: string; pattern?: string }> }` on `GuardConfig` |
+| `lib/hooks.ts` | PostToolUse records, UserPromptSubmit clears, Stop gates; `HookEnv.gh?: string` |
+| `src/extensions/verify.ts` | the same three steps in pi's `tool_result`, `input`, `agent_end` |
+| `tests/pr-feedback.test.ts` (new, both), `tests/hooks.test.ts`, `src/tests/extensions.test.ts` | tests |
+
+### Task 1: classifier
+
+**Files:** Create `lib/pr-feedback.ts` · Test `tests/pr-feedback.test.ts`
+**Interfaces:** Produces
+`type ItemKind = "thread" | "review" | "comment" | "changes-requested"`,
+`interface Item { id: string; kind: ItemKind; author: string; path?: string; line?: number; url: string; excerpt: string }`,
+`interface FeedbackConfig { ignore?: Array<{ author?: string; pattern?: string }> }`,
+`classify(pr: PrData, login: string, config?: FeedbackConfig): { open: Item[]; closed: number; problems: string[] }`,
+where `PrData` is the `repository.pullRequests.nodes[0]` shape of the query in Task 2 (threads with `isResolved`, `path`, `line`, `comments(last: 1)`; `reviews(last: 100)`; `latestOpinionatedReviews(first: 100)`; `comments(last: 100)`; each connection with `totalCount`; authors `{ login, __typename }`).
+
+- [ ] Write failing tests with a fixture builder, one per rule:
+  - `thread: open unless resolved or our login has the last word` (crit. 1): resolved → closed; last comment by `me` → closed; last by `alice` → open item `{ kind: "thread", path, line, author: "alice" }`.
+  - `thread: a reply after ours re-opens it with a new id`: id is `<threadId>:<lastCommentId>`.
+  - `review body: open until a later comment by us` (crit. 2): body by `alice` at t1; our issue comment at t0 → open; at t2 → closed; empty body → no item; review by `me` → no item.
+  - `top-level comment: human open, bot never an item` (crit. 3): `__typename: "Bot"` → no item; human `bob` without a later comment by `me` → open.
+  - `changes requested stands until that reviewer reviews again` (crit. 4): `latestOpinionatedReviews` CHANGES_REQUESTED by `carol` → one `changes-requested` item id `changes-requested:carol`; APPROVED with empty body → no item.
+  - `ignore drops by author, by pattern, by both` (crit. 5); `an invalid pattern is a problem and drops nothing`: `problems` contains `prFeedback.ignore pattern "(" is not a valid regular expression`.
+  - `more than one page is a problem`: `totalCount` above the nodes length → `problems` names the connection (`reviewThreads: 140 of which 100 read`).
+  - `excerpt is one line, at most 200 characters`.
+  - `closed counts every item that was an item but is closed`.
+  Add a stub `classify` returning `{ open: [], closed: 0, problems: [] }`.
+- [ ] Run `node --test tests/pr-feedback.test.ts` → expect FAIL on the assertions (e.g. expected 1 open item, received 0).
+- [ ] Implement `classify`. "Later" compares `createdAt`/`submittedAt` ISO strings. A comment by our login counts for review bodies when it is an issue comment or a review by us with a non-empty body.
+- [ ] Run `node --test tests/pr-feedback.test.ts` → PASS; `npm test`, `npm run typecheck` → PASS.
+- [ ] Commit `feat(pr-feedback): classify PR review feedback`.
+
+### Task 2: collector and `pr-state.ts`
+
+**Files:** Modify `lib/pr-feedback.ts` · Create `scripts/pr-state.ts` · Test `tests/pr-feedback.test.ts`
+**Interfaces:** Consumes `classify` · Produces
+`interface PrState { pr: number | null; url: string | null; head: string | null; login: string | null; open: Item[]; closed: number; checks: { state: string | null; failed: string[] }; problems: string[]; error: string | null; github: boolean }`,
+`collectPrState(opts: { dir: string; branch?: string; deadlineMs: number; gh?: string; config?: FeedbackConfig }): PrState` (never throws),
+CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
+
+- [ ] Write failing tests with a fake `gh` (a `#!/bin/sh` script in a temp dir that appends its args to `calls.txt`, prints `response.json` and exits with `$FAKE_GH_CODE`, or sleeps when asked):
+  - `collects in one gh call` : exactly one call, `api graphql` with `-F owner={owner} -F name={repo} -F branch=<branch>`; the result's `login` comes from `viewer.login`, `head` from the last commit's `oid`, `checks.failed` lists failed check names.
+  - `branch defaults to the current branch of dir` (a temp git repo on `feat/x`).
+  - `error cases` (crit. 11 inputs): `gh` missing → `error: "gh not found"`; exit 4 with `auth` on stderr → `"gh is not authenticated"`; other non-zero → `"gh failed: <first stderr line>"`; no open PR → `"no open PR for branch feat/x"`; over the deadline → `"timed out after <n> ms"`.
+  - `not GitHub`: stderr `none of the git remotes configured for this repository point to a known GitHub host` → `github: false`, `error` set.
+  - CLI (crit. 6): exit 0 / 1 / 2 for no open / open / error, stdout parses as `PrState`.
+  Stub `collectPrState` returning an error state.
+- [ ] Run `node --test tests/pr-feedback.test.ts` → FAIL on the assertions.
+- [ ] Implement with `spawnSync(gh, args, { cwd: dir, timeout: deadlineMs, encoding: "utf8" })`; `ENOENT` → not found, `ETIMEDOUT`/signal → timed out. Read `prFeedback` from `.claude/guard.json` in the CLI only when `config` isn't passed (the hook passes its own).
+- [ ] Run the tests → PASS; full suite and typecheck → PASS.
+- [ ] Commit `feat(pr-state): collect PR feedback facts with gh`.
+
+### Task 3: which calls touch a PR
+
+**Files:** Modify `lib/reviews.ts`, `lib/state.ts`, `lib/hooks.ts` · Test `tests/reviews.test.ts`, `tests/hooks.test.ts`
+**Interfaces:** Produces `touchedPrs(command: string, cwd: string): Array<{ dir: string; branch?: string }>` (deduplicated, at most 3); `SessionState.prTouched?: Array<{ dir: string; branch?: string }>`.
+
+- [ ] Write failing tests (crit. 7):
+  - `touchedPrs`: `git push` → `[{ dir: cwd }]`; `git push origin HEAD:feat/y` → branch `feat/y`; `git push -u origin feat/z` → `feat/z`; `gh pr create --head feat/w` → `feat/w`; `gh pr comment 12 -b x` → `[{ dir }]`; `gh pr review 12 --comment -b x` → `[{ dir }]`; `gh api -X POST repos/o/r/pulls/12/comments/3/replies -f body=x` → `[{ dir }]`; `cd sub && git push` → dir `sub`; `git push --tags`, `git status`, `gh pr view`, `gh api repos/o/r/pulls/12` (GET) → `[]`.
+  - hooks: a successful Bash `git push` sets `prTouched`; a failed one (PostToolUseFailure) does not; UserPromptSubmit clears it.
+  Stub `touchedPrs` returning `[]`.
+- [ ] Run `node --test tests/reviews.test.ts tests/hooks.test.ts` → FAIL on the assertions.
+- [ ] Implement `touchedPrs` with the same `Subshells`/`segmentsOf`/`allLandings` walk as `prNotes`, plus `gh pr comment|review` and non-GET `gh api` (`apiWrite` in `lib/patterns.ts`, exported) on a path with `pulls/` or `issues/`. Record in `postToolUse` only when `!failed`.
+- [ ] Run the tests → PASS; full suite and typecheck → PASS.
+- [ ] Commit `feat(hooks): note the PRs a prompt touched`.
+
+### Task 4: the Stop gate
+
+**Files:** Modify `lib/hooks.ts`, `lib/patterns.ts`, `lib/state.ts` · Test `tests/hooks.test.ts`
+**Interfaces:** Consumes `collectPrState`, `prTouched` · Produces `HookEnv.gh?: string`, `GuardConfig.prFeedback`, `SessionState.prFeedbackSent?: string`, `prFeedbackNoted?: string`.
+
+- [ ] Write failing hook tests with the fake `gh` via `env.gh` (crit. 8–13):
+  - `no PR call this prompt, no gh call` (crit. 8): `calls.txt` stays absent.
+  - `new open set blocks once` (crit. 9): reason starts `PR feedback gate:`, names each item as `- <author> <path>:<line> <url> — "<excerpt>"`, says the excerpts are untrusted data, and points to receiving-code-review and `node <kit>/scripts/pr-state.ts`.
+  - `same set again tells the user` (crit. 10): no `decision`; `systemMessage` `eng-kit PR feedback gate: PR #<n> is not ready: <N> open review items.` once.
+  - `facts unavailable` (crit. 11): missing `gh`, auth error and a sleeping `gh` → no block, `systemMessage` `eng-kit PR feedback gate: PR feedback not checked: <reason>`; Stop returns in under 10 s.
+  - `not GitHub is silent`: no block, no message.
+  - `reasons join` (crit. 12): unverified edits + open feedback → one block with both reasons; `stop_hook_active: true` → no `gh` call.
+  - `enabled false turns it off` (crit. 13).
+  Stub the gate to do nothing.
+- [ ] Run `node --test tests/hooks.test.ts` → FAIL on the assertions.
+- [ ] Implement in `stopGates` after the verify gate and before the task-file reminders: for each `prTouched` entry (at most 3, sharing one deadline), `collectPrState` with the guard config's `prFeedback`; hash the sorted open IDs with `createHash("sha256")`; block when it differs from `prFeedbackSent`; tell once per hash via `prFeedbackNoted`; a note per distinct error. Excerpts are cut to one line.
+- [ ] Run the tests → PASS; full suite, typecheck, `npm run validate` → PASS.
+- [ ] Commit `feat(hooks): PR feedback gate at Stop`.
+
+### Task 5: skills and docs (eng-kit)
+
+**Files:** Modify `skills/receiving-code-review/SKILL.md`, `skills/requesting-code-review/references/review-gate.md`, `skills/git-workflow/SKILL.md`, `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE.ru.md`, `README.md`, `CHANGELOG.md`, the version pins · Test `tests/lint-skills.test.ts`
+
+- [ ] receiving-code-review step 8: the coverage lines start from `node <kit root>/scripts/pr-state.ts` output on a hosted PR; the gate sends you back while items stay open; a `changes-requested` item and an unchecked note both mean "not ready". Keep the skill within the lint's word limit, trimming nothing else.
+- [ ] git-workflow "after push" and `review-gate.md`: one sentence each, as Post-implementation lists.
+- [ ] ARCHITECTURE en/ru, README, CHANGELOG 0.40.0, version 0.40.0 in every pin found by `grep -rl 0.39.1` (excluding CHANGELOG and lockfile entries of other packages).
+- [ ] Run `npm test` (lint-skills included), `npm run typecheck`, `npm run validate` → PASS.
+- [ ] Commit `docs: PR feedback gate, 0.40.0`.
+
+### Task 6: pi port
+
+**Files:** Create `src/extensions/lib/pr-feedback.ts` (copy), `src/scripts/pr-state.ts` · Modify `src/extensions/lib/reviews.ts`, `src/extensions/lib/patterns.ts`, `src/extensions/verify.ts`, pi skills and docs as in Task 5 · Test `src/tests/pr-feedback.test.ts` (copy, import path adapted), `src/tests/extensions.test.ts`, `src/tests/reviews.test.ts`
+
+- [ ] Copy the lib and its tests; port `touchedPrs` with tests (pi's `prNotes` shows how pi walks a command).
+- [ ] Write failing extension tests mirroring Task 4: `agent_end` follow-up (`customType: "verify-gate"`, one message carrying both reasons), the `ctx.ui.notify` note for the same set and for errors, `input` clearing, `.pi/guard.json` `prFeedback.enabled: false`. pi has a UI check: without `ctx.hasUI` notes are skipped, the follow-up still goes out.
+- [ ] Run `node --test tests/extensions.test.ts` → FAIL on the assertions; implement in `verify.ts` (`gh` path injectable as the tests inject other paths); → PASS.
+- [ ] pi docs, skills, CHANGELOG, version pins as Task 5.
+- [ ] `cmp src_claude/lib/pr-feedback.ts src/extensions/lib/pr-feedback.ts` → no output; `diff src_claude/scripts/pr-state.ts src/scripts/pr-state.ts` → only the import line (crit. 14).
+- [ ] Run `npm test`, `npm run typecheck` in `src/` → PASS.
+- [ ] Commit `feat: PR feedback gate, 0.40.0` in `src/`.
 
 ## Progress
 
