@@ -14,3 +14,4 @@ The guard denies opening a PR/MR, merging into the base branch, pushing to it, a
 - Parallel reviewers dispatched for one user prompt combine to the worst verdict. A finding you pushed back on without changing code is withdrawn by a re-review in a later prompt, after the user has seen your reasoning.
 - If the guard throws while checking a call, it asks you instead of letting the call through. A hook that can't start at all (an old Node, a broken install) or runs past its timeout is a non-blocking error for Claude Code, and the call goes ahead.
 - Only the user can waive the gate (`"reviewGate": false` in `.claude/guard.json`, whose edits the guard asks about). A self-review in a separate pass does not satisfy the gate.
+- Separate from this gate, the PR feedback gate (Stop) sends you back once per new set of unanswered review items on a GitHub PR this prompt pushed to, opened or answered on; `node <kit root>/scripts/pr-state.ts` prints them.

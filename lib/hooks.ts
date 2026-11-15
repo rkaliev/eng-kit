@@ -5,19 +5,22 @@
  * - SessionStart: loads the using-skills rules into the session (bootstrap).
  * - PreToolUse: guard, which denies irreversible or secret-leaking calls, task files reaching the base
  *   branch and code reaching it without a passing review, and asks before outward-facing ones.
- * - PostToolUse / PostToolUseFailure: the verify tracker (edits make the workspace unverified; green runs clear it).
+ * - PostToolUse / PostToolUseFailure: the verify tracker (edits make the workspace unverified; green runs clear it),
+ *   and the PR branches a successful call touched (the PR feedback gate's trigger).
  * - SubagentStop: records the kit reviewer's verdict for the commit it reviewed (the review gate's stamp).
  * - Stop: the verify gate, the approval gate (an approved design or plan must be committed) and the working-docs gate
- *   (implemented task files must be deleted), at most one reminder each per user prompt.
- * - UserPromptSubmit: re-arms the gate for the new prompt.
+ *   (implemented task files must be deleted), at most one reminder each per user prompt; and the PR feedback gate
+ *   (unanswered review items on a GitHub PR this prompt touched), once per new set of open items.
+ * - UserPromptSubmit: re-arms the gates for the new prompt.
  */
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { readProjectJson } from "./config.ts";
+import { checkFeedback, feedbackConfig, MAX_CHECKED } from "./pr-feedback.ts";
 import { approvalReminder, taskFileReminders, taskFileWarning } from "./approvals.ts";
 import { commandMatches, commandsUnder, owedCommands, resolveIgnore, resolveVerifyCommands, resolveVerifyPaths, UNKNOWN_FILE } from "./commands.ts";
 import { checkCommand, checkPath, otherReadings, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack, touchedPrs } from "./reviews.ts";
 import { canonical } from "./repos.ts";
 import { guardBaseline, guardScope, hooksPaths, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
@@ -56,6 +59,8 @@ export interface HookEnv {
 	reviewsRoot?: string;
 	/** Where the token ledger lives (tests override it). */
 	usageRoot?: string;
+	/** The `gh` binary the PR feedback gate runs (tests override it; default `gh` from PATH). */
+	gh?: string;
 }
 
 export interface HookResult {
@@ -308,6 +313,7 @@ function loadGuardConfig(projectDir: string, label = GUARD_FILE): { config: Guar
 			protectedPaths: strings(raw.protectedPaths),
 			workDocs: Array.isArray(raw.workDocs) ? strings(raw.workDocs) : undefined,
 			reviewGate: raw.reviewGate !== false,
+			prFeedback: raw.prFeedback === undefined ? undefined : feedbackConfig(raw.prFeedback),
 		},
 		warnings,
 	};
@@ -346,6 +352,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (input.tool_use_id) settlePr(env.projectDir, input.tool_use_id, !failed, env.reviewsRoot);
 
 	const shell = String(args.command ?? "");
+	if (!failed) notePrTouched(env, sessionId, touchedPrs(shell, input.cwd || env.projectDir));
 	const { commands } = resolveVerifyCommands(env.projectDir);
 	// Files this command changed, whatever wrote them (a failed or background command may have written too). Only a
 	// verification run that passed and did nothing else keeps its own changes (a formatter, `lint --fix`) off the count for the
@@ -775,13 +782,15 @@ function handbackReport(path: string | undefined): string | undefined {
 }
 
 function stop(input: HookInput, env: HookEnv): HookResult {
+	const started = Date.now();
 	const result = stopGates(input, env);
-	// After the gates, so a slow transcript read can't cost a reminder.
-	recordUsage(env, input, "session");
+	// After the gates, so a slow transcript read can't cost a reminder, and only in the time they left.
+	recordUsage(env, input, "session", started + STOP_LEDGER_END_MS);
 	return result;
 }
 
 function stopGates(input: HookInput, env: HookEnv): HookResult {
+	const started = Date.now();
 	const sessionId = input.session_id ?? "";
 	if (input.stop_hook_active) {
 		// The agent already answered the verify gate's send-back: what it edited since is judged now, so it isn't sent
@@ -865,10 +874,46 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 	}
 	const warning = taskFileWarning(due.skipped);
 	const warned = warning ? { warning } : {};
+	// Last, so the network gets what the other gates left of the hook's time.
+	const pr = prFeedbackGate(env, state, started);
+	if (pr.reason) reasons.push(pr.reason);
+	if (pr.note) systemMessage = systemMessage ? `${systemMessage}\n${pr.note}` : pr.note;
+	Object.assign(next, pr.state);
 	if (reasons.length === 0 && !systemMessage) return warned;
 	saveState(env.stateDir, sessionId, next);
 	if (reasons.length === 0) return { ...warned, output: { systemMessage } };
 	return { ...warned, output: { decision: "block", reason: reasons.join("\n\n"), ...(systemMessage ? { systemMessage } : {}) } };
+}
+
+/** The PR feedback gate's share of the 10 s Stop hook: at most this long, and done by `PR_FEEDBACK_END_MS` after Stop started. */
+const PR_FEEDBACK_BUDGET_MS = 6000;
+const PR_FEEDBACK_END_MS = 8000;
+/** The token ledger after the Stop gates gets the time left until this long after Stop started, inside the hook timeout. */
+const STOP_LEDGER_END_MS = 9000;
+
+/**
+ * The PR feedback gate: for each PR branch this prompt touched, the open review items (lib/pr-feedback.ts). A set of
+ * open items the agent wasn't sent back for yet is a reason; the same set again is a note for the user, once. Facts it
+ * can't collect are a note; a repository not on GitHub, or a branch without an open PR, is silent.
+ */
+function prFeedbackGate(env: HookEnv, state: SessionState, started: number): { reason?: string; note?: string; state: Partial<SessionState> } {
+	const touched = state.prTouched ?? [];
+	const config = loadGuardConfig(env.projectDir).config.prFeedback;
+	if (touched.length === 0 || config?.enabled === false) return { state: {} };
+	const deadline = Math.min(Date.now() + PR_FEEDBACK_BUDGET_MS, started + PR_FEEDBACK_END_MS);
+	const script = join(env.root, "scripts", "pr-state.ts");
+	const found = checkFeedback(touched, { deadline, gh: env.gh, config, recheck: (t) => `node "${script}" --repo "${t.dir}" --branch "${t.branch}"` });
+	const next: Partial<SessionState> = {};
+	const notes = [...found.errors, ...found.partial];
+	let reason: string | undefined;
+	if (found.hash !== undefined && found.hash !== state.prFeedbackSent) {
+		next.prFeedbackSent = found.hash;
+		reason = found.reason;
+	} else if (found.hash !== undefined) notes.push(...found.notReady);
+	const text = notes.map((n) => `eng-kit PR feedback gate: ${n}`).join("\n");
+	if (!text || text === state.prFeedbackNoted) return { reason, state: next };
+	next.prFeedbackNoted = text;
+	return { reason, note: text, state: next };
 }
 
 /**
@@ -888,8 +933,9 @@ function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session
 		// another repository than the project's), where the status line and usage-log read it.
 		const dir = input.cwd && branchOf(input.cwd) ? input.cwd : env.projectDir;
 		const branch = branchOf(dir);
-		const used = path && id ? readTranscriptUsage(path) : [];
-		if (!branch || !id || used.length === 0) return;
+		if (!branch || !id || (until !== undefined && Date.now() >= until)) return;
+		const used = path ? readTranscriptUsage(path) : [];
+		if (used.length === 0) return;
 		const tokens: Tokens = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
 		for (const { tokens: t } of used) for (const key of Object.keys(tokens) as Array<keyof Tokens>) tokens[key] += t[key];
 		if (kind === "session") return appendSessionSnapshot(dir, id, tokens, branch, env.usageRoot);
@@ -905,10 +951,22 @@ function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session
 function userPromptSubmit(input: HookInput, env: HookEnv): HookResult {
 	const sessionId = input.session_id ?? "";
 	const state = loadState(env.stateDir, sessionId);
-	if (state.reminded || state.approvalReminded || state.workDocsReminded) {
-		saveState(env.stateDir, sessionId, { ...state, reminded: false, approvalReminded: false, workDocsReminded: false });
+	if (state.reminded || state.approvalReminded || state.workDocsReminded || state.prTouched) {
+		const { prTouched: _, ...rest } = state;
+		saveState(env.stateDir, sessionId, { ...rest, reminded: false, approvalReminded: false, workDocsReminded: false });
 	}
 	return {};
+}
+
+/** Adds the PR branches a call touched to this prompt's list, for the PR feedback gate at Stop. */
+function notePrTouched(env: HookEnv, sessionId: string, touched: Array<{ dir: string; branch?: string }>): void {
+	if (touched.length === 0) return;
+	const state = loadState(env.stateDir, sessionId);
+	const known = state.prTouched ?? [];
+	const key = (t: { dir: string; branch?: string }) => `${t.dir}\0${t.branch ?? ""}`;
+	// The gate checks at most MAX_CHECKED branches; later ones in the prompt aren't kept.
+	const added = touched.filter((t) => !known.some((k) => key(k) === key(t))).slice(0, Math.max(0, MAX_CHECKED - known.length));
+	if (added.length > 0) saveState(env.stateDir, sessionId, { ...state, prTouched: [...known, ...added] });
 }
 function strings(value: unknown): string[] {
 	return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
