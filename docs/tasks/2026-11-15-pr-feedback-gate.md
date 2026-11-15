@@ -176,17 +176,17 @@ where `PrData` is the `repository.pullRequests.nodes[0]` shape of the query in T
 `collectPrState(opts: { dir: string; branch?: string; deadlineMs: number; gh?: string; config?: FeedbackConfig }): PrState` (never throws),
 CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 
-- [ ] Write failing tests with a fake `gh` (a `#!/bin/sh` script in a temp dir that appends its args to `calls.txt`, prints `response.json` and exits with `$FAKE_GH_CODE`, or sleeps when asked):
+- [x] Write failing tests with a fake `gh` (a `#!/bin/sh` script in a temp dir that appends its args to `calls.txt`, prints `response.json` and exits with `$FAKE_GH_CODE`, or sleeps when asked):
   - `collects in one gh call` : exactly one call, `api graphql` with `-F owner={owner} -F name={repo} -F branch=<branch>`; the result's `login` comes from `viewer.login`, `head` from the last commit's `oid`, `checks.failed` lists failed check names.
   - `branch defaults to the current branch of dir` (a temp git repo on `feat/x`).
   - `error cases` (crit. 11 inputs): `gh` missing → `error: "gh not found"`; exit 4 with `auth` on stderr → `"gh is not authenticated"`; other non-zero → `"gh failed: <first stderr line>"`; no open PR → `"no open PR for branch feat/x"`; over the deadline → `"timed out after <n> ms"`.
   - `not GitHub`: stderr `none of the git remotes configured for this repository point to a known GitHub host` → `github: false`, `error` set.
   - CLI (crit. 6): exit 0 / 1 / 2 for no open / open / error, stdout parses as `PrState`.
   Stub `collectPrState` returning an error state.
-- [ ] Run `node --test tests/pr-feedback.test.ts` → FAIL on the assertions.
-- [ ] Implement with `spawnSync(gh, args, { cwd: dir, timeout: deadlineMs, encoding: "utf8" })`; `ENOENT` → not found, `ETIMEDOUT`/signal → timed out. Read `prFeedback` from `.claude/guard.json` in the CLI only when `config` isn't passed (the hook passes its own).
-- [ ] Run the tests → PASS; full suite and typecheck → PASS.
-- [ ] Commit `feat(pr-state): collect PR feedback facts with gh`.
+- [x] Run `node --test tests/pr-feedback.test.ts` → FAIL on the assertions.
+- [x] Implement with `spawnSync(gh, args, { cwd: dir, timeout: deadlineMs, encoding: "utf8" })`; `ENOENT` → not found, `ETIMEDOUT`/signal → timed out. Read `prFeedback` from `.claude/guard.json` in the CLI only when `config` isn't passed (the hook passes its own).
+- [x] Run the tests → PASS; full suite and typecheck → PASS.
+- [x] Commit `feat(pr-state): collect PR feedback facts with gh`.
 
 ### Task 3: which calls touch a PR
 
@@ -249,3 +249,6 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 - Ruling: the pagination problem reads `reviewThreads: 1 of 140 read` instead of the plan's `140 of which 100 read` — plainer English — none.
 - Ruling: `ignore` drops a `changes-requested` item by author only (it has no text) — it carries no reviewer text to match — a pattern rule can't silence it.
 - Task 1: complete (1541bfc..0aadfb1, `node --test tests/pr-feedback.test.ts` → 11 pass; `npm test` → 846 tests, 835 pass, 11 skipped, 0 fail; typecheck clean)
+- Ruling: the CLI reads `prFeedback` from `.claude/guard.json`, else `.pi/guard.json`, at the git top level — keeps `scripts/pr-state.ts` identical across editions except its import — a pi user with both files gets the Claude one.
+- Ruling: the folder install's script allowlist (`lib/install.ts`) gains `pr-state`, with `tests/install.test.ts` expecting it and `lib/pr-feedback.ts` — the plan missed that the project install copies scripts by name — none.
+- Task 2: complete (ba4e9fd..2ff8f6a, `node --test tests/pr-feedback.test.ts` → 16 pass; `npm test` → 851 tests, 840 pass, 11 skipped, 0 fail; typecheck clean)
