@@ -49,6 +49,8 @@ export interface SessionState {
 	verifyLaunch?: number;
 	/** A verify call the guard allowed, by `tool_use_id`, not yet reported: it becomes `verifyLaunch` in its own PostToolUse. */
 	verifyCall?: { id: string; at: number };
+	/** The PR branches this prompt's shell calls touched (lib/reviews.ts `touchedPrs`): Stop checks their feedback. */
+	prTouched?: Array<{ dir: string; branch?: string }>;
 }
 
 /** What the verify script records about its own run, so a piped call still proves the result. */
@@ -109,6 +111,11 @@ export function loadState(dir: string, sessionId: string): SessionState {
 			verifyLaunch: typeof raw.verifyLaunch === "number" ? raw.verifyLaunch : undefined,
 			verifyCall:
 				raw.verifyCall && typeof raw.verifyCall.id === "string" && typeof raw.verifyCall.at === "number" ? { id: raw.verifyCall.id, at: raw.verifyCall.at } : undefined,
+			prTouched: Array.isArray(raw.prTouched)
+				? raw.prTouched
+						.filter((t): t is { dir: string; branch?: string } => !!t && typeof t.dir === "string" && (t.branch === undefined || typeof t.branch === "string"))
+						.map((t) => (t.branch === undefined ? { dir: t.dir } : { dir: t.dir, branch: t.branch }))
+				: undefined,
 		};
 	} catch {
 		return { ...EMPTY, green: [], edited: [], slowParts: [], pending: {} };

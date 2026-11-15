@@ -2228,3 +2228,13 @@ test("verify paths: a deleted submodule under a wildcard glob owes its command (
 	assert.match(reason, /--only "test"/);
 });
 
+
+test("PR feedback: a successful push notes the PR for this prompt; a failed one doesn't; a new prompt clears it", () => {
+	const { env, call, projectDir } = setup();
+	call({ hook_event_name: "PostToolUseFailure", tool_name: "Bash", tool_input: { command: "git push" }, tool_use_id: "b0" });
+	assert.equal(loadState(env.stateDir, "s1").prTouched, undefined);
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "git push origin HEAD:feat/y" }, tool_use_id: "b1" });
+	assert.deepEqual(loadState(env.stateDir, "s1").prTouched, [{ dir: projectDir, branch: "feat/y" }]);
+	call({ hook_event_name: "UserPromptSubmit" });
+	assert.equal(loadState(env.stateDir, "s1").prTouched, undefined);
+});

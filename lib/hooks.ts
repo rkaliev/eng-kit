@@ -17,7 +17,7 @@ import { readProjectJson } from "./config.ts";
 import { approvalReminder, taskFileReminders, taskFileWarning } from "./approvals.ts";
 import { commandMatches, commandsUnder, owedCommands, resolveIgnore, resolveVerifyCommands, resolveVerifyPaths, UNKNOWN_FILE } from "./commands.ts";
 import { checkCommand, checkPath, otherReadings, ownBranchPush, tokenize, type GuardConfig, type GuardDecision } from "./patterns.ts";
-import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack } from "./reviews.ts";
+import { checkGateFiles, checkReview, checkReviewerCommand, parseReview, recordReview, notePr, recordVerdict, reviewedHead, settlePr, holdBack, touchedPrs } from "./reviews.ts";
 import { canonical } from "./repos.ts";
 import { guardBaseline, guardScope, hooksPaths, repoIn, scopedConfig, scopedPath, strictest, type GuardBaseline } from "./scope.ts";
 import { heredocs, stripRedirects } from "./shell.ts";
@@ -346,6 +346,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	if (input.tool_use_id) settlePr(env.projectDir, input.tool_use_id, !failed, env.reviewsRoot);
 
 	const shell = String(args.command ?? "");
+	if (!failed) notePrTouched(env, sessionId, touchedPrs(shell, input.cwd || env.projectDir));
 	const { commands } = resolveVerifyCommands(env.projectDir);
 	// Files this command changed, whatever wrote them (a failed or background command may have written too). Only a
 	// verification run that passed and did nothing else keeps its own changes (a formatter, `lint --fix`) off the count for the
@@ -905,10 +906,21 @@ function recordUsage(env: HookEnv, input: HookInput, kind: "subagent" | "session
 function userPromptSubmit(input: HookInput, env: HookEnv): HookResult {
 	const sessionId = input.session_id ?? "";
 	const state = loadState(env.stateDir, sessionId);
-	if (state.reminded || state.approvalReminded || state.workDocsReminded) {
-		saveState(env.stateDir, sessionId, { ...state, reminded: false, approvalReminded: false, workDocsReminded: false });
+	if (state.reminded || state.approvalReminded || state.workDocsReminded || state.prTouched) {
+		const { prTouched: _, ...rest } = state;
+		saveState(env.stateDir, sessionId, { ...rest, reminded: false, approvalReminded: false, workDocsReminded: false });
 	}
 	return {};
+}
+
+/** Adds the PR branches a call touched to this prompt's list, for the PR feedback gate at Stop. */
+function notePrTouched(env: HookEnv, sessionId: string, touched: Array<{ dir: string; branch?: string }>): void {
+	if (touched.length === 0) return;
+	const state = loadState(env.stateDir, sessionId);
+	const known = state.prTouched ?? [];
+	const key = (t: { dir: string; branch?: string }) => `${t.dir}\0${t.branch ?? ""}`;
+	const added = touched.filter((t) => !known.some((k) => key(k) === key(t)));
+	if (added.length > 0) saveState(env.stateDir, sessionId, { ...state, prTouched: [...known, ...added] });
 }
 function strings(value: unknown): string[] {
 	return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
