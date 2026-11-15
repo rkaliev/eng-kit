@@ -193,14 +193,14 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 **Files:** Modify `lib/reviews.ts`, `lib/state.ts`, `lib/hooks.ts` · Test `tests/reviews.test.ts`, `tests/hooks.test.ts`
 **Interfaces:** Produces `touchedPrs(command: string, cwd: string): Array<{ dir: string; branch?: string }>` (deduplicated, at most 3); `SessionState.prTouched?: Array<{ dir: string; branch?: string }>`.
 
-- [ ] Write failing tests (crit. 7):
+- [x] Write failing tests (crit. 7):
   - `touchedPrs`: `git push` → `[{ dir: cwd }]`; `git push origin HEAD:feat/y` → branch `feat/y`; `git push -u origin feat/z` → `feat/z`; `gh pr create --head feat/w` → `feat/w`; `gh pr comment 12 -b x` → `[{ dir }]`; `gh pr review 12 --comment -b x` → `[{ dir }]`; `gh api -X POST repos/o/r/pulls/12/comments/3/replies -f body=x` → `[{ dir }]`; `cd sub && git push` → dir `sub`; `git push --tags`, `git status`, `gh pr view`, `gh api repos/o/r/pulls/12` (GET) → `[]`.
   - hooks: a successful Bash `git push` sets `prTouched`; a failed one (PostToolUseFailure) does not; UserPromptSubmit clears it.
   Stub `touchedPrs` returning `[]`.
-- [ ] Run `node --test tests/reviews.test.ts tests/hooks.test.ts` → FAIL on the assertions.
-- [ ] Implement `touchedPrs` with the same `Subshells`/`segmentsOf`/`allLandings` walk as `prNotes`, plus `gh pr comment|review` and non-GET `gh api` (`apiWrite` in `lib/patterns.ts`, exported) on a path with `pulls/` or `issues/`. Record in `postToolUse` only when `!failed`.
-- [ ] Run the tests → PASS; full suite and typecheck → PASS.
-- [ ] Commit `feat(hooks): note the PRs a prompt touched`.
+- [x] Run `node --test tests/reviews.test.ts tests/hooks.test.ts` → FAIL on the assertions.
+- [x] Implement `touchedPrs` with the same `Subshells`/`segmentsOf`/`allLandings` walk as `prNotes`, plus `gh pr comment|review` and non-GET `gh api` (`apiWrite` in `lib/patterns.ts`, exported) on a path with `pulls/` or `issues/`. Record in `postToolUse` only when `!failed`.
+- [x] Run the tests → PASS; full suite and typecheck → PASS.
+- [x] Commit `feat(hooks): note the PRs a prompt touched`.
 
 ### Task 4: the Stop gate
 
@@ -252,3 +252,6 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 - Ruling: the CLI reads `prFeedback` from `.claude/guard.json`, else `.pi/guard.json`, at the git top level — keeps `scripts/pr-state.ts` identical across editions except its import — a pi user with both files gets the Claude one.
 - Ruling: the folder install's script allowlist (`lib/install.ts`) gains `pr-state`, with `tests/install.test.ts` expecting it and `lib/pr-feedback.ts` — the plan missed that the project install copies scripts by name — none.
 - Task 2: complete (ba4e9fd..2ff8f6a, `node --test tests/pr-feedback.test.ts` → 16 pass; `npm test` → 851 tests, 840 pass, 11 skipped, 0 fail; typecheck clean)
+- Ruling: the `cd sub && git push` case moved to its own test with a real folder — the guard's folder tracking refuses a `cd` into a folder that doesn't exist, so `/repo/sub` fell back to `cwd` — none; regression-proved by reverting `shell.dir ?? cwd` to `cwd` (FAIL) and restoring (PASS).
+- Ruling: `touchedPrs` also skips tag refspecs (`refs/tags/…`) and deletions (`:branch`), and handles `+refs/heads/…` — a tag or deletion has no PR to check — none.
+- Task 3: complete (2ff8f6a..9205511, `node --test tests/reviews.test.ts` → 118 pass; `npm test` → 855 tests, 844 pass, 11 skipped, 0 fail; typecheck clean)
