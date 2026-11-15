@@ -1,6 +1,6 @@
 # Stop the agent calling a PR ready while review feedback is unanswered
 
-Status: design approved (2026-11-15)
+Status: plan approved (2026-11-15)
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
 Base: eng-kit d42c7a1e14670967bba33f64ccfce67ac0281a9e · pi 43fadb73951f448fb2e5ba9be2b049aae6b026b2
 Links: None (workspace analysis of the fortune-os comparison, item "Coverage")
