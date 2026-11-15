@@ -235,13 +235,13 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 
 **Files:** Create `src/extensions/lib/pr-feedback.ts` (copy), `src/scripts/pr-state.ts` · Modify `src/extensions/lib/reviews.ts`, `src/extensions/lib/patterns.ts`, `src/extensions/verify.ts`, pi skills and docs as in Task 5 · Test `src/tests/pr-feedback.test.ts` (copy, import path adapted), `src/tests/extensions.test.ts`, `src/tests/reviews.test.ts`
 
-- [ ] Copy the lib and its tests; port `touchedPrs` with tests (pi's `prNotes` shows how pi walks a command).
-- [ ] Write failing extension tests mirroring Task 4: `agent_end` follow-up (`customType: "verify-gate"`, one message carrying both reasons), the `ctx.ui.notify` note for the same set and for errors, `input` clearing, `.pi/guard.json` `prFeedback.enabled: false`. pi has a UI check: without `ctx.hasUI` notes are skipped, the follow-up still goes out.
-- [ ] Run `node --test tests/extensions.test.ts` → FAIL on the assertions; implement in `verify.ts` (`gh` path injectable as the tests inject other paths); → PASS.
-- [ ] pi docs, skills, CHANGELOG, version pins as Task 5.
-- [ ] `cmp src_claude/lib/pr-feedback.ts src/extensions/lib/pr-feedback.ts` → no output; `diff src_claude/scripts/pr-state.ts src/scripts/pr-state.ts` → only the import line (crit. 14).
-- [ ] Run `npm test`, `npm run typecheck` in `src/` → PASS.
-- [ ] Commit `feat: PR feedback gate, 0.40.0` in `src/`.
+- [x] Copy the lib and its tests; port `touchedPrs` with tests (pi's `prNotes` shows how pi walks a command).
+- [x] Write failing extension tests mirroring Task 4: `agent_end` follow-up (`customType: "verify-gate"`, one message carrying both reasons), the `ctx.ui.notify` note for the same set and for errors, `input` clearing, `.pi/guard.json` `prFeedback.enabled: false`. pi has a UI check: without `ctx.hasUI` notes are skipped, the follow-up still goes out.
+- [x] Run `node --test tests/extensions.test.ts` → FAIL on the assertions; implement in `verify.ts` (`gh` path injectable as the tests inject other paths); → PASS.
+- [x] pi docs, skills, CHANGELOG, version pins as Task 5.
+- [x] `cmp src_claude/lib/pr-feedback.ts src/extensions/lib/pr-feedback.ts` → no output; `diff src_claude/scripts/pr-state.ts src/scripts/pr-state.ts` → only the import line (crit. 14).
+- [x] Run `npm test`, `npm run typecheck` in `src/` → PASS.
+- [x] Commit `feat: PR feedback gate, 0.40.0` in `src/`.
 
 ## Progress
 
@@ -263,3 +263,9 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 - Ruling: receiving-code-review step 8 was reworded within the step to fit the 800-word body limit ("every required check passed", "Green checks or unchecked feedback aren't enough") — the plan's "trimming nothing else" held: no other step changed — none.
 - Ruling: GETTING-STARTED (en, ru) gained a troubleshooting entry for the gate's send-back and "not checked" note — the plan's Post-implementation missed that page — none.
 - Task 5: complete (60019ac..3265ead, `node --test tests/lint-skills.test.ts` → 44 pass; `npm test` → 863 tests, 852 pass, 11 skipped, 0 fail; typecheck clean; `npm run validate` → passed)
+- pi baseline (pi 43fadb7): `npm test` → 776 tests, 765 pass, 11 skipped, 0 fail; typecheck clean.
+- Ruling: the gate's collection loop, send-back text and set hash moved into the shared `lib/pr-feedback.ts` (`checkFeedback`), refactored in eng-kit while green (a335191) — keeps the two editions' gate logic from drifting; each edition keeps only its state and wording prefix (`eng-kit PR feedback gate:` vs pi's `PR feedback gate:`) — none.
+- Ruling: pi's `reviews.ts` was identical to eng-kit's at the base, so the eng-kit file was copied (`cmp` identical); pi's `patterns.ts` differs, so `apiWrite` export and `prFeedback` were patched in by hand.
+- Ruling: pi's shared-lib tests (`tests/pr-feedback.test.ts`, the `touchedPrs` tests) are copies of eng-kit tests already seen failing there, run against a byte-identical lib — not seen failing again in pi. The pi extension tests were seen failing (5 of 6; the negative one proved by mutation).
+- Ruling: in pi the turn that answers any follow-up skips the PR check, mirroring Claude Code's `stop_hook_active`; `prFeedback` in `.pi/guard.json` counts only in a trusted project, like pi's other loosening keys — none.
+- Task 6: complete (pi 43fadb7..b71d1d8; `node --test tests/extensions.test.ts` PR feedback → 6 pass; pi `npm test` → 801 tests, 790 pass, 11 skipped, 0 fail; typecheck clean; `cmp lib/pr-feedback.ts` identical; `diff scripts/pr-state.ts` → import line only)
