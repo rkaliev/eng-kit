@@ -1,6 +1,6 @@
 # Stop the agent calling a PR ready while review feedback is unanswered
 
-Status: plan approved (2026-11-15)
+Status: in progress
 <!-- draft → design approved (YYYY-MM-DD) → plan approved (YYYY-MM-DD) → in progress. Lives only on its work branch at docs/tasks/YYYY-MM-DD-<slug>.md: when the work is finished, what lasts moves to docs/ and this file is deleted. -->
 Base: eng-kit d42c7a1e14670967bba33f64ccfce67ac0281a9e · pi 43fadb73951f448fb2e5ba9be2b049aae6b026b2
 Links: None (workspace analysis of the fortune-os comparison, item "Coverage")
@@ -152,7 +152,7 @@ Minor release 0.40.0 in both editions, on by default. A user who doesn't want it
 `classify(pr: PrData, login: string, config?: FeedbackConfig): { open: Item[]; closed: number; problems: string[] }`,
 where `PrData` is the `repository.pullRequests.nodes[0]` shape of the query in Task 2 (threads with `isResolved`, `path`, `line`, `comments(last: 1)`; `reviews(last: 100)`; `latestOpinionatedReviews(first: 100)`; `comments(last: 100)`; each connection with `totalCount`; authors `{ login, __typename }`).
 
-- [ ] Write failing tests with a fixture builder, one per rule:
+- [x] Write failing tests with a fixture builder, one per rule:
   - `thread: open unless resolved or our login has the last word` (crit. 1): resolved → closed; last comment by `me` → closed; last by `alice` → open item `{ kind: "thread", path, line, author: "alice" }`.
   - `thread: a reply after ours re-opens it with a new id`: id is `<threadId>:<lastCommentId>`.
   - `review body: open until a later comment by us` (crit. 2): body by `alice` at t1; our issue comment at t0 → open; at t2 → closed; empty body → no item; review by `me` → no item.
@@ -163,10 +163,10 @@ where `PrData` is the `repository.pullRequests.nodes[0]` shape of the query in T
   - `excerpt is one line, at most 200 characters`.
   - `closed counts every item that was an item but is closed`.
   Add a stub `classify` returning `{ open: [], closed: 0, problems: [] }`.
-- [ ] Run `node --test tests/pr-feedback.test.ts` → expect FAIL on the assertions (e.g. expected 1 open item, received 0).
-- [ ] Implement `classify`. "Later" compares `createdAt`/`submittedAt` ISO strings. A comment by our login counts for review bodies when it is an issue comment or a review by us with a non-empty body.
-- [ ] Run `node --test tests/pr-feedback.test.ts` → PASS; `npm test`, `npm run typecheck` → PASS.
-- [ ] Commit `feat(pr-feedback): classify PR review feedback`.
+- [x] Run `node --test tests/pr-feedback.test.ts` → expect FAIL on the assertions (e.g. expected 1 open item, received 0).
+- [x] Implement `classify`. "Later" compares `createdAt`/`submittedAt` ISO strings. A comment by our login counts for review bodies when it is an issue comment or a review by us with a non-empty body.
+- [x] Run `node --test tests/pr-feedback.test.ts` → PASS; `npm test`, `npm run typecheck` → PASS.
+- [x] Commit `feat(pr-feedback): classify PR review feedback`.
 
 ### Task 2: collector and `pr-state.ts`
 
@@ -245,4 +245,7 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 
 ## Progress
 
-None yet
+- Baseline (eng-kit 1541bfc): `npm test` → 835 tests, 824 pass, 11 skipped, 0 fail; `npm run typecheck` → clean. No drift since d42c7a1 in lib/, scripts/, tests/.
+- Ruling: the pagination problem reads `reviewThreads: 1 of 140 read` instead of the plan's `140 of which 100 read` — plainer English — none.
+- Ruling: `ignore` drops a `changes-requested` item by author only (it has no text) — it carries no reviewer text to match — a pattern rule can't silence it.
+- Task 1: complete (1541bfc..0aadfb1, `node --test tests/pr-feedback.test.ts` → 11 pass; `npm test` → 846 tests, 835 pass, 11 skipped, 0 fail; typecheck clean)
