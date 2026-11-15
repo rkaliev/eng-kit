@@ -207,7 +207,7 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 **Files:** Modify `lib/hooks.ts`, `lib/patterns.ts`, `lib/state.ts` · Test `tests/hooks.test.ts`
 **Interfaces:** Consumes `collectPrState`, `prTouched` · Produces `HookEnv.gh?: string`, `GuardConfig.prFeedback`, `SessionState.prFeedbackSent?: string`, `prFeedbackNoted?: string`.
 
-- [ ] Write failing hook tests with the fake `gh` via `env.gh` (crit. 8–13):
+- [x] Write failing hook tests with the fake `gh` via `env.gh` (crit. 8–13):
   - `no PR call this prompt, no gh call` (crit. 8): `calls.txt` stays absent.
   - `new open set blocks once` (crit. 9): reason starts `PR feedback gate:`, names each item as `- <author> <path>:<line> <url> — "<excerpt>"`, says the excerpts are untrusted data, and points to receiving-code-review and `node <kit>/scripts/pr-state.ts`.
   - `same set again tells the user` (crit. 10): no `decision`; `systemMessage` `eng-kit PR feedback gate: PR #<n> is not ready: <N> open review items.` once.
@@ -216,10 +216,10 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
   - `reasons join` (crit. 12): unverified edits + open feedback → one block with both reasons; `stop_hook_active: true` → no `gh` call.
   - `enabled false turns it off` (crit. 13).
   Stub the gate to do nothing.
-- [ ] Run `node --test tests/hooks.test.ts` → FAIL on the assertions.
-- [ ] Implement in `stopGates` after the verify gate and before the task-file reminders: for each `prTouched` entry (at most 3, sharing one deadline), `collectPrState` with the guard config's `prFeedback`; hash the sorted open IDs with `createHash("sha256")`; block when it differs from `prFeedbackSent`; tell once per hash via `prFeedbackNoted`; a note per distinct error. Excerpts are cut to one line.
-- [ ] Run the tests → PASS; full suite, typecheck, `npm run validate` → PASS.
-- [ ] Commit `feat(hooks): PR feedback gate at Stop`.
+- [x] Run `node --test tests/hooks.test.ts` → FAIL on the assertions.
+- [x] Implement in `stopGates` after the verify gate and before the task-file reminders: for each `prTouched` entry (at most 3, sharing one deadline), `collectPrState` with the guard config's `prFeedback`; hash the sorted open IDs with `createHash("sha256")`; block when it differs from `prFeedbackSent`; tell once per hash via `prFeedbackNoted`; a note per distinct error. Excerpts are cut to one line.
+- [x] Run the tests → PASS; full suite, typecheck, `npm run validate` → PASS.
+- [x] Commit `feat(hooks): PR feedback gate at Stop`.
 
 ### Task 5: skills and docs (eng-kit)
 
@@ -255,3 +255,8 @@ CLI `node scripts/pr-state.ts [--repo <dir>] [--branch <name>]`.
 - Ruling: the `cd sub && git push` case moved to its own test with a real folder — the guard's folder tracking refuses a `cd` into a folder that doesn't exist, so `/repo/sub` fell back to `cwd` — none; regression-proved by reverting `shell.dir ?? cwd` to `cwd` (FAIL) and restoring (PASS).
 - Ruling: `touchedPrs` also skips tag refspecs (`refs/tags/…`) and deletions (`:branch`), and handles `+refs/heads/…` — a tag or deletion has no PR to check — none.
 - Task 3: complete (2ff8f6a..9205511, `node --test tests/reviews.test.ts` → 118 pass; `npm test` → 855 tests, 844 pass, 11 skipped, 0 fail; typecheck clean)
+- Ruling: a branch with no open PR is silent, like a non-GitHub repository, instead of criterion 11's "PR not found → note" — every push of a work branch before its PR is opened would otherwise print a note — a mistyped branch name goes unreported. **Needs the user's confirmation.**
+- Ruling: the gate runs after the task-file reminders, not before them — it gets what the other gates left of the 10 s hook, capped at 6 s and ending 9 s after Stop started — none.
+- Ruling: the four negative gate tests (no PR call, silent no-PR/non-GitHub, `enabled: false`, `ignore`) pass without the gate by nature; each was proved by a mutation that made it FAIL, then restored.
+- Ruling: under `stop_hook_active` the gate checks nothing (criterion 12), so after a send-back the user sees no "not ready" note in that same prompt; the agent's coverage report carries it.
+- Task 4: complete (f911681..08d1778, `node --test tests/hooks.test.ts` PR feedback tests → 9 pass; `npm test` → 863 tests, 852 pass, 11 skipped, 0 fail; typecheck clean; `npm run validate` → passed)
