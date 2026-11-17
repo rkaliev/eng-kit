@@ -2441,3 +2441,111 @@ for (const [name, tasks] of [
 		assert.equal(call(input as HookInput).output?.decision, "block");
 	});
 }
+
+/** `setupGit` with an edit reported as Claude Code's Edit tool does, and both checks passing as plain shell calls. */
+function setupKeyed() {
+	const ctx = setupGit();
+	ctx.call({ hook_event_name: "SessionStart", source: "startup" });
+	const change = (content: string, file = "src/a.ts") => {
+		writeFileSync(join(ctx.projectDir, file), content);
+		ctx.call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(ctx.projectDir, file) } });
+	};
+	const verify = () => {
+		ctx.bash("npm test");
+		ctx.bash("npm run typecheck");
+	};
+	const state = () => loadState(ctx.env.stateDir, "s1");
+	return { ...ctx, change, verify, state };
+}
+
+test("verify gate: a green run stores the content key", () => {
+	const { change, verify, state } = setupKeyed();
+	change("export const a = 2;\n");
+	assert.equal(state().verifiedKey, undefined);
+	verify();
+	assert.equal(state().unverified, false);
+	assert.equal(typeof state().verifiedKey, "string");
+});
+
+test("verify gate: content restored to what the checks passed on is credited at Stop", () => {
+	const { call, change, verify, state } = setupKeyed();
+	change("export const a = 2;\n");
+	verify();
+	change("export const a = 3;\n");
+	change("export const a = 2;\n");
+	assert.equal(state().unverified, true);
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined);
+	assert.equal(state().unverified, false);
+	assert.deepEqual(state().edited, []);
+});
+
+test("verify gate: a squash merge of the verified tree is credited", () => {
+	const { call, git, change, verify, bash, state } = setupKeyed();
+	git("checkout", "-q", "-b", "feat");
+	change("export const a = 2;\n");
+	bash("git commit -qam a2", {}, () => git("commit", "-qam", "a2"));
+	verify();
+	// Separate calls, as a pull after a squash-merged PR comes: one compound call would compare equal trees and see nothing.
+	bash("git checkout main", {}, () => git("checkout", "-q", "main"));
+	bash("git merge --squash feat", {}, () => git("merge", "-q", "--squash", "feat"));
+	bash("git commit -m squashed", {}, () => git("commit", "-q", "-m", "squashed"));
+	assert.equal(state().unverified, true, "the checkout counted as edits");
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined);
+});
+
+test("verify gate: content that differs from the verified one still sends back", () => {
+	for (const differ of [
+		(ctx: ReturnType<typeof setupKeyed>) => ctx.change("export const a = 4;\n"),
+		(ctx: ReturnType<typeof setupKeyed>) => ctx.change("export const b = 1;\n", "src/b.ts"),
+	]) {
+		const ctx = setupKeyed();
+		ctx.change("export const a = 2;\n");
+		ctx.verify();
+		differ(ctx);
+		assert.equal(ctx.call({ hook_event_name: "Stop" }).output?.decision, "block");
+	}
+});
+
+test("verify gate: no content key once git is off for the session", () => {
+	const { env, change, verify, state } = setupKeyed();
+	saveState(env.stateDir, "s1", { ...state(), gitOff: true });
+	change("export const a = 2;\n");
+	verify();
+	assert.equal(state().unverified, false);
+	assert.equal(state().verifiedKey, undefined);
+});
+
+test("review gate: a review of content the checks already passed on keeps its verdict", () => {
+	const projectDir = gitRepo({ "CLAUDE.md": "## Commands\n- `npm test`\n" });
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("add", "-A");
+	git("commit", "-qm", "manifest");
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const head = git("rev-parse", "HEAD");
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), runsRoot: temp("hooks-runs-"), reviewsRoot: temp("hooks-reviews-") };
+	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
+	const change = (content: string) => {
+		writeFileSync(join(projectDir, "a.ts"), content);
+		call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "a.ts") } });
+	};
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	change("export const a = 1;\n");
+	call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "npm test" }, tool_use_id: "t1" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" }, tool_use_id: "t1" });
+	change("export const a = 9;\n");
+	change("export const a = 1;\n");
+	const verdict = `Reviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${head}\nReady to merge: Yes`;
+	const stopped = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a1" });
+	assert.doesNotMatch(String(stopped.warning), /Inconclusive/);
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } })), undefined);
+});
+
+test("verify gate: a background verify run settled green stores the content key", () => {
+	const launched = launchedVerify();
+	launched.finished();
+	assert.equal(launched.stop(), undefined);
+	assert.equal(typeof loadState(launched.env.stateDir, "s1").verifiedKey, "string");
+});

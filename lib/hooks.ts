@@ -28,7 +28,7 @@ import { loadState, pruneStates, readRun, readRunStart, saveState, type RunRecor
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { verifyTimeoutSec } from "./verify-run.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { callChangesSplit, ignoredPath, trackedChanges, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
+import { callChangesSplit, contentKey, ignoredPath, KEY_BUDGET_MS, trackedChanges, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -366,11 +366,13 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		!failed && verificationOnly(shell, commands, (words) => scriptPassed && isKitScript(words, env.root, input.cwd || env.projectDir, commands));
 	const tracked = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt, powershell: tool === "PowerShell" });
 	const { marked, own } = tracked;
+	// A check's own changes (a formatter) still owe the checks that ran before them: the tree after them is no verified content.
+	const keyTree = own.exact.length + own.guessed.length > 0 ? undefined : tracked.fresh;
 	// A verify call reported in the foreground has ended, unless its run wrote a start and goes on in the background.
 	const isVerifyRun = runsVerifyScript(shell, env.root, input.cwd || env.projectDir, commands);
 	const ended = args.run_in_background !== true && isVerifyRun;
 	// Only a verify call that started counts as a launch; a failed report (a background task that didn't start) doesn't.
-	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, !failed && isVerifyRun ? input.tool_use_id : undefined), ended);
+	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, !failed && isVerifyRun ? input.tool_use_id : undefined), ended, keyTree);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 	// A run of this call that failed: its commands don't stand green any more, like a failed plain command, also when the
@@ -381,7 +383,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	}
 	// A call that changed files proves nothing about them, whatever checks it also ran.
 	if (marked.length > 0) return {};
-	creditCall(env, sessionId, state, { shell, commands, failed, isVerifyRun });
+	creditCall(env, sessionId, state, { shell, commands, failed, isVerifyRun }, keyTree);
 	// A check's own changes (a formatter, `lint --fix`) are off the count for the checks that ran, not for the others.
 	if (own.exact.length + own.guessed.length > 0) {
 		const ran = isVerifyRun ? (scriptRun?.commands ?? []) : commands.filter((c) => commandMatches(shell, c));
@@ -400,10 +402,10 @@ function ownRun(state: SessionState, toolUseId: string | undefined, run: RunReco
 }
 
 /** Credits the checks a shell call ran: the verify script by its run record, a configured command by its exit code. */
-function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean }): void {
+function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean }, fresh: Tree | undefined): void {
 	const { shell, commands, failed, isVerifyRun } = call;
 	if (!state.unverified) return;
-	const credit = (passed: string[]) => saveState(env.stateDir, sessionId, credited(state, commands, passed));
+	const credit = (passed: string[]) => saveState(env.stateDir, sessionId, withKey(env, state, credited(state, commands, passed), fresh));
 
 	if (isVerifyRun) {
 		if (commands.length === 0) return;
@@ -445,6 +447,30 @@ function isFileAt(projectDir: string, abs: string, label: string): boolean {
 	}
 }
 
+/**
+ * `after`, with the content key of `fresh` (the fingerprint this hook call took) when it turns `before` verified: content
+ * the checks just passed on. No key from an older fingerprint or once git is off; a key that can't be taken drops the old.
+ */
+function withKey(env: HookEnv, before: SessionState, after: SessionState, fresh: Tree | undefined): SessionState {
+	if (!before.unverified || after.unverified) return after;
+	const key = fresh && !after.gitOff ? contentKey(env.projectDir, fresh, resolveVerifyCommands(env.projectDir).commands) : undefined;
+	const { verifiedKey: _, ...rest } = after;
+	return key === undefined ? rest : { ...rest, verifiedKey: key };
+}
+
+/**
+ * `state`, verified when its edits brought the tree back to content the checks already passed on (a restored file, a
+ * pull of a squash-merged branch verified before): the content key of `fresh` equals the stored one. Saved when it is.
+ */
+function creditByContent(env: HookEnv, sessionId: string, state: SessionState, fresh: Tree | undefined, deadline: number): SessionState {
+	if (!state.unverified || state.verifiedKey === undefined || !fresh || state.gitOff) return state;
+	const { commands, error } = resolveVerifyCommands(env.projectDir);
+	if (error || commands.length === 0 || contentKey(env.projectDir, fresh, commands, { deadline }) !== state.verifiedKey) return state;
+	const next = credited(state, commands, commands);
+	saveState(env.stateDir, sessionId, next);
+	return next;
+}
+
 /** `state` (unverified) after `failed` failed: they leave the green commands. */
 function withoutGreen(state: SessionState, commands: string[], failed: string[]): SessionState {
 	return credited({ ...state, green: state.green.filter((c) => !failed.includes(c)) }, commands, []);
@@ -474,7 +500,7 @@ function trackTree(
 	sessionId: string,
 	callId?: string,
 	after?: { command: string; cwd: string; exempt: boolean; powershell?: boolean },
-): { state: SessionState; marked: string[]; own: { exact: string[]; guessed: string[] } } {
+): { state: SessionState; marked: string[]; own: { exact: string[]; guessed: string[] }; fresh: Tree | undefined } {
 	const ignore = resolveIgnore(env.projectDir);
 	const why: { slow?: boolean; slowParts?: string[] } = {};
 	const known = loadState(env.stateDir, sessionId);
@@ -496,7 +522,7 @@ function trackTree(
 	const slowParts = [...new Set([...state.slowParts, ...(why.slowParts ?? [])])];
 	state = { ...state, tree: tree ?? state.tree, gitOff: state.gitOff || why.slow === true, slowParts, pending: kept };
 	saveState(env.stateDir, sessionId, state);
-	return { state, marked, own: exempted ? { exact, guessed } : { exact: [], guessed: [] } };
+	return { state, marked, own: exempted ? { exact, guessed } : { exact: [], guessed: [] }, fresh: tree };
 }
 
 /** Change tracking is a best effort where it runs ahead of something that matters (the guard, the bootstrap). */
@@ -549,7 +575,7 @@ const RUN_MARGIN_MS = 60_000;
  * `LAUNCH_GRACE_MS` with no record yet (unless the call already `ended`), is `running`. Anything else drops the launch, so a run that died can't
  * hold Stop silent.
  */
-function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ended = false): { state: SessionState; running: boolean } {
+function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ended = false, fresh?: Tree): { state: SessionState; running: boolean } {
 	const launch = state.verifyLaunch;
 	if (launch === undefined) return { state, running: false };
 	const settled = (next: SessionState) => {
@@ -561,7 +587,7 @@ function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ende
 	if (run && run.finishedAt >= launch) {
 		const { commands } = resolveVerifyCommands(env.projectDir);
 		const passed = run.ok && run.startedAt !== undefined && run.startedAt >= launch && run.startedAt >= state.editedAt && commands.length > 0;
-		if (passed && state.unverified) return settled(credited(state, commands, run.commands));
+		if (passed && state.unverified) return settled(withKey(env, state, credited(state, commands, run.commands), fresh));
 		// The launched run failed: its commands don't stand green any more.
 		const failedOwn = !run.ok && run.startedAt !== undefined && run.startedAt >= launch && state.unverified;
 		return settled(failedOwn ? withoutGreen(state, commands, run.commands) : state);
@@ -684,8 +710,19 @@ function reviewerStop(input: HookInput, env: HookEnv, deadline: number): HookRes
 	// summary, often without the verdict lines) never reaches its caller, so the hand-back is the report.
 	const handedBack = handbackReport(input.agent_transcript_path);
 	const report = handedBack ?? input.last_assistant_message ?? "";
-	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive.
-	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir, { detect: false }).commands.length > 0;
+	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive, unless they
+	// brought the tree back to content the checks already passed on.
+	const sessionId = input.session_id ?? "";
+	let session = loadState(env.stateDir, sessionId);
+	if (session.unverified && session.verifiedKey !== undefined) {
+		try {
+			const tracked = trackTree(env, sessionId);
+			session = creditByContent(env, sessionId, tracked.state, tracked.fresh, Math.min(Date.now() + KEY_BUDGET_MS, deadline - REVIEW_LOOKUP_RESERVE_MS));
+		} catch {
+			// the state stays unverified: the review counts as Inconclusive, as before
+		}
+	}
+	const unverified = session.unverified && resolveVerifyCommands(env.projectDir, { detect: false }).commands.length > 0;
 	const parsed = parseReview(report);
 	// Every lookup of this hook run shares one deadline inside the hook's timeout, so a warning always gets out.
 	if (unverified && parsed) {
@@ -726,6 +763,8 @@ function heldIds(ids: { promptId: string; run: string }): { promptId: string; ru
 
 /** How long the lookups of one SubagentStop run may take in all, from its start, inside its 10 s hook timeout. */
 const LOOKUP_DEADLINE_MS = 7000;
+/** What a reviewer's content key leaves of that deadline for recording the verdict. */
+const REVIEW_LOOKUP_RESERVE_MS = 3000;
 /** Until when, from its start, a SubagentStop run may update the token ledger. */
 const HOOK_BUDGET_MS = 8000;
 
@@ -802,7 +841,11 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 		return {};
 	}
 	// A change no command reported (a background process, a subagent's script) is found here, before a run is settled.
-	const { state, running } = settleLaunch(env, sessionId, trackTree(env, sessionId).state);
+	const tracked = trackTree(env, sessionId);
+	const settled = settleLaunch(env, sessionId, tracked.state, false, tracked.fresh);
+	const running = settled.running;
+	// Edits that brought the tree back to verified content owe nothing; the key gets what trackTree left of its budget.
+	const state = creditByContent(env, sessionId, settled.state, tracked.fresh, Math.min(Date.now() + KEY_BUDGET_MS, started + STOP_KEY_END_MS));
 	const reasons: string[] = [];
 	let systemMessage: string | undefined;
 	const next = { ...state };
@@ -904,6 +947,8 @@ function agentsAtWork(tasks: unknown): boolean {
 	});
 }
 
+/** The content key at Stop is done by this long after Stop started, so the task-file and PR gates keep their time. */
+const STOP_KEY_END_MS = 3500;
 /** The PR feedback gate's share of the 10 s Stop hook: at most this long, and done by `PR_FEEDBACK_END_MS` after Stop started. */
 const PR_FEEDBACK_BUDGET_MS = 6000;
 const PR_FEEDBACK_END_MS = 8000;
