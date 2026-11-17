@@ -45,6 +45,8 @@ export interface HookInput {
 	prompt_id?: string;
 	transcript_path?: string;
 	agent_transcript_path?: string;
+	/** Stop and SubagentStop: the background tasks still running, as Claude Code lists them (see `agentsAtWork`). */
+	background_tasks?: unknown;
 }
 
 export interface HookEnv {
@@ -806,11 +808,13 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 	const next = { ...state };
 
 	// A verification run still going will report back; asking for another would only run the checks twice, and the
-	// edits stay unjudged for the next Stop. Edits a Stop already judged (the agent ran no check, or reported a failing
+	// edits stay unjudged for the next Stop. So does an agent at work in the background: it may still edit the same
+	// files, and its completion brings the agent back to judge them. Edits a Stop already judged (the agent ran no check, or reported a failing
 	// one) are told to the user once instead of sending every later answer back (transcripts 2026-10..11: 40% of
 	// firings repeated the previous one's file list).
 	const judged = state.judged === state.editedAt;
-	if (state.unverified && !state.reminded && !running && judged) {
+	const waiting = running || agentsAtWork(input.background_tasks);
+	if (state.unverified && !state.reminded && !waiting && judged) {
 		const { commands, error } = resolveVerifyCommands(env.projectDir);
 		if (commands.length > 0 && !error && state.noted !== state.editedAt) {
 			next.noted = state.editedAt;
@@ -823,7 +827,7 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 				? `eng-kit verify gate: edits weren't checked because the verification commands can't be read: ${error}`
 				: `eng-kit verify gate: no verification commands found, so edits in this session weren't checked. Run ${kitInit} or add .claude/verify.json ({"commands": ["npm test"]}).`;
 		}
-	} else if (state.unverified && !state.reminded && !running) {
+	} else if (state.unverified && !state.reminded && !waiting) {
 		next.judged = state.editedAt;
 		const { commands, error } = resolveVerifyCommands(env.projectDir);
 		if (error) {
@@ -883,6 +887,21 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 	saveState(env.stateDir, sessionId, next);
 	if (reasons.length === 0) return { ...warned, output: { systemMessage } };
 	return { ...warned, output: { decision: "block", reason: reasons.join("\n\n"), ...(systemMessage ? { systemMessage } : {}) } };
+}
+
+/**
+ * Whether a background agent that may edit is still running: an entry `{type: "subagent", status: "running"}` of the
+ * Stop input's `background_tasks` whose `agent_type` isn't the kit reviewer (read-only, so the gate doesn't wait for
+ * it). One without `agent_type` may edit. Any other shape, or no list (an older Claude Code), holds nothing.
+ */
+function agentsAtWork(tasks: unknown): boolean {
+	if (!Array.isArray(tasks)) return false;
+	return tasks.some((task: unknown) => {
+		if (!task || typeof task !== "object") return false;
+		const { type, status, agent_type } = task as { type?: unknown; status?: unknown; agent_type?: unknown };
+		if (type !== "subagent" || status !== "running") return false;
+		return agent_type === undefined || (typeof agent_type === "string" && !REVIEWER.test(agent_type));
+	});
 }
 
 /** The PR feedback gate's share of the 10 s Stop hook: at most this long, and done by `PR_FEEDBACK_END_MS` after Stop started. */

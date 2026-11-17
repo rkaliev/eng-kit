@@ -126,11 +126,11 @@ No code. A scratch project in the session scratchpad with `.claude/settings.json
 **Files:** Modify `src_claude/lib/hooks.ts` · Test `src_claude/tests/hooks.test.ts`
 **Interfaces:** Produces `HookInput.background_tasks?: unknown`, `agentsAtWork(tasks: unknown): boolean`
 
-- [ ] Write failing tests (with `setupGit()`), the input shaped as observed in Progress: `Stop waits while a background agent may edit` (edit a file, Stop with `background_tasks: [{ id: "a1", type: "subagent", status: "running", agent_type: "eng-kit:implementer" }]` → output `undefined`, state `judged` unchanged; then Stop with `[]` → `decision: "block"` naming the file); `the other gates don't wait` (an uncommitted approved task file under the same running agent → the approval reason is there, the verify reason isn't); parametrized `these background tasks don't hold the gate`: a running `eng-kit:reviewer` and `reviewer`, a `shell` task, a `status: "completed"` subagent, `[]`, no field, `"x"`, `[null]`, `[{ type: "subagent" }]` → each `decision: "block"`; a subagent without `agent_type` holds
-- [ ] Run `npm test --prefix src_claude -- --test-name-pattern="background agent|don't wait|don't hold"` → expect FAIL: `decision: "block"` where `undefined` was expected (the holding cases); the non-holding cases pass already, which pins today's behavior
-- [ ] Implement `agentsAtWork` and, in `stopGates`, `const waiting = agentsAtWork(input.background_tasks)`; both verify branches require `!running && !waiting`
-- [ ] Run `npm test --prefix src_claude` → PASS
-- [ ] Commit `feat(verify-gate): wait for background agents that may edit`
+- [x] Write failing tests (with `setupGit()`), the input shaped as observed in Progress: `Stop waits while a background agent may edit` (edit a file, Stop with `background_tasks: [{ id: "a1", type: "subagent", status: "running", agent_type: "eng-kit:implementer" }]` → output `undefined`, state `judged` unchanged; then Stop with `[]` → `decision: "block"` naming the file); `the other gates don't wait` (an uncommitted approved task file under the same running agent → the approval reason is there, the verify reason isn't); parametrized `these background tasks don't hold the gate`: a running `eng-kit:reviewer` and `reviewer`, a `shell` task, a `status: "completed"` subagent, `[]`, no field, `"x"`, `[null]`, `[{ type: "subagent" }]` → each `decision: "block"`; a subagent without `agent_type` holds
+- [x] Run `npm test --prefix src_claude -- --test-name-pattern="background agent|don't wait|don't hold"` → expect FAIL: `decision: "block"` where `undefined` was expected (the holding cases); the non-holding cases pass already, which pins today's behavior
+- [x] Implement `agentsAtWork` and, in `stopGates`, `const waiting = agentsAtWork(input.background_tasks)`; both verify branches require `!running && !waiting`
+- [x] Run `npm test --prefix src_claude` → PASS
+- [x] Commit `feat(verify-gate): wait for background agents that may edit`
 
 ### Task 3: merged into Task 2 (decision 2)
 
@@ -185,3 +185,4 @@ No code. A scratch project in the session scratchpad with `.claude/settings.json
   - **Stop and SubagentStop inputs carry `background_tasks`**: `[{id, type: "subagent" | "shell", status: "running", description, agent_type}]` for each background task still running (the agent's own entry is still listed in its own SubagentStop), and `[]` when none.
 - Task 1: complete (no code; findings above).
 - Ruling (user, 2026-11-18): wait by `background_tasks` instead of agent state. Criteria 2–6, decisions 2–3, the Design paragraph and Tasks 2–3 rewritten; no hooks.json change.
+- Task 2: complete (a88c4b6..HEAD, `npm test --prefix src_claude` → 884 pass, typecheck clean; the two holding tests failed first with `decision: "block"`).

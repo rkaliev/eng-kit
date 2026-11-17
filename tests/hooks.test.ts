@@ -2395,3 +2395,49 @@ test("PR feedback gate: at most three PR branches are kept per prompt (S3)", () 
 	for (const b of ["a", "b", "c", "d", "e"]) push(`git push -u origin feat/${b}`);
 	assert.deepEqual(loadState(env.stateDir, "s1").prTouched?.map((t) => t.branch), ["feat/a", "feat/b", "feat/c"]);
 });
+
+/** A running background task as Claude Code 2.1.326 lists it in the Stop input (task file Progress, Task 1). */
+const subagentTask = (agent_type?: string, status = "running") => ({ id: "a1", type: "subagent", status, description: "worker", ...(agent_type === undefined ? {} : { agent_type }) });
+
+test("verify gate: Stop waits while a background agent may edit, and judges the edits once it is done", () => {
+	const { call, env } = setupGit();
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	const judged = () => loadState(env.stateDir, "s1").judged;
+	assert.equal(call({ hook_event_name: "Stop", background_tasks: [subagentTask("eng-kit:implementer")] }).output, undefined);
+	assert.equal(call({ hook_event_name: "Stop", background_tasks: [subagentTask()] }).output, undefined, "an agent without agent_type may edit too");
+	assert.equal(judged(), undefined, "a Stop that waited judged nothing");
+	const back = call({ hook_event_name: "Stop", background_tasks: [] }).output;
+	assert.equal(back?.decision, "block", "the agent is done: the edits are judged now, not noted as judged before");
+	assert.match(String(back?.reason), /src\/a\.ts/);
+});
+
+test("verify gate: the other gates don't wait for a background agent", () => {
+	const { call, projectDir } = setupGit();
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	mkdirSync(join(projectDir, "docs", "tasks"), { recursive: true });
+	writeFileSync(join(projectDir, "docs", "tasks", "2026-11-18-x.md"), "# X\n\nStatus: design approved (2026-11-18)\n");
+	const out = call({ hook_event_name: "Stop", background_tasks: [subagentTask("eng-kit:implementer")] }).output;
+	assert.equal(out?.decision, "block");
+	assert.match(String(out?.reason), /Approval gate/);
+	assert.doesNotMatch(String(out?.reason), /Verify gate/);
+});
+
+for (const [name, tasks] of [
+	["a running kit reviewer (plugin)", [subagentTask("eng-kit:reviewer")]],
+	["a running kit reviewer (project install)", [subagentTask("reviewer")]],
+	["a background shell task", [{ id: "b1", type: "shell", status: "running", description: "sleep", command: "sleep 25" }]],
+	["a finished subagent", [subagentTask("eng-kit:implementer", "completed")]],
+	["an empty list", []],
+	["no field (an older Claude Code)", undefined],
+	["a string", "x"],
+	["a null entry", [null]],
+	["an entry without status", [{ type: "subagent" }]],
+	["a non-string agent_type", [{ id: "a1", type: "subagent", status: "running", agent_type: 7 }]],
+] as Array<[string, unknown]>) {
+	test(`verify gate: ${name} doesn't hold the gate`, () => {
+		const { call } = setupGit();
+		call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+		const input = tasks === undefined ? { hook_event_name: "Stop" } : { hook_event_name: "Stop", background_tasks: tasks };
+		assert.equal(call(input as HookInput).output?.decision, "block");
+	});
+}
