@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.42.0
+
+- **PR watcher: when you ask Claude to follow a PR, it waits without waking during CI.** git-workflow runs `node <kit>/scripts/pr-watch.ts` in the background and ends the turn; the script reads the PR every 30 s and exits with one JSON event when the PR needs a decision: `merged` or `closed`, `conflict`, `checks_failed` (at the first failed check, once per head), `feedback` (open review items as the PR feedback gate lists them), `ready` (every check on the head finished and passed, nothing open, mergeability clean, and the head seen for a quiet period of 120 s, since checks register after a push) or `blocked` (no checks after the quiet period, feedback still unanswered after its event was handled, unread feedback, an hour without an event, three API errors in a row, `gh` missing or not logged in, or no open PR). Claude handles the event (systematic-debugging for a failed check, receiving-code-review for feedback, a question to you for a conflict, since a rebase rewrites pushed history) and relaunches with the event's `ack`, so the same evidence doesn't wake it again. The script only reads and always exits 0; `--pr <n>` follows a PR other than the current branch's. It replaces `gh pr checks --watch`, which saw checks only. GitLab still uses `glab ci status --live`.
+- **`scripts/pr-state.ts`** also prints the PR's state, mergeability and how many of the head's checks are still pending.
+
 ## 0.41.0
 
 - **Stop waits for background agents that may edit.** While a subagent other than the kit reviewer runs in the background (the Stop input's `background_tasks`), the verify gate neither sends Claude back nor notes the edits; the Stop after the agent finishes judges them. Asking for checks while an implementer still edits the same tree ran the suite twice or on half-done work. A running kit reviewer only reads, so the gate still asks for checks beside it; without `background_tasks` (an older Claude Code) nothing changes.

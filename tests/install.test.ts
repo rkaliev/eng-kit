@@ -70,3 +70,8 @@ test("the project install leaves the scaffold template and its library in the pl
 	assert.deepEqual(targets.filter((t) => t.includes("ts-monorepo")), []);
 	assert.deepEqual(targets.filter((t) => t.endsWith("lib/scaffold.ts")), []);
 });
+
+test("the PR watcher script and its library are installed", () => {
+	const targets = planInstall(root, mkdtempSync(join(tmpdir(), "install-"))).copies.map((c) => c.target);
+	for (const f of [`${KIT_DIR}/scripts/pr-watch.ts`, `${KIT_DIR}/lib/pr-watch.ts`]) assert.ok(targets.includes(f), f);
+});
