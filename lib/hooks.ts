@@ -530,11 +530,12 @@ function trackTree(
 	const marked = paths.length > 0 && !exempted ? paths : [];
 	// Targets read from the command's text may be other files than they look: they owe every command.
 	if (marked.length > 0) state = markEdited(env.projectDir, state, exact, guessed);
-	// A file that left git's listing with its content unchanged was committed (now a clean tracked file the key reads) or
-	// hidden (assume-unchanged, skip-worktree, an exclude): a hidden one may hold edits the key no longer sees.
+	// A file that left git's listing was committed (a clean tracked file the key reads, or a deletion git no longer knows)
+	// or hidden (assume-unchanged, skip-worktree, an exclude, also deleted unseen): a hidden one may hold edits the key no
+	// longer sees.
 	if (state.verifiedKey !== undefined && before !== undefined) {
-		const left = tree === undefined ? undefined : Object.keys(before.files).filter((p) => !Object.hasOwn(tree.files, p) && existsSync(join(env.projectDir, p)));
-		if (left === undefined || (left.length > 0 && !keyCoversAll(env.projectDir, tree!, left))) {
+		const left = tree === undefined ? undefined : Object.keys(before.files).filter((p) => !Object.hasOwn(tree.files, p));
+		if (left === undefined || (left.length > 0 && !keyCoversAll(env.projectDir, tree!, left, undefined, true))) {
 			const { verifiedKey: _, ...rest } = state;
 			state = rest;
 		}
@@ -741,11 +742,13 @@ function reviewerStop(input: HookInput, env: HookEnv, deadline: number): HookRes
 	// repository reviewed that content.
 	const parsed = parseReview(report);
 	let session = loadState(env.stateDir, sessionId);
+	let otherContent = false;
 	if (session.unverified && session.verifiedKey !== undefined) {
 		try {
 			const tracked = trackTree(env, sessionId);
 			const credited = creditByContent(env, sessionId, tracked.state, tracked.fresh, Math.min(Date.now() + KEY_BUDGET_MS, deadline - REVIEW_LOOKUP_RESERVE_MS));
 			if (!credited.unverified && parsed && tracked.fresh && cleanAt(tracked.fresh, parsed.sha)) session = credited;
+			else otherContent = !credited.unverified;
 		} catch {
 			// the state stays unverified: the review counts as Inconclusive, as before
 		}
@@ -756,7 +759,9 @@ function reviewerStop(input: HookInput, env: HookEnv, deadline: number): HookRes
 		const held = recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report, deadline });
 		// Not recorded as written (its BASE or HEAD is no commit): the named commit, else each HEAD, so it is never lost.
 		const still = typeof held === "string" ? holdBack(env.projectDir, parsed.sha, ids, env.reviewsRoot, deadline, held) : held.missed === undefined ? undefined : holdBack(env.projectDir, parsed.sha, heldIds(ids), env.reviewsRoot, deadline);
-		const unverifiedWarning = "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again.";
+		const unverifiedWarning = otherContent
+			? "eng-kit review gate: the edits are back to verified content, but the review named a commit with other content than the working tree, so it counts as Inconclusive. Review the HEAD that holds the verified content, with nothing changed in its repository."
+			: "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again.";
 		return { warning: [unverifiedWarning, missedWarning(typeof held === "string" ? undefined : held.missed, still)].filter(Boolean).join("\n") };
 	}
 	const result = recordReview(env.projectDir, report, ids, env.reviewsRoot, deadline);

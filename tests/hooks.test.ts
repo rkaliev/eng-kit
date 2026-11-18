@@ -2691,5 +2691,20 @@ test("review gate: content credit counts only for a review of a clean HEAD", () 
 	const verdict = `Reviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${git("rev-parse", "HEAD")}\nReady to merge: Yes`;
 	const stopped = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a1" });
 	assert.match(String(stopped.warning), /Inconclusive/);
+	assert.match(String(stopped.warning), /other content than the working tree/, "the notice names the real cause");
 	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } })), "deny");
+});
+
+test("verify gate: a hidden file deleted in the same call drops the content key", () => {
+	const ctx = setupKeyed();
+	ctx.change("export const a = 2;\n");
+	ctx.verify();
+	ctx.bash("git commit -qam a2", {}, () => ctx.git("commit", "-qam", "a2"));
+	ctx.change("export const a = 9;\n");
+	ctx.bash("git update-index --skip-worktree src/a.ts && rm src/a.ts", {}, () => {
+		ctx.git("update-index", "--skip-worktree", "src/a.ts");
+		rmSync(join(ctx.projectDir, "src/a.ts"));
+	});
+	assert.equal(ctx.state().verifiedKey, undefined);
+	assert.equal(ctx.call({ hook_event_name: "Stop" }).output?.decision, "block");
 });
