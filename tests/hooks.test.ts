@@ -2411,6 +2411,16 @@ test("verify gate: Stop waits while a background agent may edit, and judges the 
 	assert.match(String(back?.reason), /src\/a\.ts/);
 });
 
+test("verify gate: the working-docs gate doesn't wait for a background agent either", () => {
+	const { call, projectDir } = setupGit();
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
+	mkdirSync(join(projectDir, "docs", "tasks"), { recursive: true });
+	writeFileSync(join(projectDir, "docs", "tasks", "p.md"), "# P\n\nStatus: in progress\n\n## Plan\n\n- [x] one\n\n## Progress\n");
+	const out = call({ hook_event_name: "Stop", background_tasks: [subagentTask("eng-kit:implementer")] }).output;
+	assert.match(String(out?.reason), /Working-docs gate/);
+	assert.doesNotMatch(String(out?.reason), /Verify gate/);
+});
+
 test("verify gate: the other gates don't wait for a background agent", () => {
 	const { call, projectDir } = setupGit();
 	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/a.ts" } });
@@ -2432,6 +2442,7 @@ for (const [name, tasks] of [
 	["a string", "x"],
 	["a null entry", [null]],
 	["an entry without status", [{ type: "subagent" }]],
+	["an entry without type", [{ id: "a1", status: "running", agent_type: "eng-kit:implementer" }]],
 	["a non-string agent_type", [{ id: "a1", type: "subagent", status: "running", agent_type: 7 }]],
 ] as Array<[string, unknown]>) {
 	test(`verify gate: ${name} doesn't hold the gate`, () => {
@@ -2548,4 +2559,58 @@ test("verify gate: a background verify run settled green stores the content key"
 	launched.finished();
 	assert.equal(launched.stop(), undefined);
 	assert.equal(typeof loadState(launched.env.stateDir, "s1").verifiedKey, "string");
+});
+
+test("verify gate: a branch verified before its commit, squash-merged and pulled, is credited (user ruling 2026-11-18: the key is of content only)", () => {
+	const { call, git, change, verify, bash, state } = setupKeyed();
+	git("checkout", "-q", "-b", "feat");
+	change("export const a = 2;\n");
+	verify();
+	bash("git commit -qam a2", {}, () => git("commit", "-qam", "a2"));
+	bash("git checkout main", {}, () => git("checkout", "-q", "main"));
+	bash("git merge --squash feat", {}, () => git("merge", "-q", "--squash", "feat"));
+	bash("git commit -m squashed", {}, () => git("commit", "-q", "-m", "squashed"));
+	assert.equal(state().unverified, true, "the checkout counted as edits");
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined);
+});
+
+test("verify gate: a squash merge of other content still sends back", () => {
+	const { call, git, change, verify, bash } = setupKeyed();
+	git("checkout", "-q", "-b", "feat");
+	change("export const a = 2;\n");
+	verify();
+	change("export const a = 5;\n");
+	bash("git commit -qam a5", {}, () => git("commit", "-qam", "a5"));
+	bash("git checkout main", {}, () => git("checkout", "-q", "main"));
+	bash("git merge --squash feat", {}, () => git("merge", "-q", "--squash", "feat"));
+	bash("git commit -m squashed", {}, () => git("commit", "-q", "-m", "squashed"));
+	assert.equal(call({ hook_event_name: "Stop" }).output?.decision, "block");
+});
+
+test("verify gate: an edit the content key can't see drops the key until the next green run", () => {
+	for (const [name, prepare] of [
+		["a gitignored file", (ctx: ReturnType<typeof setupKeyed>) => {
+			writeFileSync(join(ctx.projectDir, ".gitignore"), ".env.test\n");
+			ctx.git("add", ".gitignore");
+			ctx.git("commit", "-qm", "ignore");
+			return ".env.test";
+		}],
+		["a file through a symlink to a folder outside the project", (ctx: ReturnType<typeof setupKeyed>) => {
+			const outside = temp("hooks-outside-");
+			writeFileSync(join(outside, "conf.json"), "{}\n");
+			symlinkSync(outside, join(ctx.projectDir, "linked"));
+			ctx.git("add", "linked");
+			ctx.git("commit", "-qm", "link");
+			return "linked/conf.json";
+		}],
+	] as Array<[string, (ctx: ReturnType<typeof setupKeyed>) => string]>) {
+		const ctx = setupKeyed();
+		const file = prepare(ctx);
+		ctx.change("export const a = 2;\n");
+		ctx.verify();
+		assert.equal(typeof ctx.state().verifiedKey, "string", name);
+		ctx.change("X=2\n", file);
+		assert.equal(ctx.state().verifiedKey, undefined, name);
+		assert.equal(ctx.call({ hook_event_name: "Stop" }).output?.decision, "block", name);
+	}
 });

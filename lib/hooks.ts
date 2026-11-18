@@ -28,7 +28,7 @@ import { loadState, pruneStates, readRun, readRunStart, saveState, type RunRecor
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { verifyTimeoutSec } from "./verify-run.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { callChangesSplit, contentKey, ignoredPath, KEY_BUDGET_MS, trackedChanges, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
+import { callChangesSplit, contentKey, ignoredPath, KEY_BUDGET_MS, keyCovers, trackedChanges, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -346,7 +346,14 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		const next = certain ? markEdited(env.projectDir, state, [label]) : markEdited(env.projectDir, state, [], [label]);
 		if (next !== state) saveState(env.stateDir, sessionId, next);
 		// The edit is counted; the next comparison starts after it.
-		bestEffort(() => trackTree(env, sessionId));
+		let covered = false;
+		bestEffort(() => {
+			const { fresh } = trackTree(env, sessionId);
+			covered = certain && fresh !== undefined && keyCovers(env.projectDir, fresh, label);
+		});
+		// An edit the content key can't read (a gitignored file, one through a symlink, skip-worktree) could be undone
+		// unseen: content counts as verified again only after the next green run.
+		if (!covered) dropKey(env, sessionId);
 		return {};
 	}
 	if (!SHELL_TOOLS.has(tool)) return {};
@@ -402,10 +409,10 @@ function ownRun(state: SessionState, toolUseId: string | undefined, run: RunReco
 }
 
 /** Credits the checks a shell call ran: the verify script by its run record, a configured command by its exit code. */
-function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean }, fresh: Tree | undefined): void {
+function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean }, keyTree: Tree | undefined): void {
 	const { shell, commands, failed, isVerifyRun } = call;
 	if (!state.unverified) return;
-	const credit = (passed: string[]) => saveState(env.stateDir, sessionId, withKey(env, state, credited(state, commands, passed), fresh));
+	const credit = (passed: string[]) => saveState(env.stateDir, sessionId, withKey(env, state, credited(state, commands, passed), keyTree));
 
 	if (isVerifyRun) {
 		if (commands.length === 0) return;
@@ -451,11 +458,19 @@ function isFileAt(projectDir: string, abs: string, label: string): boolean {
  * `after`, with the content key of `fresh` (the fingerprint this hook call took) when it turns `before` verified: content
  * the checks just passed on. No key from an older fingerprint or once git is off; a key that can't be taken drops the old.
  */
-function withKey(env: HookEnv, before: SessionState, after: SessionState, fresh: Tree | undefined): SessionState {
+function withKey(env: HookEnv, before: SessionState, after: SessionState, fresh: Tree | undefined, deadline?: number): SessionState {
 	if (!before.unverified || after.unverified) return after;
-	const key = fresh && !after.gitOff ? contentKey(env.projectDir, fresh, resolveVerifyCommands(env.projectDir).commands) : undefined;
+	const key = fresh && !after.gitOff ? contentKey(env.projectDir, fresh, resolveVerifyCommands(env.projectDir).commands, { deadline }) : undefined;
 	const { verifiedKey: _, ...rest } = after;
 	return key === undefined ? rest : { ...rest, verifiedKey: key };
+}
+
+/** Forgets the stored content key, if any. */
+function dropKey(env: HookEnv, sessionId: string): void {
+	const state = loadState(env.stateDir, sessionId);
+	if (state.verifiedKey === undefined) return;
+	const { verifiedKey: _, ...rest } = state;
+	saveState(env.stateDir, sessionId, rest);
 }
 
 /**
@@ -575,7 +590,7 @@ const RUN_MARGIN_MS = 60_000;
  * `LAUNCH_GRACE_MS` with no record yet (unless the call already `ended`), is `running`. Anything else drops the launch, so a run that died can't
  * hold Stop silent.
  */
-function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ended = false, fresh?: Tree): { state: SessionState; running: boolean } {
+function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ended = false, fresh?: Tree, keyDeadline?: number): { state: SessionState; running: boolean } {
 	const launch = state.verifyLaunch;
 	if (launch === undefined) return { state, running: false };
 	const settled = (next: SessionState) => {
@@ -587,7 +602,7 @@ function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ende
 	if (run && run.finishedAt >= launch) {
 		const { commands } = resolveVerifyCommands(env.projectDir);
 		const passed = run.ok && run.startedAt !== undefined && run.startedAt >= launch && run.startedAt >= state.editedAt && commands.length > 0;
-		if (passed && state.unverified) return settled(withKey(env, state, credited(state, commands, run.commands), fresh));
+		if (passed && state.unverified) return settled(withKey(env, state, credited(state, commands, run.commands), fresh, keyDeadline));
 		// The launched run failed: its commands don't stand green any more.
 		const failedOwn = !run.ok && run.startedAt !== undefined && run.startedAt >= launch && state.unverified;
 		return settled(failedOwn ? withoutGreen(state, commands, run.commands) : state);
@@ -842,10 +857,12 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 	}
 	// A change no command reported (a background process, a subagent's script) is found here, before a run is settled.
 	const tracked = trackTree(env, sessionId);
-	const settled = settleLaunch(env, sessionId, tracked.state, false, tracked.fresh);
+	// A content key at Stop gets what trackTree left of its budget, whether a settled run stores it or edits are compared with it.
+	const keyDeadline = Math.min(Date.now() + KEY_BUDGET_MS, started + STOP_KEY_END_MS);
+	const settled = settleLaunch(env, sessionId, tracked.state, false, tracked.fresh, keyDeadline);
 	const running = settled.running;
-	// Edits that brought the tree back to verified content owe nothing; the key gets what trackTree left of its budget.
-	const state = creditByContent(env, sessionId, settled.state, tracked.fresh, Math.min(Date.now() + KEY_BUDGET_MS, started + STOP_KEY_END_MS));
+	// Edits that brought the tree back to verified content owe nothing.
+	const state = creditByContent(env, sessionId, settled.state, tracked.fresh, keyDeadline);
 	const reasons: string[] = [];
 	let systemMessage: string | undefined;
 	const next = { ...state };
