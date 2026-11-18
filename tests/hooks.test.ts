@@ -2655,6 +2655,8 @@ test("verify gate: an edit later hidden from git drops the content key", () => {
 		const ctx = setupKeyed();
 		ctx.change("export const a = 2;\n");
 		ctx.verify();
+		// The verified content is committed, so HEAD's blob for the hidden file is the verified one.
+		ctx.bash("git commit -qam a2", {}, () => ctx.git("commit", "-qam", "a2"));
 		assert.equal(typeof ctx.state().verifiedKey, "string", name);
 		ctx.change(name === "info/exclude" ? "export const b = 1;\n" : "export const a = 9;\n", name === "info/exclude" ? "src/b.ts" : "src/a.ts");
 		hide(ctx);
