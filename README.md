@@ -146,6 +146,10 @@ When the kit's `reviewer` agent finishes (`reviewer` or `eng-kit:reviewer`; othe
 
 When a successful shell call in the current prompt pushed a branch, opened a GitHub PR or answered on one, the Stop hook collects that PR's review feedback with `gh` and sends Claude back once for each new set of unanswered items: inline threads that aren't resolved and don't end with your login's reply, review bodies and people's top-level comments without a later reply from your login, and reviewers whose changes-requested review still stands. Bots' top-level comments (summaries, coverage, previews) aren't items; `prFeedback.ignore` drops others. The same set again is a note that the PR is not ready. If the facts can't be collected (no `gh`, not logged in, an API error, a 6 s time limit), the hook doesn't block and says why. Repositories not on GitHub and branches without an open PR are skipped. `node <kit>/scripts/pr-state.ts` prints the same facts as JSON; details in docs/ARCHITECTURE.md.
 
+### PR watcher
+
+When you ask Claude to follow a PR or its CI, it runs `node <kit>/scripts/pr-watch.ts` in the background and ends its turn. The script reads the PR every 30 s and exits with one JSON event only when the PR needs a decision: merged or closed, a conflict, a failed check (the first one on a head), new review feedback, ready (every check passed, nothing open) or blocked (with the reason). Claude handles it and relaunches the watcher with the event's `ack`. The script only reads; merging stays yours. Details in docs/ARCHITECTURE.md.
+
 ## Token usage
 
 `node <kit>/scripts/statusline-install.ts` adds the eng-kit status line to your user settings (`~/.claude/settings.json`); `--dry-run` shows the change, and another status line is replaced only with `--force`:
