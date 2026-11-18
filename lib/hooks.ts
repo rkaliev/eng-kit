@@ -28,7 +28,7 @@ import { loadState, pruneStates, readRun, readRunStart, saveState, type RunRecor
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { verifyTimeoutSec } from "./verify-run.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { callChangesSplit, contentKey, ignoredPath, KEY_BUDGET_MS, keyCovers, trackedChanges, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
+import { callChangesSplit, cleanAt, contentKey, ignoredPath, KEY_BUDGET_MS, keyCovers, keyCoversAll, trackedChanges, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -460,7 +460,7 @@ function isFileAt(projectDir: string, abs: string, label: string): boolean {
  */
 function withKey(env: HookEnv, before: SessionState, after: SessionState, fresh: Tree | undefined, deadline?: number): SessionState {
 	if (!before.unverified || after.unverified) return after;
-	const key = fresh && !after.gitOff ? contentKey(env.projectDir, fresh, resolveVerifyCommands(env.projectDir).commands, { deadline }) : undefined;
+	const key = fresh && !after.gitOff ? contentKey(env.projectDir, fresh, resolveVerifyCommands(env.projectDir).commands, { deadline, ignore: resolveIgnore(env.projectDir) }) : undefined;
 	const { verifiedKey: _, ...rest } = after;
 	return key === undefined ? rest : { ...rest, verifiedKey: key };
 }
@@ -480,7 +480,7 @@ function dropKey(env: HookEnv, sessionId: string): void {
 function creditByContent(env: HookEnv, sessionId: string, state: SessionState, fresh: Tree | undefined, deadline: number): SessionState {
 	if (!state.unverified || state.verifiedKey === undefined || !fresh || state.gitOff) return state;
 	const { commands, error } = resolveVerifyCommands(env.projectDir);
-	if (error || commands.length === 0 || contentKey(env.projectDir, fresh, commands, { deadline }) !== state.verifiedKey) return state;
+	if (error || commands.length === 0 || contentKey(env.projectDir, fresh, commands, { deadline, ignore: resolveIgnore(env.projectDir) }) !== state.verifiedKey) return state;
 	const next = credited(state, commands, commands);
 	saveState(env.stateDir, sessionId, next);
 	return next;
@@ -530,6 +530,15 @@ function trackTree(
 	const marked = paths.length > 0 && !exempted ? paths : [];
 	// Targets read from the command's text may be other files than they look: they owe every command.
 	if (marked.length > 0) state = markEdited(env.projectDir, state, exact, guessed);
+	// A file that left git's listing with its content unchanged was committed (now a clean tracked file the key reads) or
+	// hidden (assume-unchanged, skip-worktree, an exclude): a hidden one may hold edits the key no longer sees.
+	if (state.verifiedKey !== undefined && before !== undefined) {
+		const left = tree === undefined ? undefined : Object.keys(before.files).filter((p) => !Object.hasOwn(tree.files, p) && existsSync(join(env.projectDir, p)));
+		if (left === undefined || (left.length > 0 && !keyCoversAll(env.projectDir, tree!, left))) {
+			const { verifiedKey: _, ...rest } = state;
+			state = rest;
+		}
+	}
 	const pending = { ...state.pending };
 	if (callId !== undefined) delete pending[callId];
 	if (callId !== undefined && !after && tree) pending[callId] = tree;
@@ -728,17 +737,20 @@ function reviewerStop(input: HookInput, env: HookEnv, deadline: number): HookRes
 	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive, unless they
 	// brought the tree back to content the checks already passed on.
 	const sessionId = input.session_id ?? "";
+	// The content then is verified, but a commit can hold other content: only a review of a HEAD with nothing listed in its
+	// repository reviewed that content.
+	const parsed = parseReview(report);
 	let session = loadState(env.stateDir, sessionId);
 	if (session.unverified && session.verifiedKey !== undefined) {
 		try {
 			const tracked = trackTree(env, sessionId);
-			session = creditByContent(env, sessionId, tracked.state, tracked.fresh, Math.min(Date.now() + KEY_BUDGET_MS, deadline - REVIEW_LOOKUP_RESERVE_MS));
+			const credited = creditByContent(env, sessionId, tracked.state, tracked.fresh, Math.min(Date.now() + KEY_BUDGET_MS, deadline - REVIEW_LOOKUP_RESERVE_MS));
+			if (!credited.unverified && parsed && tracked.fresh && cleanAt(tracked.fresh, parsed.sha)) session = credited;
 		} catch {
 			// the state stays unverified: the review counts as Inconclusive, as before
 		}
 	}
 	const unverified = session.unverified && resolveVerifyCommands(env.projectDir, { detect: false }).commands.length > 0;
-	const parsed = parseReview(report);
 	// Every lookup of this hook run shares one deadline inside the hook's timeout, so a warning always gets out.
 	if (unverified && parsed) {
 		const held = recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report, deadline });

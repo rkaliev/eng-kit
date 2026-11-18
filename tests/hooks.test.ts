@@ -2614,3 +2614,80 @@ test("verify gate: an edit the content key can't see drops the key until the nex
 		assert.equal(ctx.call({ hook_event_name: "Stop" }).output?.decision, "block", name);
 	}
 });
+
+test("PR feedback gate: it doesn't wait for a background agent either", () => {
+	const { push, stop } = prSetup(OPEN);
+	push();
+	const out = stop({ background_tasks: [subagentTask("eng-kit:implementer")] }).output;
+	assert.equal(out?.decision, "block");
+	assert.ok(String(out?.reason).startsWith("PR feedback gate:"));
+});
+
+test("verify gate: outside git a green run stores no content key", () => {
+	const { call, projectDir, env } = setup();
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 2;\n");
+	call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "a.ts") } });
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" } });
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm run typecheck" } });
+	assert.equal(loadState(env.stateDir, "s1").unverified, false);
+	assert.equal(loadState(env.stateDir, "s1").verifiedKey, undefined);
+});
+
+test("verify gate: a branch that also changed ignored docs is credited after its squash merge", () => {
+	const { call, git, change, verify, bash, projectDir } = setupKeyed();
+	git("checkout", "-q", "-b", "feat");
+	change("export const a = 2;\n");
+	writeFileSync(join(projectDir, "CLAUDE.md"), "## Commands\n- `npm test`\n- `npm run typecheck`\n\nNotes for a = 2.\n");
+	verify();
+	bash("git commit -qam a2", {}, () => git("commit", "-qam", "a2"));
+	bash("git checkout main", {}, () => git("checkout", "-q", "main"));
+	bash("git merge --squash feat", {}, () => git("merge", "-q", "--squash", "feat"));
+	bash("git commit -m squashed", {}, () => git("commit", "-q", "-m", "squashed"));
+	assert.equal(call({ hook_event_name: "Stop" }).output, undefined);
+});
+
+test("verify gate: an edit later hidden from git drops the content key", () => {
+	for (const [name, hide] of [
+		["assume-unchanged", (ctx: ReturnType<typeof setupKeyed>) => ctx.bash("git update-index --assume-unchanged src/a.ts", {}, () => ctx.git("update-index", "--assume-unchanged", "src/a.ts"))],
+		["skip-worktree", (ctx: ReturnType<typeof setupKeyed>) => ctx.bash("git update-index --skip-worktree src/a.ts", {}, () => ctx.git("update-index", "--skip-worktree", "src/a.ts"))],
+		["info/exclude", (ctx: ReturnType<typeof setupKeyed>) => ctx.bash("echo src/b.ts >> .git/info/exclude", {}, () => writeFileSync(join(ctx.projectDir, ".git/info/exclude"), "src/b.ts\n", { flag: "a" }))],
+	] as Array<[string, (ctx: ReturnType<typeof setupKeyed>) => void]>) {
+		const ctx = setupKeyed();
+		ctx.change("export const a = 2;\n");
+		ctx.verify();
+		assert.equal(typeof ctx.state().verifiedKey, "string", name);
+		ctx.change(name === "info/exclude" ? "export const b = 1;\n" : "export const a = 9;\n", name === "info/exclude" ? "src/b.ts" : "src/a.ts");
+		hide(ctx);
+		assert.equal(ctx.state().verifiedKey, undefined, name);
+		assert.equal(ctx.call({ hook_event_name: "Stop" }).output?.decision, "block", name);
+	}
+});
+
+test("review gate: content credit counts only for a review of a clean HEAD", () => {
+	const projectDir = gitRepo({ "CLAUDE.md": "## Commands\n- `npm test`\n" });
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: projectDir, encoding: "utf8" }).stdout.trim();
+	git("add", "-A");
+	git("commit", "-qm", "manifest");
+	git("switch", "-qc", "feat/a");
+	writeFileSync(join(projectDir, "a.ts"), "export const a = 1;\n");
+	git("add", "-A");
+	git("commit", "-qm", "feat: a");
+	const env: HookEnv = { root, projectDir, stateDir: temp("hooks-state-"), runsRoot: temp("hooks-runs-"), reviewsRoot: temp("hooks-reviews-") };
+	const call = (input: HookInput) => handle({ session_id: "s", cwd: projectDir, ...input }, env);
+	const change = (content: string) => {
+		writeFileSync(join(projectDir, "a.ts"), content);
+		call({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: join(projectDir, "a.ts") } });
+	};
+	call({ hook_event_name: "SessionStart", source: "startup" });
+	change("export const a = 1;\n");
+	call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "npm test" }, tool_use_id: "t1" });
+	call({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" }, tool_use_id: "t1" });
+	// An unverified change is committed, then the working tree goes back to the verified content: HEAD is unverified code.
+	change("export const a = 9;\n");
+	git("commit", "-qam", "unverified");
+	change("export const a = 1;\n");
+	const verdict = `Reviewed BASE: ${git("rev-parse", "main")}\nReviewed HEAD: ${git("rev-parse", "HEAD")}\nReady to merge: Yes`;
+	const stopped = call({ hook_event_name: "SubagentStop", agent_type: "eng-kit:reviewer", last_assistant_message: verdict, prompt_id: "p1", agent_id: "a1" });
+	assert.match(String(stopped.warning), /Inconclusive/);
+	assert.equal(decision(call({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr create --fill" } })), "deny");
+});
