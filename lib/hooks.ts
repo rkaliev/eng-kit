@@ -28,7 +28,7 @@ import { loadState, pruneStates, readRun, readRunStart, saveState, type RunRecor
 import { appendSessionSnapshot, appendUsage, readTranscriptUsage, total, type Tokens } from "./usage.ts";
 import { verifyTimeoutSec } from "./verify-run.ts";
 import { checkWorkDocs, currentBranch, WORK_DOC_DIRS, workDocsReminder } from "./workdocs.ts";
-import { callChangesSplit, ignoredPath, trackedChanges, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
+import { callChangesSplit, cleanAt, contentKey, ignoredPath, KEY_BUDGET_MS, keyCovers, keyCoversAll, trackedChanges, ignoreFilter, treeFingerprint, verificationOnly, type Tree } from "./worktree.ts";
 
 export interface HookInput {
 	hook_event_name?: string;
@@ -45,6 +45,8 @@ export interface HookInput {
 	prompt_id?: string;
 	transcript_path?: string;
 	agent_transcript_path?: string;
+	/** Stop and SubagentStop: the background tasks still running, as Claude Code lists them (see `agentsAtWork`). */
+	background_tasks?: unknown;
 }
 
 export interface HookEnv {
@@ -344,7 +346,14 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		const next = certain ? markEdited(env.projectDir, state, [label]) : markEdited(env.projectDir, state, [], [label]);
 		if (next !== state) saveState(env.stateDir, sessionId, next);
 		// The edit is counted; the next comparison starts after it.
-		bestEffort(() => trackTree(env, sessionId));
+		let covered = false;
+		bestEffort(() => {
+			const { fresh } = trackTree(env, sessionId);
+			covered = certain && fresh !== undefined && keyCovers(env.projectDir, fresh, label);
+		});
+		// An edit the content key can't read (a gitignored file, one through a symlink, skip-worktree) could be undone
+		// unseen: content counts as verified again only after the next green run.
+		if (!covered) dropKey(env, sessionId);
 		return {};
 	}
 	if (!SHELL_TOOLS.has(tool)) return {};
@@ -364,11 +373,13 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 		!failed && verificationOnly(shell, commands, (words) => scriptPassed && isKitScript(words, env.root, input.cwd || env.projectDir, commands));
 	const tracked = trackTree(env, sessionId, input.tool_use_id ?? "", { command: shell, cwd: input.cwd || env.projectDir, exempt, powershell: tool === "PowerShell" });
 	const { marked, own } = tracked;
+	// A check's own changes (a formatter) still owe the checks that ran before them: the tree after them is no verified content.
+	const keyTree = own.exact.length + own.guessed.length > 0 ? undefined : tracked.fresh;
 	// A verify call reported in the foreground has ended, unless its run wrote a start and goes on in the background.
 	const isVerifyRun = runsVerifyScript(shell, env.root, input.cwd || env.projectDir, commands);
 	const ended = args.run_in_background !== true && isVerifyRun;
 	// Only a verify call that started counts as a launch; a failed report (a background task that didn't start) doesn't.
-	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, !failed && isVerifyRun ? input.tool_use_id : undefined), ended);
+	const { state } = settleLaunch(env, sessionId, reported(env, sessionId, tracked.state, !failed && isVerifyRun ? input.tool_use_id : undefined), ended, keyTree);
 	// A background run reports success when it starts, not when the checks finish.
 	if (args.run_in_background === true) return {};
 	// A run of this call that failed: its commands don't stand green any more, like a failed plain command, also when the
@@ -379,7 +390,7 @@ function postToolUse(input: HookInput, env: HookEnv): HookResult {
 	}
 	// A call that changed files proves nothing about them, whatever checks it also ran.
 	if (marked.length > 0) return {};
-	creditCall(env, sessionId, state, { shell, commands, failed, isVerifyRun });
+	creditCall(env, sessionId, state, { shell, commands, failed, isVerifyRun }, keyTree);
 	// A check's own changes (a formatter, `lint --fix`) are off the count for the checks that ran, not for the others.
 	if (own.exact.length + own.guessed.length > 0) {
 		const ran = isVerifyRun ? (scriptRun?.commands ?? []) : commands.filter((c) => commandMatches(shell, c));
@@ -398,10 +409,10 @@ function ownRun(state: SessionState, toolUseId: string | undefined, run: RunReco
 }
 
 /** Credits the checks a shell call ran: the verify script by its run record, a configured command by its exit code. */
-function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean }): void {
+function creditCall(env: HookEnv, sessionId: string, state: SessionState, call: { shell: string; commands: string[]; failed: boolean; isVerifyRun: boolean }, keyTree: Tree | undefined): void {
 	const { shell, commands, failed, isVerifyRun } = call;
 	if (!state.unverified) return;
-	const credit = (passed: string[]) => saveState(env.stateDir, sessionId, credited(state, commands, passed));
+	const credit = (passed: string[]) => saveState(env.stateDir, sessionId, withKey(env, state, credited(state, commands, passed), keyTree));
 
 	if (isVerifyRun) {
 		if (commands.length === 0) return;
@@ -443,6 +454,38 @@ function isFileAt(projectDir: string, abs: string, label: string): boolean {
 	}
 }
 
+/**
+ * `after`, with the content key of `fresh` (the fingerprint this hook call took) when it turns `before` verified: content
+ * the checks just passed on. No key from an older fingerprint or once git is off; a key that can't be taken drops the old.
+ */
+function withKey(env: HookEnv, before: SessionState, after: SessionState, fresh: Tree | undefined, deadline?: number): SessionState {
+	if (!before.unverified || after.unverified) return after;
+	const key = fresh && !after.gitOff ? contentKey(env.projectDir, fresh, resolveVerifyCommands(env.projectDir).commands, { deadline, ignore: resolveIgnore(env.projectDir) }) : undefined;
+	const { verifiedKey: _, ...rest } = after;
+	return key === undefined ? rest : { ...rest, verifiedKey: key };
+}
+
+/** Forgets the stored content key, if any. */
+function dropKey(env: HookEnv, sessionId: string): void {
+	const state = loadState(env.stateDir, sessionId);
+	if (state.verifiedKey === undefined) return;
+	const { verifiedKey: _, ...rest } = state;
+	saveState(env.stateDir, sessionId, rest);
+}
+
+/**
+ * `state`, verified when its edits brought the tree back to content the checks already passed on (a restored file, a
+ * pull of a squash-merged branch verified before): the content key of `fresh` equals the stored one. Saved when it is.
+ */
+function creditByContent(env: HookEnv, sessionId: string, state: SessionState, fresh: Tree | undefined, deadline: number): SessionState {
+	if (!state.unverified || state.verifiedKey === undefined || !fresh || state.gitOff) return state;
+	const { commands, error } = resolveVerifyCommands(env.projectDir);
+	if (error || commands.length === 0 || contentKey(env.projectDir, fresh, commands, { deadline, ignore: resolveIgnore(env.projectDir) }) !== state.verifiedKey) return state;
+	const next = credited(state, commands, commands);
+	saveState(env.stateDir, sessionId, next);
+	return next;
+}
+
 /** `state` (unverified) after `failed` failed: they leave the green commands. */
 function withoutGreen(state: SessionState, commands: string[], failed: string[]): SessionState {
 	return credited({ ...state, green: state.green.filter((c) => !failed.includes(c)) }, commands, []);
@@ -472,7 +515,7 @@ function trackTree(
 	sessionId: string,
 	callId?: string,
 	after?: { command: string; cwd: string; exempt: boolean; powershell?: boolean },
-): { state: SessionState; marked: string[]; own: { exact: string[]; guessed: string[] } } {
+): { state: SessionState; marked: string[]; own: { exact: string[]; guessed: string[] }; fresh: Tree | undefined } {
 	const ignore = resolveIgnore(env.projectDir);
 	const why: { slow?: boolean; slowParts?: string[] } = {};
 	const known = loadState(env.stateDir, sessionId);
@@ -487,6 +530,16 @@ function trackTree(
 	const marked = paths.length > 0 && !exempted ? paths : [];
 	// Targets read from the command's text may be other files than they look: they owe every command.
 	if (marked.length > 0) state = markEdited(env.projectDir, state, exact, guessed);
+	// A file that left git's listing was committed (a clean tracked file the key reads, or a deletion git no longer knows)
+	// or hidden (assume-unchanged, skip-worktree, an exclude, also deleted unseen): a hidden one may hold edits the key no
+	// longer sees.
+	if (state.verifiedKey !== undefined && before !== undefined) {
+		const left = tree === undefined ? undefined : Object.keys(before.files).filter((p) => !Object.hasOwn(tree.files, p));
+		if (left === undefined || (left.length > 0 && !keyCoversAll(env.projectDir, tree!, left, undefined, true))) {
+			const { verifiedKey: _, ...rest } = state;
+			state = rest;
+		}
+	}
 	const pending = { ...state.pending };
 	if (callId !== undefined) delete pending[callId];
 	if (callId !== undefined && !after && tree) pending[callId] = tree;
@@ -494,7 +547,7 @@ function trackTree(
 	const slowParts = [...new Set([...state.slowParts, ...(why.slowParts ?? [])])];
 	state = { ...state, tree: tree ?? state.tree, gitOff: state.gitOff || why.slow === true, slowParts, pending: kept };
 	saveState(env.stateDir, sessionId, state);
-	return { state, marked, own: exempted ? { exact, guessed } : { exact: [], guessed: [] } };
+	return { state, marked, own: exempted ? { exact, guessed } : { exact: [], guessed: [] }, fresh: tree };
 }
 
 /** Change tracking is a best effort where it runs ahead of something that matters (the guard, the bootstrap). */
@@ -547,7 +600,7 @@ const RUN_MARGIN_MS = 60_000;
  * `LAUNCH_GRACE_MS` with no record yet (unless the call already `ended`), is `running`. Anything else drops the launch, so a run that died can't
  * hold Stop silent.
  */
-function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ended = false): { state: SessionState; running: boolean } {
+function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ended = false, fresh?: Tree, keyDeadline?: number): { state: SessionState; running: boolean } {
 	const launch = state.verifyLaunch;
 	if (launch === undefined) return { state, running: false };
 	const settled = (next: SessionState) => {
@@ -559,7 +612,7 @@ function settleLaunch(env: HookEnv, sessionId: string, state: SessionState, ende
 	if (run && run.finishedAt >= launch) {
 		const { commands } = resolveVerifyCommands(env.projectDir);
 		const passed = run.ok && run.startedAt !== undefined && run.startedAt >= launch && run.startedAt >= state.editedAt && commands.length > 0;
-		if (passed && state.unverified) return settled(credited(state, commands, run.commands));
+		if (passed && state.unverified) return settled(withKey(env, state, credited(state, commands, run.commands), fresh, keyDeadline));
 		// The launched run failed: its commands don't stand green any more.
 		const failedOwn = !run.ok && run.startedAt !== undefined && run.startedAt >= launch && state.unverified;
 		return settled(failedOwn ? withoutGreen(state, commands, run.commands) : state);
@@ -682,15 +735,33 @@ function reviewerStop(input: HookInput, env: HookEnv, deadline: number): HookRes
 	// summary, often without the verdict lines) never reaches its caller, so the hand-back is the report.
 	const handedBack = handbackReport(input.agent_transcript_path);
 	const report = handedBack ?? input.last_assistant_message ?? "";
-	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive.
-	const unverified = loadState(env.stateDir, input.session_id ?? "").unverified && resolveVerifyCommands(env.projectDir, { detect: false }).commands.length > 0;
+	// A review counts only for code that passed the checks: one that ran on unverified edits is Inconclusive, unless they
+	// brought the tree back to content the checks already passed on.
+	const sessionId = input.session_id ?? "";
+	// The content then is verified, but a commit can hold other content: only a review of a HEAD with nothing listed in its
+	// repository reviewed that content.
 	const parsed = parseReview(report);
+	let session = loadState(env.stateDir, sessionId);
+	let otherContent = false;
+	if (session.unverified && session.verifiedKey !== undefined) {
+		try {
+			const tracked = trackTree(env, sessionId);
+			const credited = creditByContent(env, sessionId, tracked.state, tracked.fresh, Math.min(Date.now() + KEY_BUDGET_MS, deadline - REVIEW_LOOKUP_RESERVE_MS));
+			if (!credited.unverified && parsed && tracked.fresh && cleanAt(tracked.fresh, parsed.sha)) session = credited;
+			else otherContent = !credited.unverified;
+		} catch {
+			// the state stays unverified: the review counts as Inconclusive, as before
+		}
+	}
+	const unverified = session.unverified && resolveVerifyCommands(env.projectDir, { detect: false }).commands.length > 0;
 	// Every lookup of this hook run shares one deadline inside the hook's timeout, so a warning always gets out.
 	if (unverified && parsed) {
 		const held = recordVerdict(env.projectDir, parsed.sha, "Inconclusive", ids, env.reviewsRoot, { base: parsed.base, report, deadline });
 		// Not recorded as written (its BASE or HEAD is no commit): the named commit, else each HEAD, so it is never lost.
 		const still = typeof held === "string" ? holdBack(env.projectDir, parsed.sha, ids, env.reviewsRoot, deadline, held) : held.missed === undefined ? undefined : holdBack(env.projectDir, parsed.sha, heldIds(ids), env.reviewsRoot, deadline);
-		const unverifiedWarning = "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again.";
+		const unverifiedWarning = otherContent
+			? "eng-kit review gate: the edits are back to verified content, but the review named a commit with other content than the working tree, so it counts as Inconclusive. Review the HEAD that holds the verified content, with nothing changed in its repository."
+			: "eng-kit review gate: the review ran while edits were unverified, so it counts as Inconclusive. Run the verification commands, then review again.";
 		return { warning: [unverifiedWarning, missedWarning(typeof held === "string" ? undefined : held.missed, still)].filter(Boolean).join("\n") };
 	}
 	const result = recordReview(env.projectDir, report, ids, env.reviewsRoot, deadline);
@@ -724,6 +795,8 @@ function heldIds(ids: { promptId: string; run: string }): { promptId: string; ru
 
 /** How long the lookups of one SubagentStop run may take in all, from its start, inside its 10 s hook timeout. */
 const LOOKUP_DEADLINE_MS = 7000;
+/** What a reviewer's content key leaves of that deadline for recording the verdict. */
+const REVIEW_LOOKUP_RESERVE_MS = 3000;
 /** Until when, from its start, a SubagentStop run may update the token ledger. */
 const HOOK_BUDGET_MS = 8000;
 
@@ -800,17 +873,25 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 		return {};
 	}
 	// A change no command reported (a background process, a subagent's script) is found here, before a run is settled.
-	const { state, running } = settleLaunch(env, sessionId, trackTree(env, sessionId).state);
+	const tracked = trackTree(env, sessionId);
+	// A content key at Stop gets what trackTree left of its budget, whether a settled run stores it or edits are compared with it.
+	const keyDeadline = Math.min(Date.now() + KEY_BUDGET_MS, started + STOP_KEY_END_MS);
+	const settled = settleLaunch(env, sessionId, tracked.state, false, tracked.fresh, keyDeadline);
+	const running = settled.running;
+	// Edits that brought the tree back to verified content owe nothing.
+	const state = creditByContent(env, sessionId, settled.state, tracked.fresh, keyDeadline);
 	const reasons: string[] = [];
 	let systemMessage: string | undefined;
 	const next = { ...state };
 
 	// A verification run still going will report back; asking for another would only run the checks twice, and the
-	// edits stay unjudged for the next Stop. Edits a Stop already judged (the agent ran no check, or reported a failing
+	// edits stay unjudged for the next Stop. So does an agent at work in the background: it may still edit the same
+	// files, and its completion brings the agent back to judge them. Edits a Stop already judged (the agent ran no check, or reported a failing
 	// one) are told to the user once instead of sending every later answer back (transcripts 2026-10..11: 40% of
 	// firings repeated the previous one's file list).
 	const judged = state.judged === state.editedAt;
-	if (state.unverified && !state.reminded && !running && judged) {
+	const waiting = running || agentsAtWork(input.background_tasks);
+	if (state.unverified && !state.reminded && !waiting && judged) {
 		const { commands, error } = resolveVerifyCommands(env.projectDir);
 		if (commands.length > 0 && !error && state.noted !== state.editedAt) {
 			next.noted = state.editedAt;
@@ -823,7 +904,7 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 				? `eng-kit verify gate: edits weren't checked because the verification commands can't be read: ${error}`
 				: `eng-kit verify gate: no verification commands found, so edits in this session weren't checked. Run ${kitInit} or add .claude/verify.json ({"commands": ["npm test"]}).`;
 		}
-	} else if (state.unverified && !state.reminded && !running) {
+	} else if (state.unverified && !state.reminded && !waiting) {
 		next.judged = state.editedAt;
 		const { commands, error } = resolveVerifyCommands(env.projectDir);
 		if (error) {
@@ -885,6 +966,23 @@ function stopGates(input: HookInput, env: HookEnv): HookResult {
 	return { ...warned, output: { decision: "block", reason: reasons.join("\n\n"), ...(systemMessage ? { systemMessage } : {}) } };
 }
 
+/**
+ * Whether a background agent that may edit is still running: an entry `{type: "subagent", status: "running"}` of the
+ * Stop input's `background_tasks` whose `agent_type` isn't the kit reviewer (read-only, so the gate doesn't wait for
+ * it). One without `agent_type` may edit. Any other shape, or no list (an older Claude Code), holds nothing.
+ */
+function agentsAtWork(tasks: unknown): boolean {
+	if (!Array.isArray(tasks)) return false;
+	return tasks.some((task: unknown) => {
+		if (!task || typeof task !== "object") return false;
+		const { type, status, agent_type } = task as { type?: unknown; status?: unknown; agent_type?: unknown };
+		if (type !== "subagent" || status !== "running") return false;
+		return agent_type === undefined || (typeof agent_type === "string" && !REVIEWER.test(agent_type));
+	});
+}
+
+/** The content key at Stop is done by this long after Stop started, so the task-file and PR gates keep their time. */
+const STOP_KEY_END_MS = 3500;
 /** The PR feedback gate's share of the 10 s Stop hook: at most this long, and done by `PR_FEEDBACK_END_MS` after Stop started. */
 const PR_FEEDBACK_BUDGET_MS = 6000;
 const PR_FEEDBACK_END_MS = 8000;

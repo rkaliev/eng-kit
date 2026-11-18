@@ -55,6 +55,8 @@ export interface SessionState {
 	prFeedbackSent?: string;
 	/** The last PR feedback note the user was shown, so the same one isn't repeated. */
 	prFeedbackNoted?: string;
+	/** The content key (lib/worktree.ts `contentKey`) of the tree the state last turned verified on; edits back to it are verified. */
+	verifiedKey?: string;
 }
 
 /** What the verify script records about its own run, so a piped call still proves the result. */
@@ -122,6 +124,7 @@ export function loadState(dir: string, sessionId: string): SessionState {
 				: undefined,
 			prFeedbackSent: typeof raw.prFeedbackSent === "string" ? raw.prFeedbackSent : undefined,
 			prFeedbackNoted: typeof raw.prFeedbackNoted === "string" ? raw.prFeedbackNoted : undefined,
+			verifiedKey: typeof raw.verifiedKey === "string" ? raw.verifiedKey : undefined,
 		};
 	} catch {
 		return { ...EMPTY, green: [], edited: [], slowParts: [], pending: {} };
