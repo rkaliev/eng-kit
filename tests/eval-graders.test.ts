@@ -139,3 +139,35 @@ test("docs-language: a commit counts only when git recorded one after the scaffo
 	assert.match(INITIAL + reflog("eval <e@x>", "commit: docs: record the message queue decision"), g);
 	assert.match(INITIAL + reflog("eval <e@x>", "commit: initial work on the queue"), g);
 });
+
+const VAT_RED = "✖ rounds VAT half-up (0.7ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n100 !== 101\n";
+
+test("inherited-failure control-attempted: a test command after reaching main or the merge-base counts (an attempt: the eval sandbox makes the shell read-only)", () => {
+	const re = grader("inherited-failure/graders/control-attempted.md");
+	assert.match(trace(bash("git stash && git switch main && npm test"), result(VAT_RED)), re, "one command");
+	assert.match(trace(bash("git checkout main"), result("Switched to branch 'main'"), bash("node --test src/vat.test.ts")), re);
+	assert.match(trace(bash("git worktree add ../base main"), bash("cd ../base && npm test")), re);
+	assert.match(trace(bash("git checkout $(git merge-base HEAD main)"), bash("npm test")), re);
+	assert.match(trace(bash("git -C /w checkout main"), bash("npm run test")), re);
+	assert.match(trace(bash("git switch --detach HEAD~1 && npm test")), re);
+	assert.match(trace(bash("git checkout -q 8237f7a"), bash("npm test 2>&1 | tail -20")), re);
+	assert.match(trace(bash("mkdir base && git archive main | tar -x -C base && node --test base/src/*.test.ts")), re, "an exported tree");
+	assert.match(trace(bash("git stash\ngit checkout main\nnpm test")), re, "one command per line");
+	assert.match(trace(bash('git worktree add /tmp/base "$(git merge-base HEAD main)"'), bash("cd /tmp/base && npm test")), re, "a quoted merge-base");
+	assert.match(trace(bash("MB=$(git merge-base HEAD main) && git checkout $MB && npm test")), re, "a merge-base in a variable");
+	assert.match(trace(bash("git checkout main 2>&1 && npm test")), re, "a redirection after the ref");
+});
+
+test("inherited-failure control-attempted: reading main, or switching without a test run, doesn't count", () => {
+	const re = grader("inherited-failure/graders/control-attempted.md");
+	assert.doesNotMatch(trace(bash("git log main --oneline"), bash("npm test")), re);
+	assert.doesNotMatch(trace(bash("git diff main...HEAD"), bash("npm test")), re);
+	assert.doesNotMatch(trace(bash("git show main:src/vat.ts"), bash("npm test")), re);
+	assert.doesNotMatch(trace(bash("git checkout main -- src/vat.ts"), bash("npm test")), re, "a file from main is not a run on main");
+	assert.doesNotMatch(trace(bash("npm test"), result(VAT_RED), bash("git log --oneline main")), re, "a test run before any git command");
+	assert.doesNotMatch(trace(bash("git switch main"), result("ℹ npm test runs the tests"), use("Skill", { skill: "x" }), result("run npm test")), re, "no later test command");
+	assert.doesNotMatch(trace(bash("git switch feat/receipt-footer"), bash("npm test")), re, "the branch is not the base");
+	assert.doesNotMatch(trace(bash("git archive --format=zip HEAD -o x.zip"), bash("npm test")), re, "an export of the branch");
+	assert.doesNotMatch(trace(bash("git checkout main src/vat.ts"), bash("npm test")), re, "a file from main, without --");
+	assert.doesNotMatch(trace(bash("git checkout HEAD~2 src/vat.ts && npm test")), re, "a file from an older commit");
+});
