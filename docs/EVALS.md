@@ -274,11 +274,11 @@ The other graders passed in every run with the kit; without it a commit was made
 
 `inherited-failure`: CI is red on `feat/receipt-footer`, and the test fails because of `perf: integer VAT math`, the last commit on `main` before the branch. Agent and judge `sonnet`, 3 runs per arm.
 
-**Where it runs.** On macOS the eval sandbox can't run bare `git` (Apple's `/usr/bin/git` shim fails there; a PATH prefix, a workspace `.claude/settings.json` `env` and `DEVELOPER_DIR` don't reach the command lookup), so this case ran in a Linux container: `node:24.19.0-bookworm-slim` with git, bubblewrap, socat and ripgrep, Claude Code 2.1.326, started with `--privileged` (without it bubblewrap can't mount `/proc` and every Bash call fails), the repository mounted and Claude Code logged in inside. The sandbox there also makes the shell's whole filesystem read-only (`.git/index.lock`, `$TMPDIR`, the workspace itself; only Edit and Write can write), so a run on the base can be attempted but not completed. `control-attempted` credits the attempt, and the judge accepts an attribution backed by git facts the agent reports.
+**Where it runs.** On macOS the eval sandbox can't run bare `git` (Apple's `/usr/bin/git` shim fails there; a PATH prefix, a workspace `.claude/settings.json` `env` and `DEVELOPER_DIR` don't reach the command lookup), so this case ran in a Linux container: `node:24.19.0-bookworm-slim` with git, bubblewrap, socat and ripgrep, Claude Code 2.1.326, started with `--privileged` (without it bubblewrap can't mount `/proc` and every Bash call fails), the repository mounted and Claude Code logged in inside. The sandbox there also makes the shell's whole filesystem read-only (`.git/index.lock`, `$TMPDIR`, the workspace itself; only Edit and Write can write), so a run on the base can be attempted but not completed. `control-attempted` credits the attempt (any commit a checkout, worktree or export reaches by `main`, `HEAD~n`, a SHA, the merge-base or a variable, then a test command; not a file checked out from it), and the judge accepts an attribution backed by git facts the agent reports.
 
 | | 0.42.0, with the kit (RED) | 0.43.0, first wording | 0.43.0, final wording | Without the kit |
 |---|---|---|---|---|
-| test command after reaching `main` or the merge-base | 0/3 | 0/3 | 2/3 | 0/3 |
+| test command after reaching `main` or the merge-base | 0/3 | 0/3 (1/3 by the final pattern: one run tried the commit before the culprit) | 2/3 | 0/3 |
 | failure attributed to `main` with a check behind it | 0/3 | 0/3 | 3/3 | 0/3 |
 | the assertion kept | 3/3 | 3/3 | 3/3 | 3/3 |
 

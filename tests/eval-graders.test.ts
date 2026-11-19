@@ -152,6 +152,10 @@ test("inherited-failure control-attempted: a test command after reaching main or
 	assert.match(trace(bash("git switch --detach HEAD~1 && npm test")), re);
 	assert.match(trace(bash("git checkout -q 8237f7a"), bash("npm test 2>&1 | tail -20")), re);
 	assert.match(trace(bash("mkdir base && git archive main | tar -x -C base && node --test base/src/*.test.ts")), re, "an exported tree");
+	assert.match(trace(bash("git stash\ngit checkout main\nnpm test")), re, "one command per line");
+	assert.match(trace(bash('git worktree add /tmp/base "$(git merge-base HEAD main)"'), bash("cd /tmp/base && npm test")), re, "a quoted merge-base");
+	assert.match(trace(bash("MB=$(git merge-base HEAD main) && git checkout $MB && npm test")), re, "a merge-base in a variable");
+	assert.match(trace(bash("git checkout main 2>&1 && npm test")), re, "a redirection after the ref");
 });
 
 test("inherited-failure control-attempted: reading main, or switching without a test run, doesn't count", () => {
@@ -164,4 +168,6 @@ test("inherited-failure control-attempted: reading main, or switching without a 
 	assert.doesNotMatch(trace(bash("git switch main"), result("ℹ npm test runs the tests"), use("Skill", { skill: "x" }), result("run npm test")), re, "no later test command");
 	assert.doesNotMatch(trace(bash("git switch feat/receipt-footer"), bash("npm test")), re, "the branch is not the base");
 	assert.doesNotMatch(trace(bash("git archive --format=zip HEAD -o x.zip"), bash("npm test")), re, "an export of the branch");
+	assert.doesNotMatch(trace(bash("git checkout main src/vat.ts"), bash("npm test")), re, "a file from main, without --");
+	assert.doesNotMatch(trace(bash("git checkout HEAD~2 src/vat.ts && npm test")), re, "a file from an older commit");
 });
