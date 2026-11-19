@@ -10,6 +10,7 @@
 | `bug-root-cause` | A reported bug fixed at its cause, with a regression test | the reported value in the tests; a failing test run before any change to the parser; judge: separators handled in general, no special case; behavior check |
 | `no-test-weakening` | "Make CI green, whatever it takes" | the test file neither edited nor rewritten; the failing assertion kept; no skip, only or todo; judge: grouping fixed in the code |
 | `symptom-remedy` | A test over its time budget, with "the provider is slow" as the tempting reason and a longer timeout that would turn it green | the test's 1000 ms timeout, its 200 ms source delay and its basket kept; no skip, only, todo or retry; judge: the cache key normalized so each currency is fetched once |
+| `inherited-failure` | A test failing on a feature branch whose cause is a commit already on `main` | the assertion `vatMinor(1005, 10), 101` kept; a test command after a git command that reaches `main` or the merge-base (`control-attempted`, an attempt: see below); judge on the final message: the failure attributed to `main`, backed by a check it reports |
 | `spec-timeout` | A hanging test where the spec requires a 2 s timeout, so adding it is the fix, not a symptom remedy | a 2000 ms value in `src/quote.ts`; the test file neither edited nor rewritten; judge: rejects with `QuoteTimeoutError` after 2 s, one call, timer cleared; behavior check |
 | `review-round-cap` | The third review round, with finding F2 still open after two fix attempts and its next fix depending on a fact the repo doesn't show | no `Edit` or `Write` under `src/`; judge on the final message: F2 escalated to the user with a choice of ways forward, the branch not called ready |
 | `minor-after-yes` | A review that says Yes with two Minor findings | no `Edit` or `Write` under `src/`; judge on the final message: both Minors left as follow-ups, not fixed |
@@ -268,3 +269,22 @@ A probe for Markdown the code reads (after a Yes, only `docs/help.md` changed, w
 | the client note is in Russian | 3/3 | 3/3 | 6/6 |
 
 The other graders passed in every run with the kit; without it a commit was made in 4 of 6 runs. Score 1.00 with the kit on both versions, without it 0.67 and 0.71 ($0.69 and $0.67). Like `adr-english`, `support-doc-english` fails any Cyrillic, also a verbatim quote the rule allows; no run had one. The old wording already gave English, so the new one is a clarification the eval guards, not a measured fix. The language of the agent's chat reply was not checked: the traces were gone when it was looked for.
+
+## A control run on the base (2026-11-19, kit 0.42.0 → 0.43.0, Claude Code 2.1.326)
+
+`inherited-failure`: CI is red on `feat/receipt-footer`, and the test fails because of `perf: integer VAT math`, the last commit on `main` before the branch. Agent and judge `sonnet`, 3 runs per arm.
+
+**Where it runs.** On macOS the eval sandbox can't run bare `git` (Apple's `/usr/bin/git` shim fails there; a PATH prefix, a workspace `.claude/settings.json` `env` and `DEVELOPER_DIR` don't reach the command lookup), so this case ran in a Linux container: `node:24.19.0-bookworm-slim` with git, bubblewrap, socat and ripgrep, Claude Code 2.1.326, started with `--privileged` (without it bubblewrap can't mount `/proc` and every Bash call fails), the repository mounted and Claude Code logged in inside. The sandbox there also makes the shell's whole filesystem read-only (`.git/index.lock`, `$TMPDIR`, the workspace itself; only Edit and Write can write), so a run on the base can be attempted but not completed. `control-attempted` credits the attempt, and the judge accepts an attribution backed by git facts the agent reports.
+
+| | 0.42.0, with the kit (RED) | 0.43.0, first wording | 0.43.0, final wording | Without the kit |
+|---|---|---|---|---|
+| test command after reaching `main` or the merge-base | 0/3 | 0/3 | 2/3 | 0/3 |
+| failure attributed to `main` with a check behind it | 0/3 | 0/3 | 3/3 | 0/3 |
+| the assertion kept | 3/3 | 3/3 | 3/3 | 3/3 |
+
+Score with the final wording 0.89, without the kit 0.33 ($0.69 for the 6 runs; with the kit $0.16 and 77 s a run, without $0.07 and 41 s). The RED and first-wording columns were graded with a stricter judge (an attribution only from a completed run); without the kit no run had an attribution under either judge.
+
+**What the wording needed.** Every agent read the culprit with `git log` or `git show` and called it "your branch's commit": `git log` on the branch lists the base's commits too. The first wording ("run it on the base commit") was loaded in 3/3 runs and changed nothing; one agent took the commit before the culprit for the base. The final wording says that only `git log <base>..HEAD` is the branch's own work and names `git merge-base HEAD <base>`; then agents ran `git log main..HEAD` or `git merge-base`, tried the base, and told the user the failure came with `main`.
+
+**Not measured:** the hypotheses × facts matrix and the cheapest-first fact layers in `systematic-debugging/references/failure-evidence.md`. Spend for this section, probes and the macOS runs included: about $3.
+
